@@ -793,11 +793,31 @@ function renderTacticsView(viewport) {
             touchDragEl = el;
         }, { passive: true });
 
+        el.addEventListener('touchmove', (e) => {
+            if (!touchStartPos || !touchDragEl) return;
+            const touch = e.touches[0];
+            const dx = Math.abs(touch.clientX - touchStartPos.x);
+            const dy = Math.abs(touch.clientY - touchStartPos.y);
+            if (dx > 12 || dy > 12) {
+                e.preventDefault();
+                touchDragEl.classList.add('dragging-active');
+                document.querySelectorAll('.drag-over').forEach(n => n.classList.remove('drag-over'));
+                const overEl = document.elementFromPoint(touch.clientX, touch.clientY);
+                const overSlot = overEl ? overEl.closest('.swap-slot') : null;
+                if (overSlot && overSlot !== touchDragEl) {
+                    overSlot.classList.add('drag-over');
+                }
+            }
+        }, { passive: false });
+
         el.addEventListener('touchend', (e) => {
             if (!touchStartPos || !touchDragEl) return;
             const touch = e.changedTouches[0];
             const dx = Math.abs(touch.clientX - touchStartPos.x);
             const dy = Math.abs(touch.clientY - touchStartPos.y);
+
+            touchDragEl.classList.remove('dragging-active');
+            document.querySelectorAll('.drag-over').forEach(n => n.classList.remove('drag-over'));
 
             // Nur wenn wirklich gezogen wurde (> 18px), sonst greift das normale Click-Event
             if (dx > 18 || dy > 18) {
