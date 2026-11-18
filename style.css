@@ -1,0 +1,227 @@
+:root {
+    --bg-dark: #1b241e;
+    --panel-bg: #c4c8c5;
+    --panel-light: #e2e5e3;
+    --panel-shadow: #767a77;
+    --pitch-green: #246b35;
+    --pitch-dark: #184d25;
+    --accent-gold: #e5b822;
+    --accent-red: #a82424;
+    --text-dark: #111111;
+    --text-light: #f4f4f4;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: 'Courier New', Courier, monospace;
+}
+
+body {
+    background-color: var(--bg-dark);
+    color: var(--text-dark);
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 8px;
+}
+
+#app-container {
+    width: 100%;
+    max-width: 1024px;
+    background-color: var(--panel-bg);
+    border: 3px solid var(--panel-light);
+    border-right-color: var(--panel-shadow);
+    border-bottom-color: var(--panel-shadow);
+    display: flex;
+    flex-direction: column;
+}
+
+/* Header */
+.bmh-header {
+    background-color: var(--pitch-dark);
+    color: var(--text-light);
+    padding: 10px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    border-bottom: 3px solid #0e2e16;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.club-badge {
+    font-size: 2rem;
+    background: var(--pitch-green);
+    padding: 4px 8px;
+    border: 2px solid var(--accent-gold);
+}
+
+.bmh-header h1 {
+    font-size: 1.2rem;
+    letter-spacing: 1px;
+    color: var(--accent-gold);
+}
+
+.sub-info {
+    font-size: 0.8rem;
+    color: #cccccc;
+}
+
+.header-right {
+    display: flex;
+    gap: 12px;
+}
+
+.stat-box {
+    background: #0e2e16;
+    padding: 5px 10px;
+    border: 1px solid var(--pitch-green);
+    display: flex;
+    flex-direction: column;
+    text-align: right;
+}
+
+.stat-box .label {
+    font-size: 0.65rem;
+    color: #99b8a1;
+}
+
+.stat-box .value {
+    font-size: 0.95rem;
+    font-weight: bold;
+}
+
+.money {
+    color: #6ee787;
+}
+
+/* Navigation */
+.bmh-nav {
+    display: flex;
+    flex-wrap: wrap;
+    background-color: #9ca19d;
+    padding: 4px;
+    gap: 4px;
+    border-bottom: 2px solid var(--panel-shadow);
+}
+
+.nav-btn {
+    flex: 1 1 auto;
+    padding: 8px 10px;
+    background-color: var(--panel-bg);
+    border: 2px solid var(--panel-light);
+    border-right-color: var(--panel-shadow);
+    border-bottom-color: var(--panel-shadow);
+    font-weight: bold;
+    font-size: 0.85rem;
+    cursor: pointer;
+    color: var(--text-dark);
+}
+
+.nav-btn:active, .nav-btn.active {
+    background-color: var(--pitch-green);
+    color: var(--text-light);
+    border-color: var(--panel-shadow);
+    border-right-color: var(--panel-light);
+    border-bottom-color: var(--panel-light);
+}
+
+.admin-btn {
+    background-color: #d4c391;
+}
+
+/* Hauptbereich */
+.bmh-panel {
+    flex: 1;
+    padding: 14px;
+    overflow-y: auto;
+}
+
+.section-title {
+    background-color: var(--pitch-green);
+    color: var(--text-light);
+    padding: 6px 10px;
+    font-size: 1rem;
+    margin-bottom: 12px;
+    border-left: 5px solid var(--accent-gold);
+}
+
+.bmh-box {
+    background-color: #d5d9d6;
+    border: 2px solid var(--panel-shadow);
+    border-right-color: var(--panel-light);
+    border-bottom-color: var(--panel-light);
+    padding: 12px;
+    margin-bottom: 12px;
+}
+
+/* Tabellen */
+.bmh-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    background: #e9ecea;
+}
+
+.bmh-table th {
+    background-color: var(--pitch-dark);
+    color: var(--text-light);
+    text-align: left;
+    padding: 6px 8px;
+}
+
+.bmh-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #b5bab7;
+}
+
+.bmh-table tr:hover {
+    background-color: #d0dfd4;
+}
+
+/* Buttons & Inputs */
+.bmh-btn {
+    padding: 8px 14px;
+    background-color: var(--panel-bg);
+    border: 2px solid var(--panel-light);
+    border-right-color: var(--panel-shadow);
+    border-bottom-color: var(--panel-shadow);
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.bmh-btn.primary {
+    background-color: var(--pitch-green);
+    color: var(--text-light);
+}
+
+.bmh-btn.danger {
+    background-color: var(--accent-red);
+    color: var(--text-light);
+}
+
+.bmh-select, .bmh-input {
+    padding: 6px;
+    border: 2px solid var(--panel-shadow);
+    background: #fff;
+    font-weight: bold;
+}
+
+/* Footer */
+.bmh-footer {
+    background-color: #9ca19d;
+    padding: 8px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 2px solid var(--panel-light);
+    font-size: 0.8rem;
+}
