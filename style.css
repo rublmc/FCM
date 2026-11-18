@@ -232,6 +232,253 @@ html, body {
     margin-bottom: 6px;
 }
 
+/* ==========================================
+   GRAFISCHES SPIELFELD & WECHSEL-SYSTEM
+   ========================================== */
+.swap-banner {
+    background-color: #184d25;
+    color: #f4f4f4;
+    border: 2px solid var(--accent-gold);
+    padding: 6px 8px;
+    margin-bottom: 8px;
+    font-size: 0.74rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+}
+
+.pitch-board {
+    position: relative;
+    width: 100%;
+    height: 350px;
+    background: repeating-linear-gradient(
+        to bottom,
+        #256e37 0px,
+        #256e37 35px,
+        #1f5e2e 35px,
+        #1f5e2e 70px
+    );
+    border: 3px solid #e9ecea;
+    box-shadow: inset 0 0 0 2px #143d1e;
+    margin-bottom: 10px;
+    overflow: hidden;
+    user-select: none;
+}
+
+/* Spielfeld-Linien */
+.pitch-halfline {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: rgba(255, 255, 255, 0.45);
+    pointer-events: none;
+}
+
+.pitch-circle {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 74px;
+    height: 74px;
+    transform: translate(-50%, -50%);
+    border: 2px solid rgba(255, 255, 255, 0.45);
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+.pitch-box-top {
+    position: absolute;
+    top: 0;
+    left: 22%;
+    width: 56%;
+    height: 46px;
+    border: 2px solid rgba(255, 255, 255, 0.45);
+    border-top: none;
+    pointer-events: none;
+}
+
+.pitch-box-bottom {
+    position: absolute;
+    bottom: 0;
+    left: 22%;
+    width: 56%;
+    height: 46px;
+    border: 2px solid rgba(255, 255, 255, 0.45);
+    border-bottom: none;
+    pointer-events: none;
+}
+
+/* Spieler-Karte auf dem Spielfeld */
+.pitch-node {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: 68px;
+    max-width: 22vw;
+    background-color: #122918;
+    border: 2px solid #e2e5e3;
+    color: #ffffff;
+    text-align: center;
+    cursor: pointer;
+    z-index: 10;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.55);
+    transition: transform 0.1s ease, border-color 0.1s ease;
+}
+
+.pitch-node.mismatch {
+    border-color: #ff6b6b;
+}
+
+.pitch-node.empty-slot {
+    background-color: rgba(18, 41, 24, 0.72);
+    border-style: dashed;
+    border-color: #cccccc;
+}
+
+.pitch-node.selected-swap {
+    border: 3px solid var(--accent-gold) !important;
+    background-color: #3d3108 !important;
+    transform: translate(-50%, -50%) scale(1.08);
+    z-index: 25;
+}
+
+.pitch-node.drag-over {
+    border: 3px solid #6ee787 !important;
+    transform: translate(-50%, -50%) scale(1.08);
+}
+
+.pitch-node-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #0b1c10;
+    padding: 1px 3px;
+    font-size: 0.6rem;
+    font-weight: bold;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.pitch-node-pos {
+    color: var(--accent-gold);
+}
+
+.pitch-node-rating {
+    color: #6ee787;
+}
+
+.pitch-node.mismatch .pitch-node-rating {
+    color: #ff8787;
+}
+
+.pitch-node-name {
+    padding: 3px 2px;
+    font-size: 0.64rem;
+    font-weight: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Bank & Tribüne Karten-Listen */
+.squad-zone-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    font-size: 0.8rem;
+    font-weight: bold;
+}
+
+.zone-badge {
+    display: inline-block;
+    padding: 2px 5px;
+    font-size: 0.64rem;
+    font-weight: bold;
+    border: 1px solid #111;
+}
+
+.zone-badge.xi {
+    background-color: var(--pitch-green);
+    color: #fff;
+}
+
+.zone-badge.bench {
+    background-color: var(--accent-gold);
+    color: #111;
+}
+
+.zone-badge.stands {
+    background-color: #8c918e;
+    color: #111;
+}
+
+.bench-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 5px;
+}
+
+.player-chip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    padding: 6px 6px;
+    background-color: #e9ecea;
+    border: 2px solid var(--panel-light);
+    border-right-color: var(--panel-shadow);
+    border-bottom-color: var(--panel-shadow);
+    font-size: 0.72rem;
+    cursor: pointer;
+    user-select: none;
+    min-width: 0;
+}
+
+.player-chip.stands-chip {
+    background-color: #cfd4d1;
+    opacity: 0.92;
+}
+
+.player-chip.empty-bench {
+    background-color: #c7ccc9;
+    border-style: dashed;
+    color: #555;
+    justify-content: center;
+}
+
+.player-chip.selected-swap {
+    border: 2px solid var(--accent-gold) !important;
+    background-color: #fff3bf !important;
+}
+
+.player-chip.drag-over {
+    border: 2px solid var(--pitch-green) !important;
+    background-color: #d3f9d8 !important;
+}
+
+.chip-pos {
+    font-weight: bold;
+    color: var(--pitch-dark);
+    flex-shrink: 0;
+    width: 24px;
+}
+
+.chip-name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: bold;
+}
+
+.chip-rating {
+    font-weight: bold;
+    color: var(--pitch-green);
+    flex-shrink: 0;
+}
+
 /* Fixierter unterer Bereich (Dock + 8 Kacheln nebeneinander) */
 .bmh-bottom-dock {
     flex-shrink: 0;
