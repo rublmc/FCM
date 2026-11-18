@@ -1,25 +1,23 @@
 // ==========================================
-// FC MANAGER - CORE ENGINE (PHASE 0)
+// FC MANAGER - CORE ENGINE (MOBILE OPTIMIZED)
 // ==========================================
 
 const STORAGE_KEY = 'fcm_savegame_v1';
 
-// Zentraler Spielzustand (später 1:1 synchronisierbar für Online-Multiplayer)
 let GameState = {
     meta: {
-        coreVersion: "0.1.0",
+        coreVersion: "0.2.0",
         season: "2026/27",
         matchday: 1,
-        installedUpdates: [] // Protokoll aller eingespielten Updates
+        installedUpdates: []
     },
     activeClubId: null,
-    leagues: {},   // z.B. { "bl1": { id: "bl1", name: "1. Bundesliga", level: 1 }, ... }
-    clubs: {},     // z.B. { "fcb": { id: "fcb", name: "FC Bayern", leagueId: "bl1", budget: 85000000, stadium: {...} } }
-    players: [],   // Spieler-Objekte mit Stärke 0.0 bis 10.0
-    competitions: {} // Für spätere Europapokal-Updates
+    leagues: {},
+    clubs: {},
+    players: [],
+    competitions: {}
 };
 
-// Initialisierung beim Start
 document.addEventListener('DOMContentLoaded', () => {
     loadGame();
     setupNavigation();
@@ -55,7 +53,7 @@ function resetGame() {
 }
 
 // ==========================================
-// ADMIN-UPDATE-ENGINE (MODULARES SYSTEM)
+// ADMIN-UPDATE-ENGINE
 // ==========================================
 function applyUpdatePackage(updateData) {
     if (!updateData || !updateData.updateId || !updateData.type) {
@@ -63,20 +61,16 @@ function applyUpdatePackage(updateData) {
         return false;
     }
 
-    // 1. Ligen einspielen / aktualisieren
     if (updateData.leagues) {
         Object.assign(GameState.leagues, updateData.leagues);
     }
 
-    // 2. Vereine einspielen / aktualisieren
     if (updateData.clubs) {
         Object.assign(GameState.clubs, updateData.clubs);
     }
 
-    // 3. Spieler einspielen (bestehende IDs aktualisieren, neue hinzufügen)
     if (Array.isArray(updateData.players)) {
         updateData.players.forEach(newPlayer => {
-            // Stärke auf 0.0 bis 10.0 begrenzen
             newPlayer.rating = Math.max(0.0, Math.min(10.0, parseFloat(newPlayer.rating.toFixed(1))));
             const idx = GameState.players.findIndex(p => p.id === newPlayer.id);
             if (idx > -1) {
@@ -87,12 +81,10 @@ function applyUpdatePackage(updateData) {
         });
     }
 
-    // 4. Wettbewerbe (z.B. Europapokal-Module)
     if (updateData.competitions) {
         Object.assign(GameState.competitions, updateData.competitions);
     }
 
-    // Update im Verlauf protokollieren
     GameState.meta.installedUpdates.push({
         id: updateData.updateId,
         name: updateData.name || updateData.updateId,
@@ -100,14 +92,13 @@ function applyUpdatePackage(updateData) {
         date: new Date().toLocaleString('de-DE')
     });
 
-    // Falls noch kein Verein aktiv ist, ersten verfügbaren auswählen
     if (!GameState.activeClubId && Object.keys(GameState.clubs).length > 0) {
         GameState.activeClubId = Object.keys(GameState.clubs)[0];
     }
 
     saveGame();
     renderHeader();
-    setStatus(`Update "${updateData.name}" erfolgreich installiert!`);
+    setStatus(`Update "${updateData.name}" installiert!`);
     return true;
 }
 
@@ -117,9 +108,11 @@ function applyUpdatePackage(updateData) {
 function setupNavigation() {
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
+            const targetBtn = e.currentTarget;
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-            e.target.classList.add('active');
-            renderView(e.target.dataset.view);
+            targetBtn.classList.add('active');
+            document.getElementById('main-viewport').scrollTop = 0;
+            renderView(targetBtn.dataset.view);
         });
     });
 
@@ -131,7 +124,7 @@ function setupNavigation() {
         GameState.meta.matchday++;
         saveGame();
         renderHeader();
-        setStatus(`Spieltag ${GameState.meta.matchday} erreicht (Simulation folgt in Phase 3).`);
+        setStatus(`Spieltag ${GameState.meta.matchday} erreicht.`);
     });
 }
 
@@ -142,16 +135,17 @@ function renderHeader() {
     const budgetEl = document.getElementById('header-budget');
     const dateEl = document.getElementById('header-date');
 
-    dateEl.textContent = `${GameState.meta.season} | ST ${GameState.meta.matchday}`;
+    const shortSeason = GameState.meta.season.replace("20", "");
+    dateEl.textContent = `${shortSeason} | ST ${GameState.meta.matchday}`;
 
     if (club) {
         const league = GameState.leagues[club.leagueId];
         clubNameEl.textContent = club.name.toUpperCase();
         leagueInfoEl.textContent = league ? league.name : "Unbekannte Liga";
-        budgetEl.textContent = formatMoney(club.budget);
+        budgetEl.textContent = formatMoneyShort(club.budget);
     } else {
-        clubNameEl.textContent = "KEIN VEREIN GEWÄHLT";
-        leagueInfoEl.textContent = "Bitte Datenpaket im Adminbereich laden";
+        clubNameEl.textContent = "KEIN VEREIN";
+        leagueInfoEl.textContent = "Bitte Update im Admin laden";
         budgetEl.textContent = "0 €";
     }
 }
@@ -165,31 +159,31 @@ function renderView(viewName) {
             viewport.innerHTML = `
                 <h2 class="section-title">MANAGER-BÜRO</h2>
                 <div class="bmh-box">
-                    <p><strong>Willkommen im Trainer- & Managerbüro!</strong></p><br>
-                    <p>Aktiver Verein: <strong>${club ? club.name : 'Noch keiner geladen'}</strong></p>
-                    <p>Installierte Daten-Updates: <strong>${GameState.meta.installedUpdates.length}</strong></p>
-                    <p>Verfügbare Ligen: <strong>${Object.keys(GameState.leagues).length}</strong></p>
-                    <p>Spieler in Datenbank: <strong>${GameState.players.length}</strong></p>
+                    <p><strong>Willkommen im Trainerbüro!</strong></p><br>
+                    <p>Verein: <strong>${club ? club.name : 'Noch keiner geladen'}</strong></p>
+                    <p>Updates: <strong>${GameState.meta.installedUpdates.length}</strong></p>
+                    <p>Ligen: <strong>${Object.keys(GameState.leagues).length}</strong></p>
+                    <p>Spieler: <strong>${GameState.players.length}</strong></p>
                 </div>
-                ${!club ? `<div class="bmh-box"><p>👉 Gehe oben rechts auf <strong>⚙️ ADMIN</strong>, um das Starter-Paket (1. & 2. Bundesliga) einzuspielen!</p></div>` : ''}
+                ${!club ? `<div class="bmh-box"><p>👉 Tippe unten rechts auf <strong>⚙️ ADMIN</strong>, um dein Bundesliga-Paket einzuspielen!</p></div>` : ''}
             `;
             break;
 
         case 'squad':
             const clubPlayers = GameState.players.filter(p => p.clubId === GameState.activeClubId);
             viewport.innerHTML = `
-                <h2 class="section-title">MANNSCHAFTSKADER (${clubPlayers.length} SPIELER)</h2>
-                <div class="bmh-box">
+                <h2 class="section-title">KADER (${clubPlayers.length} SPIELER)</h2>
+                <div class="bmh-box" style="padding: 6px;">
                     ${clubPlayers.length === 0 ? '<p>Keine Spieler vorhanden.</p>' : `
                     <table class="bmh-table">
                         <thead>
                             <tr>
-                                <th>POS</th>
-                                <th>NAME</th>
-                                <th>ALTER</th>
-                                <th>STÄRKE (0.0-10.0)</th>
-                                <th>GEHALT/JAHR</th>
-                                <th>VERTRAG BIS</th>
+                                <th style="width:12%;">POS</th>
+                                <th style="width:36%;">NAME</th>
+                                <th style="width:11%;">ALT</th>
+                                <th style="width:13%;">STÄ</th>
+                                <th style="width:16%;">GEH.</th>
+                                <th style="width:12%;">BIS</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -199,8 +193,8 @@ function renderView(viewName) {
                                     <td>${p.name}</td>
                                     <td>${p.age}</td>
                                     <td><strong>${p.rating.toFixed(1)}</strong></td>
-                                    <td>${formatMoney(p.salary)}</td>
-                                    <td>${p.contractUntil}</td>
+                                    <td>${formatMoneyShort(p.salary)}</td>
+                                    <td>'${String(p.contractUntil).slice(-2)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -217,14 +211,14 @@ function renderView(viewName) {
             viewport.innerHTML = `
                 <h2 class="section-title">MODUL: ${viewName.toUpperCase()}</h2>
                 <div class="bmh-box">
-                    <p>Dieses Modul ist im Core vorbereitet und wird in den nächsten Phasen mit Spiellogik gefüllt.</p>
+                    <p>Dieses Modul ist im Core vorbereitet und wird als Nächstes mit Spiellogik gefüllt.</p>
                 </div>
             `;
     }
 }
 
 // ==========================================
-// ADMIN-BEREICH UI & FUNKTIONEN
+// ADMIN-BEREICH UI
 // ==========================================
 function renderAdminView(viewport) {
     const clubOptions = Object.values(GameState.clubs).map(c => 
@@ -232,10 +226,10 @@ function renderAdminView(viewport) {
     ).join('');
 
     viewport.innerHTML = `
-        <h2 class="section-title">⚙️ ADMIN-BEREICH & UPDATE-MANAGER</h2>
+        <h2 class="section-title">⚙️ ADMIN & UPDATE-MANAGER</h2>
         
         <div class="bmh-box">
-            <h3>1. Verein wechseln (Test-Modus)</h3><br>
+            <h3>1. Verein wechseln</h3><br>
             <select id="admin-club-select" class="bmh-select">
                 <option value="">-- Verein wählen --</option>
                 ${clubOptions}
@@ -244,20 +238,20 @@ function renderAdminView(viewport) {
         </div>
 
         <div class="bmh-box">
-            <h3>2. Update-Paket einspielen (Ligen, Transfers, Europapokal)</h3><br>
-            <p style="font-size:0.85rem; margin-bottom:8px;">Lade hier eine <code>.json</code> Update-Datei hoch oder nutze den Schnelltest:</p>
+            <h3>2. Update-Paket einspielen</h3><br>
+            <p style="font-size:0.78rem; margin-bottom:8px;">Wähle eine <code>.json</code> Update-Datei aus:</p>
             <input type="file" id="admin-file-upload" accept=".json" class="bmh-input">
-            <button id="btn-load-starter" class="bmh-btn primary" style="margin-top:8px;">📦 Demo-Update: 1. & 2. Bundesliga einspielen</button>
+            <button id="btn-load-starter" class="bmh-btn primary">📦 Mini-Demo laden</button>
         </div>
 
         <div class="bmh-box">
             <h3>3. Installierte Updates (${GameState.meta.installedUpdates.length})</h3><br>
-            ${GameState.meta.installedUpdates.length === 0 ? '<p>Noch keine Updates eingespielt.</p>' : `
+            ${GameState.meta.installedUpdates.length === 0 ? '<p style="font-size:0.8rem;">Noch keine Updates eingespielt.</p>' : `
                 <table class="bmh-table">
-                    <thead><tr><th>ID</th><th>NAME</th><th>TYP</th><th>DATUM</th></tr></thead>
+                    <thead><tr><th style="width:55%;">NAME</th><th style="width:25%;">TYP</th><th style="width:20%;">DATUM</th></tr></thead>
                     <tbody>
                         ${GameState.meta.installedUpdates.map(u => `
-                            <tr><td>${u.id}</td><td>${u.name}</td><td>${u.type}</td><td>${u.date}</td></tr>
+                            <tr><td>${u.name}</td><td>${u.type}</td><td>${u.date.split(',')[0]}</td></tr>
                         `).join('')}
                     </tbody>
                 </table>
@@ -266,19 +260,18 @@ function renderAdminView(viewport) {
 
         <div class="bmh-box">
             <h3>4. Datenbank-Wartung</h3><br>
-            <button id="btn-export-db" class="bmh-btn">💾 Gesamte DB als JSON exportieren</button>
-            <button id="btn-reset-db" class="bmh-btn danger">🗑️ Spielstand komplett zurücksetzen</button>
+            <button id="btn-export-db" class="bmh-btn" style="margin-bottom:6px;">💾 Backup exportieren</button>
+            <button id="btn-reset-db" class="bmh-btn danger">🗑️ Reset</button>
         </div>
     `;
 
-    // Event Listener für Admin-Aktionen
     document.getElementById('btn-switch-club').addEventListener('click', () => {
         const selectedId = document.getElementById('admin-club-select').value;
         if (selectedId) {
             GameState.activeClubId = selectedId;
             saveGame();
             renderHeader();
-            setStatus(`Verein gewechselt zu: ${GameState.clubs[selectedId].name}`);
+            setStatus(`Verein: ${GameState.clubs[selectedId].name}`);
         }
     });
 
@@ -317,10 +310,16 @@ function renderAdminView(viewport) {
 }
 
 // ==========================================
-// HILFSFUNKTIONEN & DEMO-DATENPAKET
+// HILFSFUNKTIONEN
 // ==========================================
-function formatMoney(amount) {
-    return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(amount);
+function formatMoneyShort(amount) {
+    if (Math.abs(amount) >= 1000000) {
+        return (amount / 1000000).toFixed(1).replace('.', ',') + ' Mio';
+    }
+    if (Math.abs(amount) >= 1000) {
+        return Math.round(amount / 1000) + 'k €';
+    }
+    return amount + ' €';
 }
 
 function setStatus(msg) {
@@ -330,7 +329,7 @@ function setStatus(msg) {
 function getStarterDemoPackage() {
     return {
         updateId: "upd_ger_2026_v1",
-        name: "Deutschland 1. & 2. Bundesliga (Basis)",
+        name: "1. & 2. Bundesliga Mini-Demo",
         type: "LEAGUE_PACK",
         leagues: {
             "bl1": { id: "bl1", name: "1. Bundesliga", country: "DE", tier: 1 },

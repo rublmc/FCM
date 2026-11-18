@@ -2,57 +2,60 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>FC Manager - Retro Edition</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div id="app-container">
-        <!-- Kopfzeile im BMH-Stil -->
+        <!-- Kopfzeile mit Safe-Area für iPhone Dynamic Island -->
         <header class="bmh-header">
-            <div class="header-left">
-                <span class="club-badge">⚽</span>
-                <div>
-                    <h1 id="header-club-name">KEIN VEREIN GEWÄHLT</h1>
-                    <span id="header-league-info" class="sub-info">Bitte Datenpaket im Adminbereich laden</span>
+            <div class="header-top-row">
+                <div class="header-left">
+                    <span class="club-badge">⚽</span>
+                    <div class="club-title-wrap">
+                        <h1 id="header-club-name">KEIN VEREIN</h1>
+                        <span id="header-league-info" class="sub-info">Bitte Update laden</span>
+                    </div>
                 </div>
-            </div>
-            <div class="header-right">
-                <div class="stat-box">
-                    <span class="label">SAISON / ST</span>
-                    <span id="header-date" class="value">2026/27 | ST 1</span>
-                </div>
-                <div class="stat-box">
-                    <span class="label">KONTOSTAND</span>
-                    <span id="header-budget" class="value money">0 €</span>
+                <div class="header-right">
+                    <div class="stat-box">
+                        <span class="label">SAISON / ST</span>
+                        <span id="header-date" class="value">26/27 | ST 1</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="label">BUDGET</span>
+                        <span id="header-budget" class="value money">0 €</span>
+                    </div>
                 </div>
             </div>
         </header>
 
-        <!-- Hauptmenü-Leiste -->
-        <nav class="bmh-nav">
-            <button class="nav-btn active" data-view="office">BÜRO</button>
-            <button class="nav-btn" data-view="squad">KADER</button>
-            <button class="nav-btn" data-view="tactics">TAKTIK</button>
-            <button class="nav-btn" data-view="contracts">VERTRÄGE</button>
-            <button class="nav-btn" data-view="sponsors">SPONSOREN</button>
-            <button class="nav-btn" data-view="stadium">STADION</button>
-            <button class="nav-btn" data-view="league">TABELLE</button>
-            <button class="nav-btn admin-btn" data-view="admin">⚙️ ADMIN</button>
-        </nav>
-
-        <!-- Hauptanzeigebereich -->
+        <!-- Vertikal scrollbarer Hauptbereich -->
         <main id="main-viewport" class="bmh-panel">
             <!-- Inhalte werden dynamisch von app.js gerendert -->
         </main>
 
-        <!-- Fußzeile / Statusleiste -->
-        <footer class="bmh-footer">
-            <span id="status-message">System bereit. Version 0.1 (Core)</span>
-            <button id="btn-next-day" class="bmh-btn primary">NÄCHSTER SPIELTAG ▶</button>
-        </footer>
+        <!-- Fixierter unterer Bereich: Status/Weiter-Button + 8 Kacheln nebeneinander -->
+        <div class="bmh-bottom-dock">
+            <div class="bmh-footer">
+                <span id="status-message">Bereit (v0.2 Mobile)</span>
+                <button id="btn-next-day" class="bmh-btn primary small-btn">WEITER ▶</button>
+            </div>
+
+            <nav class="bmh-nav">
+                <button class="nav-btn active" data-view="office"><span class="nav-icon">🏢</span><span>BÜRO</span></button>
+                <button class="nav-btn" data-view="squad"><span class="nav-icon">👥</span><span>KADER</span></button>
+                <button class="nav-btn" data-view="tactics"><span class="nav-icon">📋</span><span>TAKTIK</span></button>
+                <button class="nav-btn" data-view="contracts"><span class="nav-icon">✍️</span><span>VERTR.</span></button>
+                <button class="nav-btn" data-view="sponsors"><span class="nav-icon">💼</span><span>SPONS.</span></button>
+                <button class="nav-btn" data-view="stadium"><span class="nav-icon">🏟️</span><span>STAD.</span></button>
+                <button class="nav-btn" data-view="league"><span class="nav-icon">🏆</span><span>TAB.</span></button>
+                <button class="nav-btn admin-btn" data-view="admin"><span class="nav-icon">⚙️</span><span>ADMIN</span></button>
+            </nav>
+        </div>
     </div>
 
     <script src="app.js"></script>
