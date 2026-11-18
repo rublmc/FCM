@@ -6,10 +6,12 @@ const STORAGE_KEY = 'fcm_savegame_v1';
 
 let GameState = {
     meta: {
-        coreVersion: "0.2.0",
+        coreVersion: "0.3.0",
         season: "2026/27",
         matchday: 1,
-        installedUpdates: []
+        installedUpdates: [],
+        managerName: "",
+        selectedCountry: ""
     },
     activeClubId: null,
     leagues: {},
@@ -20,6 +22,11 @@ let GameState = {
 
 document.addEventListener('DOMContentLoaded', () => {
     loadGame();
+    // Wenn noch kein Managername oder Verein gewählt wurde -> direkt zum Startbildschirm
+    if (!GameState.activeClubId || !GameState.meta.managerName) {
+        window.location.href = 'start.html';
+        return;
+    }
     setupNavigation();
     renderHeader();
     renderView('office');
@@ -37,7 +44,9 @@ function loadGame() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
         try {
-            GameState = JSON.parse(saved);
+            const parsed = JSON.parse(saved);
+            GameState = { ...GameState, ...parsed };
+            GameState.meta = { ...GameState.meta, ...(parsed.meta || {}) };
             setStatus("Spielstand geladen.");
         } catch (e) {
             console.error("Fehler beim Laden:", e);
@@ -48,7 +57,7 @@ function loadGame() {
 function resetGame() {
     if (confirm("Wirklich kompletten Spielstand und alle eingespielten Updates löschen?")) {
         localStorage.removeItem(STORAGE_KEY);
-        location.reload();
+        window.location.href = 'start.html';
     }
 }
 
@@ -91,10 +100,6 @@ function applyUpdatePackage(updateData) {
         type: updateData.type,
         date: new Date().toLocaleString('de-DE')
     });
-
-    if (!GameState.activeClubId && Object.keys(GameState.clubs).length > 0) {
-        GameState.activeClubId = Object.keys(GameState.clubs)[0];
-    }
 
     saveGame();
     renderHeader();
@@ -141,12 +146,8 @@ function renderHeader() {
     if (club) {
         const league = GameState.leagues[club.leagueId];
         clubNameEl.textContent = club.name.toUpperCase();
-        leagueInfoEl.textContent = league ? league.name : "Unbekannte Liga";
+        leagueInfoEl.textContent = `${league ? league.name : ''} • Mgr: ${GameState.meta.managerName}`;
         budgetEl.textContent = formatMoneyShort(club.budget);
-    } else {
-        clubNameEl.textContent = "KEIN VEREIN";
-        leagueInfoEl.textContent = "Bitte Update im Admin laden";
-        budgetEl.textContent = "0 €";
     }
 }
 
@@ -159,14 +160,19 @@ function renderView(viewName) {
             viewport.innerHTML = `
                 <h2 class="section-title">MANAGER-BÜRO</h2>
                 <div class="bmh-box">
-                    <p><strong>Willkommen im Trainerbüro!</strong></p><br>
-                    <p>Verein: <strong>${club ? club.name : 'Noch keiner geladen'}</strong></p>
-                    <p>Updates: <strong>${GameState.meta.installedUpdates.length}</strong></p>
-                    <p>Ligen: <strong>${Object.keys(GameState.leagues).length}</strong></p>
-                    <p>Spieler: <strong>${GameState.players.length}</strong></p>
+                    <p><strong>Hallo ${GameState.meta.managerName}!</strong></p><br>
+                    <p>Verein: <strong>${club ? club.name : '-'}</strong></p>
+                    <p>Liga: <strong>${club && GameState.leagues[club.leagueId] ? GameState.leagues[club.leagueId].name : '-'}</strong></p>
+                    <p>Stadion: <strong>${club?.stadium?.name || '-'} (${club?.stadium?.capacity?.toLocaleString('de-DE') || 0})</strong></p>
+                    <p>Updates: <strong>${GameState.meta.installedUpdates.length}</strong> | Ligen: <strong>${Object.keys(GameState.leagues).length}</strong></p>
                 </div>
-                ${!club ? `<div class="bmh-box"><p>👉 Tippe unten rechts auf <strong>⚙️ ADMIN</strong>, um dein Bundesliga-Paket einzuspielen!</p></div>` : ''}
+                <div class="bmh-box">
+                    <button id="btn-back-to-start" class="bmh-btn" style="width:100%;">🏠 ZUM STARTBILDSCHIRM / NEUES SPIEL</button>
+                </div>
             `;
+            document.getElementById('btn-back-to-start').addEventListener('click', () => {
+                window.location.href = 'start.html';
+            });
             break;
 
         case 'squad':
@@ -239,9 +245,8 @@ function renderAdminView(viewport) {
 
         <div class="bmh-box">
             <h3>2. Update-Paket einspielen</h3><br>
-            <p style="font-size:0.78rem; margin-bottom:8px;">Wähle eine <code>.json</code> Update-Datei aus:</p>
+            <p style="font-size:0.78rem; margin-bottom:8px;">Wähle eine <code>.json</code> Update-Datei aus (weitere Ligen, Europapokal, Transfers):</p>
             <input type="file" id="admin-file-upload" accept=".json" class="bmh-input">
-            <button id="btn-load-starter" class="bmh-btn primary">📦 Mini-Demo laden</button>
         </div>
 
         <div class="bmh-box">
@@ -290,12 +295,6 @@ function renderAdminView(viewport) {
         reader.readAsText(file);
     });
 
-    document.getElementById('btn-load-starter').addEventListener('click', () => {
-        if (applyUpdatePackage(getStarterDemoPackage())) {
-            renderAdminView(viewport);
-        }
-    });
-
     document.getElementById('btn-export-db').addEventListener('click', () => {
         const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(GameState, null, 2));
         const downloadAnchor = document.createElement('a');
@@ -324,30 +323,4 @@ function formatMoneyShort(amount) {
 
 function setStatus(msg) {
     document.getElementById('status-message').textContent = msg;
-}
-
-function getStarterDemoPackage() {
-    return {
-        updateId: "upd_ger_2026_v1",
-        name: "1. & 2. Bundesliga Mini-Demo",
-        type: "LEAGUE_PACK",
-        leagues: {
-            "bl1": { id: "bl1", name: "1. Bundesliga", country: "DE", tier: 1 },
-            "bl2": { id: "bl2", name: "2. Bundesliga", country: "DE", tier: 2 }
-        },
-        clubs: {
-            "fcb": { id: "fcb", name: "FC Bayern München", leagueId: "bl1", budget: 95000000, stadium: { name: "Allianz Arena", capacity: 75000 } },
-            "bvb": { id: "bvb", name: "Borussia Dortmund", leagueId: "bl1", budget: 55000000, stadium: { name: "Signal Iduna Park", capacity: 81365 } },
-            "hsv": { id: "hsv", name: "Hamburger SV", leagueId: "bl2", budget: 12000000, stadium: { name: "Volksparkstadion", capacity: 57000 } },
-            "fcn": { id: "fcn", name: "1. FC Nürnberg", leagueId: "bl2", budget: 7500000, stadium: { name: "Max-Morlock-Stadion", capacity: 50000 } }
-        },
-        players: [
-            { id: "p_001", clubId: "fcb", pos: "ST", name: "Harry Kane", age: 33, rating: 9.2, salary: 22000000, contractUntil: 2027 },
-            { id: "p_002", clubId: "fcb", pos: "OM", name: "Jamal Musiala", age: 23, rating: 9.1, salary: 18000000, contractUntil: 2029 },
-            { id: "p_003", clubId: "fcb", pos: "ZM", name: "Joshua Kimmich", age: 31, rating: 8.8, salary: 19000000, contractUntil: 2028 },
-            { id: "p_004", clubId: "bvb", pos: "TW", name: "Gregor Kobel", age: 28, rating: 8.5, salary: 8500000, contractUntil: 2028 },
-            { id: "p_005", clubId: "hsv", pos: "ST", name: "Robert Glatzel", age: 32, rating: 6.8, salary: 1400000, contractUntil: 2027 },
-            { id: "p_006", clubId: "fcn", pos: "ZM", name: "Jens Castrop", age: 23, rating: 6.4, salary: 850000, contractUntil: 2027 }
-        ]
-    };
 }
