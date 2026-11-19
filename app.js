@@ -1875,13 +1875,15 @@ function performManualLiveSub(pitchSlotIdx, benchIdx) {
         alert("Du hast bereits alle 5 Wechsel ausgeschöpft!");
         return;
     }
-    if (liveMatchState.lockedRedSlots.includes(pitchSlotIdx)) {
-        alert("Auf dieser Position gab es einen Platzverweis – hier darf kein neuer Spieler eingewechselt werden!");
-        return;
-    }
-
     const squad = getClubPlayers();
     const outId = GameState.tactics.lineup[pitchSlotIdx];
+    const maxAllowedOnPitch = Math.max(0, 11 - liveMatchState.sentOffIds.length);
+    const currentOnPitch = GameState.tactics.lineup.filter(Boolean).length;
+
+    if (liveMatchState.lockedRedSlots.includes(pitchSlotIdx) || (!outId && currentOnPitch >= maxAllowedOnPitch)) {
+        alert("In Unterzahl darf auf diesen freien Platz kein 11. Spieler von der Bank eingewechselt werden – du kannst aber bestehende Feldspieler auf diese Position verschieben!");
+        return;
+    }
     const inId = GameState.tactics.bench[benchIdx];
     if (!inId) return;
 
@@ -2841,6 +2843,25 @@ function performPlayerSwap(src, tgt) {
         return;
     }
 
+    // Während eines laufenden Spiels gelten Live-Wechsel- und Unterzahlregeln
+    if (liveMatchState) {
+        if (src.zone === 'stands' || tgt.zone === 'stands') {
+            selectedSwapSource = null;
+            alert("Während eines laufenden Spiels sind keine Wechsel von der Tribüne erlaubt!");
+            return;
+        }
+        if (src.zone === 'pitch' && tgt.zone === 'bench') {
+            selectedSwapSource = null;
+            performManualLiveSub(src.index, tgt.index);
+            return;
+        }
+        if (src.zone === 'bench' && tgt.zone === 'pitch') {
+            selectedSwapSource = null;
+            performManualLiveSub(tgt.index, src.index);
+            return;
+        }
+    }
+
     const lineup = GameState.tactics.lineup;
     const bench = GameState.tactics.bench;
 
@@ -2848,6 +2869,15 @@ function performPlayerSwap(src, tgt) {
         const tmp = lineup[src.index];
         lineup[src.index] = lineup[tgt.index];
         lineup[tgt.index] = tmp;
+
+        if (liveMatchState && Array.isArray(liveMatchState.lockedRedSlots)) {
+            const srcWasRed = liveMatchState.lockedRedSlots.includes(src.index);
+            const tgtWasRed = liveMatchState.lockedRedSlots.includes(tgt.index);
+            if (srcWasRed !== tgtWasRed) {
+                liveMatchState.lockedRedSlots = liveMatchState.lockedRedSlots.filter(i => i !== src.index && i !== tgt.index);
+                liveMatchState.lockedRedSlots.push(srcWasRed ? tgt.index : src.index);
+            }
+        }
     } else if (src.zone === 'pitch' && tgt.zone === 'bench') {
         const tmp = lineup[src.index];
         lineup[src.index] = bench[tgt.index];
@@ -3226,7 +3256,7 @@ function renderCalendarView(viewport) {
     ` : `
         <div class="bmh-box" style="padding:8px; background:#d7eadc; border-color:#246b35; font-size:0.74rem;">
             <strong>⚽ LAUFENDE SAISON ${GameState.meta.season} • SPIELTAG ${GameState.meta.matchday}</strong><br>
-            <span style="font-size:0.68rem;">Die Saisonvorbereitung ist abgeschlossen. Die nächste Vorbereitungsphase startet nach dem 34. Spieltag.</span>
+            <span style="font-size:0.68rem;">Die Saisonvorbereitung ist abgeschlossen. Die nächste Vorbereitungsphase startet nach dem ${getLeagueTotalMatchdays(club.leagueId)}. Spieltag.</span>
         </div>
     `;
 
@@ -3702,40 +3732,55 @@ function renderLiveTickerView(viewport) {
                     1. Wähle einen Spieler auf dem Platz aus, um ihn auszuwechseln oder intern zu verschieben:
                 </p>
 
-                ${slots.map((slotPos, idx) => {
-                    const isRedLocked = st.lockedRedSlots.includes(idx);
-                    const pid = GameState.tactics.lineup[idx];
-                    const p = squad.find(pl => pl.id === pid);
-                    const isSel = liveSelectedPitchSlot === idx;
-                    const hasYellow = p && st.yellowCardIds.includes(p.id);
+                ${(() => {
+                    const currentOnPitch = GameState.tactics.lineup.filter(Boolean).length;
+                    const maxAllowedOnPitch = Math.max(0, 11 - st.sentOffIds.length);
+                    const selHasPlayer = liveSelectedPitchSlot !== null && Boolean(GameState.tactics.lineup[liveSelectedPitchSlot]);
+                    const selIsRedLocked = liveSelectedPitchSlot !== null && st.lockedRedSlots.includes(liveSelectedPitchSlot);
+                    const canSubOntoSelected = liveSelectedPitchSlot !== null && st.subsUsed < st.maxSubs && !selIsRedLocked && (selHasPlayer || currentOnPitch < maxAllowedOnPitch);
 
-                    return `
-                        <div class="live-sub-row ${isRedLocked ? 'sent-off' : ''}" style="${isSel ? 'border:2px solid #e5b822; background:#fff3bf;' : ''}">
-                            <span style="width:14%; font-weight:bold; color:#184d25;">${slotPos}</span>
-                            <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                                ${isRedLocked ? '🟥 PLATZVERWEIS (GESPERRT)' : (p ? `<strong>${p.name}</strong> ${hasYellow ? '🟨' : ''} (${calculateSlotEffectiveRating(p, slotPos).toFixed(1)})` : '— Freier Platz —')}
-                            </span>
-                            ${!isRedLocked ? `
+                    const slotRowsHtml = slots.map((slotPos, idx) => {
+                        const isRedLocked = st.lockedRedSlots.includes(idx);
+                        const pid = GameState.tactics.lineup[idx];
+                        const p = squad.find(pl => pl.id === pid);
+                        const isSel = liveSelectedPitchSlot === idx;
+                        const hasYellow = p && st.yellowCardIds.includes(p.id);
+
+                        return `
+                            <div class="live-sub-row ${(!p && isRedLocked) ? 'sent-off' : ''}" style="${isSel ? 'border:2px solid #e5b822; background:#fff3bf;' : ''}">
+                                <span style="width:14%; font-weight:bold; color:#184d25;">${slotPos}</span>
+                                <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                                    ${p ? `<strong>${p.name}</strong> ${hasYellow ? '🟨' : ''} (${calculateSlotEffectiveRating(p, slotPos).toFixed(1)})` : (isRedLocked ? '🟥 UNTERZAHL (Position frei)' : '— Freier Platz —')}
+                                </span>
                                 <button class="mini-action-btn btn-pick-live-pitch" data-slot="${idx}" style="width:auto; padding:3px 7px;">
                                     ${isSel ? '✓ GEWÄHLT' : 'WÄHLEN'}
                                 </button>
-                            ` : ''}
-                        </div>
-                    `;
-                }).join('')}
+                            </div>
+                        `;
+                    }).join('');
 
-                <h4 style="font-size:0.78rem; color:#184d25; margin:8px 0 4px 0;">🪑 ERSATZBANK (${availBench.length} verfügbar)</h4>
-                ${availBench.length === 0 ? '<p style="font-size:0.70rem; color:#444;">Keine Wechselspieler mehr auf der Bank.</p>' : availBench.map(item => `
-                    <div class="live-sub-row">
-                        <span style="width:14%; font-weight:bold;">${item.player.pos}</span>
-                        <span style="flex:1;"><strong>${item.player.name}</strong> (Stä. ${item.player.rating.toFixed(1)})</span>
-                        <button class="mini-action-btn youth btn-exec-live-sub" data-bidx="${item.benchIdx}"
-                                style="width:auto; padding:3px 7px;"
-                                ${(liveSelectedPitchSlot === null || st.subsUsed >= st.maxSubs) ? 'disabled' : ''}>
-                            🔄 EINWECHSELN
-                        </button>
-                    </div>
-                `).join('')}
+                    const redHintHtml = selIsRedLocked ? `
+                        <p style="font-size:0.66rem; color:#a82424; background:#ffe3e3; border:1px solid #a82424; padding:4px 6px; margin:6px 0 4px 0;">
+                            ℹ️ Unterzahl-Slot gewählt: Tippe oben auf einen Feldspieler, um ihn auf diese Position zu verschieben (kein Bank-Wechsel auf diesen Platz möglich).
+                        </p>
+                    ` : '';
+
+                    const benchHtml = availBench.length === 0
+                        ? '<p style="font-size:0.70rem; color:#444;">Keine Wechselspieler mehr auf der Bank.</p>'
+                        : availBench.map(item => `
+                            <div class="live-sub-row">
+                                <span style="width:14%; font-weight:bold;">${item.player.pos}</span>
+                                <span style="flex:1;"><strong>${item.player.name}</strong> (Stä. ${item.player.rating.toFixed(1)})</span>
+                                <button class="mini-action-btn youth btn-exec-live-sub" data-bidx="${item.benchIdx}"
+                                        style="width:auto; padding:3px 7px;"
+                                        ${!canSubOntoSelected ? 'disabled' : ''}>
+                                    🔄 EINWECHSELN
+                                </button>
+                            </div>
+                        `).join('');
+
+                    return `${slotRowsHtml}${redHintHtml}<h4 style="font-size:0.78rem; color:#184d25; margin:8px 0 4px 0;">🪑 ERSATZBANK (${availBench.length} verfügbar)</h4>${benchHtml}`;
+                })()}
             </div>
         `;
     }
@@ -3877,6 +3922,15 @@ function renderLiveTickerView(viewport) {
                 const tmp = GameState.tactics.lineup[liveSelectedPitchSlot];
                 GameState.tactics.lineup[liveSelectedPitchSlot] = GameState.tactics.lineup[clickedSlot];
                 GameState.tactics.lineup[clickedSlot] = tmp;
+
+                // Unterzahl-Markierung mitverschieben, falls ein leerer Platzverweis-Slot getauscht wurde
+                const srcWasRed = st.lockedRedSlots.includes(liveSelectedPitchSlot);
+                const tgtWasRed = st.lockedRedSlots.includes(clickedSlot);
+                if (srcWasRed !== tgtWasRed) {
+                    st.lockedRedSlots = st.lockedRedSlots.filter(i => i !== liveSelectedPitchSlot && i !== clickedSlot);
+                    st.lockedRedSlots.push(srcWasRed ? clickedSlot : liveSelectedPitchSlot);
+                }
+
                 liveSelectedPitchSlot = null;
                 setStatus("Positionswechsel auf dem Platz durchgeführt.");
             }
@@ -4298,7 +4352,8 @@ function renderContractsView(viewport) {
     const seasonEnd = getCurrentSeasonEndYear();
 
     const totalAnnualSalary = squad.reduce((sum, p) => sum + (p.salary || 0), 0);
-    const perMatchSalary = Math.round(totalAnnualSalary / 34);
+    const totalLeagueMds = getLeagueTotalMatchdays(club.leagueId);
+    const perMatchSalary = Math.round(totalAnnualSalary / Math.max(1, totalLeagueMds));
     const expiringPlayers = squad.filter(p => (p.contractUntil || seasonEnd) <= seasonEnd);
 
     let filtered = [...squad];
@@ -4521,7 +4576,7 @@ function renderSponsorsView(viewport) {
     ` : `
         <div class="locked-banner">
             <strong>🔒 VERHANDLUNGSFENSTER GESCHLOSSEN (LAUFENDE SAISON)</strong>
-            <p style="font-size:0.7rem; margin-top:2px;">Sponsorenverträge können ausschließlich während der <strong>Saisonvorbereitung</strong> verhandelt und abgeschlossen werden. Das Fenster öffnet wieder nach dem 34. Spieltag.</p>
+            <p style="font-size:0.7rem; margin-top:2px;">Sponsorenverträge können ausschließlich während der <strong>Saisonvorbereitung</strong> verhandelt und abgeschlossen werden. Das Fenster öffnet wieder nach dem ${getLeagueTotalMatchdays(club.leagueId)}. Spieltag.</p>
         </div>
     `;
 
