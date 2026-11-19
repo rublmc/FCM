@@ -94,9 +94,27 @@ const FREE_AGENT_POOL = [
     { id: "fa_008", clubId: "free", pos: "LM", name: "Amin Younes", age: 32, rating: 6.5, salary: 850000, contractUntil: 2026 }
 ];
 
+const SPONSOR_BRANDS_MAIN = [
+    { name: "Bavaria Tech AG", sector: "Industrie & Robotik", style: "Sicher" },
+    { name: "Apex Financial Group", sector: "Bankwesen", style: "Erfolg" },
+    { name: "RheinEnergie Mobility", sector: "Energie & E-Auto", style: "Ausgewogen" },
+    { name: "TurboSport Apparel", sector: "Sportartikel", style: "Erfolg" },
+    { name: "AlpenGold Brauerei", sector: "Getränke", style: "Sicher" },
+    { name: "NordStar Airlines", sector: "Luftfahrt", style: "Ausgewogen" }
+];
+
+const SPONSOR_BRANDS_BOARDS = [
+    { name: "KronoBau Süd GmbH", sector: "Bauwesen", style: "Sicher" },
+    { name: "BlitzLogistik 24", sector: "Spedition", style: "Ausgewogen" },
+    { name: "PixelBet Arena", sector: "Sportwetten", style: "Erfolg" },
+    { name: "SüdWerk Werkzeugbau", sector: "Handwerk & Technik", style: "Sicher" },
+    { name: "VeloCity Bikes", sector: "Mobilität", style: "Ausgewogen" },
+    { name: "Solaris Energy", sector: "Solartechnik", style: "Erfolg" }
+];
+
 let GameState = {
     meta: {
-        coreVersion: "0.6.0",
+        coreVersion: "0.7.0",
         season: "2026/27",
         matchday: 1,
         installedUpdates: [],
@@ -118,7 +136,15 @@ let GameState = {
     youthAcademy: {
         clubId: null,
         players: []
-    }
+    },
+    sponsors: {
+        clubId: null,
+        main: null,
+        boards: null,
+        offersMain: [],
+        offersBoards: []
+    },
+    stadiumProject: null
 };
 
 // Temporärer UI-State für Klick- & Drag-Wechsel
@@ -134,6 +160,11 @@ let marketSortBy = 'rating'; // 'rating' | 'fee' | 'age'
 let activeTransferTargetId = null;
 let activeSellTargetId = null;
 
+// Temporärer UI-State für Verträge & Sponsoren
+let contractFilter = 'ALL'; // 'ALL' | 'EXPIRING' | 'TOP'
+let activeContractPlayerId = null;
+let activeSponsorOffer = null; // { slot: 'main'|'boards', offerId: string }
+
 document.addEventListener('DOMContentLoaded', () => {
     loadGame();
     if (!GameState.activeClubId || !GameState.meta.managerName) {
@@ -142,6 +173,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     ensureFreeAgentsInitialized();
     ensureYouthPool();
+    ensureSponsorOffersInitialized();
+    ensureClubStadiumInitialized();
     ensureValidSquadAssignment();
     setupNavigation();
     renderHeader();
@@ -176,6 +209,15 @@ function loadGame() {
                 players: [],
                 ...(parsed.youthAcademy || {})
             };
+            GameState.sponsors = {
+                clubId: null,
+                main: null,
+                boards: null,
+                offersMain: [],
+                offersBoards: [],
+                ...(parsed.sponsors || {})
+            };
+            GameState.stadiumProject = parsed.stadiumProject || null;
             setStatus("Spielstand geladen.");
         } catch (e) {
             console.error("Fehler beim Laden:", e);
@@ -216,11 +258,9 @@ function ensureFreeAgentsInitialized() {
 function calculateMarketValue(player) {
     if (!player) return 0;
     const r = Math.max(0.0, Math.min(10.0, player.rating || 5.0));
-    // Exponentielle Marktwertkurve passend zur 0.0 - 10.0 Skala
     let base = Math.pow(r / 10, 4.3) * 125000000;
     if (base < 150000) base = 150000;
 
-    // Altersfaktor
     const age = player.age || 25;
     if (age <= 20) base *= 1.30;
     else if (age <= 23) base *= 1.15;
@@ -228,7 +268,6 @@ function calculateMarketValue(player) {
     else if (age >= 31) base *= 0.62;
     else if (age >= 28) base *= 0.85;
 
-    // Rundung auf glatte 50k / 100k Schritte
     if (base >= 10000000) return Math.round(base / 500000) * 500000;
     if (base >= 1000000) return Math.round(base / 100000) * 100000;
     return Math.round(base / 50000) * 50000;
@@ -236,10 +275,10 @@ function calculateMarketValue(player) {
 
 function calculateTransferFee(player) {
     if (!player) return 0;
-    if (!player.clubId || player.clubId === "free") return 0; // Ablösefrei!
+    if (!player.clubId || player.clubId === "free") return 0;
     const seasonEnd = getCurrentSeasonEndYear();
     if ((player.contractUntil || seasonEnd + 1) <= seasonEnd) {
-        return 0; // Auslaufender Vertrag -> ablösefrei
+        return 0;
     }
     let val = calculateMarketValue(player);
     if (player.contractUntil === seasonEnd + 1) {
@@ -256,6 +295,9 @@ function calculateSellPrice(player) {
 function calculateExpectedSalary(player) {
     const r = Math.max(0.0, Math.min(10.0, player.rating || 5.0));
     let sal = Math.pow(r / 10, 4.0) * 24000000;
+    const age = player.age || 25;
+    if (age >= 34) sal *= 0.72;
+    else if (age >= 31) sal *= 0.86;
     if (sal < 180000) sal = 180000;
     if (sal >= 1000000) return Math.round(sal / 100000) * 100000;
     return Math.round(sal / 25000) * 25000;
@@ -285,7 +327,7 @@ function ensureYouthPool(forceRegenerate = false) {
         usedNames.add(fullName);
 
         const pos = positions[Math.floor(Math.random() * positions.length)];
-        const age = 16 + Math.floor(Math.random() * 4); // 16 - 19 Jahre
+        const age = 16 + Math.floor(Math.random() * 4);
         const minR = isTopTier ? 5.2 : 4.4;
         const maxR = isTopTier ? 6.8 : 5.9;
         const rating = parseFloat((minR + Math.random() * (maxR - minR)).toFixed(1));
@@ -310,6 +352,169 @@ function ensureYouthPool(forceRegenerate = false) {
         players: generated.sort((a, b) => b.rating - a.rating)
     };
     saveGame();
+}
+
+// ==========================================
+// SPONSOREN & STADION INITIALISIERUNG
+// ==========================================
+function ensureSponsorOffersInitialized(forceRegenerate = false) {
+    if (!GameState.activeClubId) return;
+    if (!forceRegenerate &&
+        GameState.sponsors.clubId === GameState.activeClubId &&
+        Array.isArray(GameState.sponsors.offersMain) && GameState.sponsors.offersMain.length > 0 &&
+        Array.isArray(GameState.sponsors.offersBoards) && GameState.sponsors.offersBoards.length > 0) {
+        return;
+    }
+
+    const club = GameState.clubs[GameState.activeClubId];
+    const league = club ? GameState.leagues[club.leagueId] : null;
+    const isTopTier = !league || (league.tier || 1) === 1;
+    const squad = getClubPlayers();
+    const avgStrength = squad.length > 0
+        ? squad.reduce((sum, p) => sum + p.rating, 0) / squad.length
+        : (isTopTier ? 7.2 : 6.2);
+
+    // Skalierungsfaktor je nach Liga & Klubstärke
+    const scale = isTopTier ? Math.max(0.8, (avgStrength / 7.5) * 1.4) : Math.max(0.3, (avgStrength / 6.5) * 0.45);
+
+    const pickThree = (pool) => [...pool].sort(() => Math.random() - 0.5).slice(0, 3);
+
+    const mainBrands = pickThree(SPONSOR_BRANDS_MAIN);
+    const offersMain = mainBrands.map((b, idx) => {
+        const basePerMatch = Math.round((320000 * scale) / 10000) * 10000;
+        if (b.style === "Sicher") {
+            return {
+                id: `sp_main_${Date.now()}_${idx}`,
+                slot: "main",
+                name: b.name,
+                sector: b.sector,
+                style: b.style,
+                perMatch: Math.round(basePerMatch * 1.15),
+                winBonus: Math.round(basePerMatch * 0.25),
+                signOnBonus: Math.round(basePerMatch * 2.2)
+            };
+        } else if (b.style === "Erfolg") {
+            return {
+                id: `sp_main_${Date.now()}_${idx}`,
+                slot: "main",
+                name: b.name,
+                sector: b.sector,
+                style: b.style,
+                perMatch: Math.round(basePerMatch * 0.78),
+                winBonus: Math.round(basePerMatch * 0.85),
+                signOnBonus: Math.round(basePerMatch * 3.5)
+            };
+        } else {
+            return {
+                id: `sp_main_${Date.now()}_${idx}`,
+                slot: "main",
+                name: b.name,
+                sector: b.sector,
+                style: b.style,
+                perMatch: basePerMatch,
+                winBonus: Math.round(basePerMatch * 0.50),
+                signOnBonus: Math.round(basePerMatch * 2.8)
+            };
+        }
+    });
+
+    const boardBrands = pickThree(SPONSOR_BRANDS_BOARDS);
+    const offersBoards = boardBrands.map((b, idx) => {
+        const baseHomeMatch = Math.round((160000 * scale) / 5000) * 5000;
+        if (b.style === "Sicher") {
+            return {
+                id: `sp_brd_${Date.now()}_${idx}`,
+                slot: "boards",
+                name: b.name,
+                sector: b.sector,
+                style: b.style,
+                perMatch: Math.round(baseHomeMatch * 1.15),
+                winBonus: Math.round(baseHomeMatch * 0.20),
+                signOnBonus: Math.round(baseHomeMatch * 1.8)
+            };
+        } else if (b.style === "Erfolg") {
+            return {
+                id: `sp_brd_${Date.now()}_${idx}`,
+                slot: "boards",
+                name: b.name,
+                sector: b.sector,
+                style: b.style,
+                perMatch: Math.round(baseHomeMatch * 0.80),
+                winBonus: Math.round(baseHomeMatch * 0.75),
+                signOnBonus: Math.round(baseHomeMatch * 2.6)
+            };
+        } else {
+            return {
+                id: `sp_brd_${Date.now()}_${idx}`,
+                slot: "boards",
+                name: b.name,
+                sector: b.sector,
+                style: b.style,
+                perMatch: baseHomeMatch,
+                winBonus: Math.round(baseHomeMatch * 0.45),
+                signOnBonus: Math.round(baseHomeMatch * 2.2)
+            };
+        }
+    });
+
+    GameState.sponsors.clubId = GameState.activeClubId;
+    GameState.sponsors.offersMain = offersMain;
+    GameState.sponsors.offersBoards = offersBoards;
+    saveGame();
+}
+
+function ensureClubStadiumInitialized() {
+    const club = GameState.clubs[GameState.activeClubId];
+    if (!club) return;
+    if (!club.stadium) {
+        club.stadium = {
+            name: `${club.name} Arena`,
+            capacity: 18000,
+            standing: 6000,
+            seated: 12000,
+            roof: false,
+            ticketPrice: 22,
+            vipLevel: 0
+        };
+    }
+    if (typeof club.stadium.vipLevel !== 'number') {
+        club.stadium.vipLevel = 0;
+    }
+    if (typeof club.stadium.ticketPrice !== 'number') {
+        club.stadium.ticketPrice = 24;
+    }
+}
+
+function calculateStadiumForecast(club) {
+    ensureClubStadiumInitialized();
+    const st = club.stadium;
+    const league = GameState.leagues[club.leagueId];
+    const isTopTier = !league || (league.tier || 1) === 1;
+    const idealPrice = isTopTier ? 28 : 19;
+    const priceDiff = (st.ticketPrice || idealPrice) - idealPrice;
+
+    // Basisauslastung nach Liga, Dach & Preis
+    let occupancy = isTopTier ? 0.88 : 0.76;
+    if (st.roof) occupancy += 0.06;
+    if (st.vipLevel > 0) occupancy += st.vipLevel * 0.015;
+    occupancy -= priceDiff * 0.018;
+    occupancy = Math.max(0.25, Math.min(1.0, occupancy));
+
+    const expectedStanding = Math.round((st.standing || 0) * occupancy);
+    const expectedSeated = Math.round((st.seated || 0) * occupancy);
+    const totalVisitors = expectedStanding + expectedSeated;
+
+    const basePrice = st.ticketPrice || 24;
+    const vipMult = 1 + (st.vipLevel || 0) * 0.15;
+    const standingRev = expectedStanding * (basePrice * 0.65);
+    const seatedRev = expectedSeated * (basePrice * 1.30 * vipMult);
+    const totalMatchRevenue = Math.round((standingRev + seatedRev) / 1000) * 1000;
+
+    return {
+        occupancyPct: Math.round(occupancy * 100),
+        totalVisitors,
+        totalMatchRevenue
+    };
 }
 
 // ==========================================
@@ -530,6 +735,7 @@ function applyUpdatePackage(updateData) {
     });
 
     ensureFreeAgentsInitialized();
+    ensureClubStadiumInitialized();
     saveGame();
     renderHeader();
     setStatus(`Update "${updateData.name}" installiert!`);
@@ -537,7 +743,7 @@ function applyUpdatePackage(updateData) {
 }
 
 // ==========================================
-// NAVIGATION & UI RENDERING
+// NAVIGATION & SPIELTAG-FORTSCHRITT
 // ==========================================
 function setupNavigation() {
     document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -548,6 +754,8 @@ function setupNavigation() {
             selectedSwapSource = null;
             activeTransferTargetId = null;
             activeSellTargetId = null;
+            activeContractPlayerId = null;
+            activeSponsorOffer = null;
             document.getElementById('main-viewport').scrollTop = 0;
             renderView(targetBtn.dataset.view);
         });
@@ -559,9 +767,39 @@ function setupNavigation() {
             return;
         }
         GameState.meta.matchday++;
+
+        // Stadion-Bauprojekt um 1 Spieltag voranbringen
+        let buildStatusMsg = "";
+        if (GameState.stadiumProject && GameState.stadiumProject.clubId === GameState.activeClubId) {
+            GameState.stadiumProject.remainingMatchdays--;
+            if (GameState.stadiumProject.remainingMatchdays <= 0) {
+                const club = GameState.clubs[GameState.activeClubId];
+                const proj = GameState.stadiumProject;
+                if (club && club.stadium) {
+                    if (proj.type === 'standing') {
+                        club.stadium.standing = (club.stadium.standing || 0) + proj.amount;
+                        club.stadium.capacity = (club.stadium.capacity || 0) + proj.amount;
+                    } else if (proj.type === 'seated') {
+                        club.stadium.seated = (club.stadium.seated || 0) + proj.amount;
+                        club.stadium.capacity = (club.stadium.capacity || 0) + proj.amount;
+                    } else if (proj.type === 'roof') {
+                        club.stadium.roof = true;
+                    } else if (proj.type === 'vip') {
+                        club.stadium.vipLevel = (club.stadium.vipLevel || 0) + 1;
+                    }
+                }
+                buildStatusMsg = ` | 🏗️ ${proj.title} fertig!`;
+                GameState.stadiumProject = null;
+            }
+        }
+
         saveGame();
         renderHeader();
-        setStatus(`Spieltag ${GameState.meta.matchday} erreicht.`);
+        const activeNav = document.querySelector('.nav-btn.active');
+        if (activeNav && (activeNav.dataset.view === 'stadium' || activeNav.dataset.view === 'office')) {
+            renderView(activeNav.dataset.view);
+        }
+        setStatus(`Spieltag ${GameState.meta.matchday} erreicht.${buildStatusMsg}`);
     });
 }
 
@@ -585,27 +823,10 @@ function renderHeader() {
 
 function renderView(viewName) {
     const viewport = document.getElementById('main-viewport');
-    const club = GameState.clubs[GameState.activeClubId];
 
     switch (viewName) {
         case 'office':
-            viewport.innerHTML = `
-                <h2 class="section-title">MANAGER-BÜRO</h2>
-                <div class="bmh-box">
-                    <p><strong>Hallo ${GameState.meta.managerName}!</strong></p><br>
-                    <p>Verein: <strong>${club ? club.name : '-'}</strong></p>
-                    <p>Liga: <strong>${club && GameState.leagues[club.leagueId] ? GameState.leagues[club.leagueId].name : '-'}</strong></p>
-                    <p>Kadergröße: <strong>${getClubPlayers().length} Spieler</strong></p>
-                    <p>System: <strong>${GameState.tactics.formation}</strong> (Team-Ø <strong>${calculateTeamStrength()}</strong>)</p>
-                    <p>Stadion: <strong>${club?.stadium?.name || '-'} (${club?.stadium?.capacity?.toLocaleString('de-DE') || 0})</strong></p>
-                </div>
-                <div class="bmh-box">
-                    <button id="btn-back-to-start" class="bmh-btn" style="width:100%;">🏠 ZUM STARTBILDSCHIRM / NEUES SPIEL</button>
-                </div>
-            `;
-            document.getElementById('btn-back-to-start').addEventListener('click', () => {
-                window.location.href = 'start.html';
-            });
+            renderOfficeView(viewport);
             break;
 
         case 'squad':
@@ -616,18 +837,659 @@ function renderView(viewName) {
             renderTacticsView(viewport);
             break;
 
+        case 'contracts':
+            renderContractsView(viewport);
+            break;
+
+        case 'sponsors':
+            renderSponsorsView(viewport);
+            break;
+
+        case 'stadium':
+            renderStadiumView(viewport);
+            break;
+
         case 'admin':
             renderAdminView(viewport);
             break;
 
         default:
             viewport.innerHTML = `
-                <h2 class="section-title">MODUL: ${viewName.toUpperCase()}</h2>
+                <h2 class="section-title">🏆 TABELLE & SPIELTAG</h2>
                 <div class="bmh-box">
-                    <p>Dieses Modul ist im Core vorbereitet und wird als Nächstes mit Spiellogik gefüllt.</p>
+                    <p>Das Tabellen- & Spieltags-Simulationsmodul folgt als Nächstes in <strong>v0.8</strong>!</p>
                 </div>
             `;
     }
+}
+
+// ==========================================
+// MODUL: MANAGER-BÜRO (ÜBERSICHT)
+// ==========================================
+function renderOfficeView(viewport) {
+    const club = GameState.clubs[GameState.activeClubId];
+    ensureClubStadiumInitialized();
+    const squad = getClubPlayers();
+    const seasonEnd = getCurrentSeasonEndYear();
+    const totalSalary = squad.reduce((sum, p) => sum + (p.salary || 0), 0);
+    const expiringCount = squad.filter(p => (p.contractUntil || seasonEnd) <= seasonEnd).length;
+    const forecast = club ? calculateStadiumForecast(club) : { occupancyPct: 0, totalMatchRevenue: 0 };
+
+    viewport.innerHTML = `
+        <h2 class="section-title">🏢 MANAGER-BÜRO</h2>
+        <div class="bmh-box">
+            <p><strong>Willkommen im Chefbüro, ${GameState.meta.managerName}!</strong></p>
+            <p style="font-size:0.76rem; color:#333; margin-top:2px;">
+                ${club ? club.name : '-'} • ${club && GameState.leagues[club.leagueId] ? GameState.leagues[club.leagueId].name : '-'}
+            </p>
+        </div>
+
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <span class="kpi-label">KADER & TEAM-Ø</span>
+                <span class="kpi-value">${squad.length} Sp. • Ø ${calculateTeamStrength()}</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">GEHÄLTER / SAISON</span>
+                <span class="kpi-value">${formatMoneyShort(totalSalary)}</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">VERTRÄGE '${String(seasonEnd).slice(-2)}</span>
+                <span class="kpi-value ${expiringCount > 0 ? 'warn' : ''}">${expiringCount > 0 ? '⚠️ ' + expiringCount + ' laufen aus' : '✅ Alle gesichert'}</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">STADION-PROGNOSE</span>
+                <span class="kpi-value">${forecast.occupancyPct}% (${formatMoneyShort(forecast.totalMatchRevenue)})</span>
+            </div>
+        </div>
+
+        <div class="bmh-box" style="font-size:0.78rem;">
+            <p><strong>💼 Trikotsponsor:</strong> ${GameState.sponsors.main ? `${GameState.sponsors.main.name} (${formatMoneyShort(GameState.sponsors.main.perMatch)}/ST)` : '<span style="color:#a82424;">Noch kein Partner!</span>'}</p>
+            <p style="margin-top:4px;"><strong>📺 Bandenwerbung:</strong> ${GameState.sponsors.boards ? `${GameState.sponsors.boards.name} (${formatMoneyShort(GameState.sponsors.boards.perMatch)}/HS)` : '<span style="color:#a82424;">Noch kein Partner!</span>'}</p>
+            <p style="margin-top:4px;"><strong>🏟️ Stadion:</strong> ${club?.stadium?.name || '-'} (${(club?.stadium?.capacity || 0).toLocaleString('de-DE')} Plätze • Ticket ${club?.stadium?.ticketPrice || 24} €)</p>
+            ${GameState.stadiumProject ? `<p style="margin-top:4px; color:#184d25;"><strong>🏗️ Baustelle:</strong> ${GameState.stadiumProject.title} (noch ${GameState.stadiumProject.remainingMatchdays} ST)</p>` : ''}
+        </div>
+
+        <div class="bmh-box">
+            <button id="btn-back-to-start" class="bmh-btn" style="width:100%;">🏠 ZUM STARTBILDSCHIRM / NEUES SPIEL</button>
+        </div>
+    `;
+
+    document.getElementById('btn-back-to-start').addEventListener('click', () => {
+        window.location.href = 'start.html';
+    });
+}
+
+// ==========================================
+// MODUL: VERTRÄGE (SPIELERVERTRÄGE & GEHALT)
+// ==========================================
+function renderContractsView(viewport) {
+    const club = GameState.clubs[GameState.activeClubId];
+    const squad = getClubPlayers();
+    const seasonEnd = getCurrentSeasonEndYear();
+
+    const totalAnnualSalary = squad.reduce((sum, p) => sum + (p.salary || 0), 0);
+    const perMatchSalary = Math.round(totalAnnualSalary / 34);
+    const expiringPlayers = squad.filter(p => (p.contractUntil || seasonEnd) <= seasonEnd);
+
+    let filtered = [...squad];
+    if (contractFilter === 'EXPIRING') {
+        filtered = filtered.filter(p => (p.contractUntil || seasonEnd) <= seasonEnd);
+    } else if (contractFilter === 'TOP') {
+        filtered.sort((a, b) => (b.salary || 0) - (a.salary || 0));
+    }
+
+    if (contractFilter !== 'TOP') {
+        filtered.sort((a, b) => {
+            if (a.contractUntil !== b.contractUntil) return a.contractUntil - b.contractUntil;
+            return b.rating - a.rating;
+        });
+    }
+
+    // Verhandlungs-Box für ausgewählten Spieler
+    let negotiationHtml = "";
+    if (activeContractPlayerId) {
+        const player = squad.find(p => p.id === activeContractPlayerId);
+        if (player) {
+            const expectedSal = calculateExpectedSalary(player);
+            const lowSal = Math.round(expectedSal * 0.88);
+            const highSal = Math.round(expectedSal * 1.15);
+
+            negotiationHtml = `
+                <div class="negotiation-box">
+                    <h3>✍️ VERTRAGSVERHANDLUNG: ${player.name}</h3>
+                    <p>Pos: <strong>${player.pos}</strong> | Alter: <strong>${player.age}</strong> | Stärke: <strong>${player.rating.toFixed(1)}</strong></p>
+                    <p>Aktuell: <strong>${formatMoneyShort(player.salary)}/J.</strong> (Vertrag bis <strong>${player.contractUntil}</strong>)</p>
+
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-top:8px;">
+                        <div>
+                            <label style="font-size:0.64rem; display:block; margin-bottom:2px;">NEUE LAUFZEIT</label>
+                            <select id="ct-years" class="bmh-select" style="margin-bottom:0; font-size:0.72rem; padding:4px;">
+                                <option value="1">+1 Jahr (bis ${seasonEnd + 1})</option>
+                                <option value="2" selected>+2 Jahre (bis ${seasonEnd + 2})</option>
+                                <option value="3">+3 Jahre (bis ${seasonEnd + 3})</option>
+                                <option value="4">+4 Jahre (bis ${seasonEnd + 4})</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-size:0.64rem; display:block; margin-bottom:2px;">NEUES GEHALT / JAHR</label>
+                            <select id="ct-salary" class="bmh-select" style="margin-bottom:0; font-size:0.72rem; padding:4px;">
+                                <option value="${lowSal}">${formatMoneyShort(lowSal)} (-12%)</option>
+                                <option value="${expectedSal}" selected>${formatMoneyShort(expectedSal)} (Fair)</option>
+                                <option value="${highSal}">${formatMoneyShort(highSal)} (+15%)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div style="margin-top:6px;">
+                        <label style="font-size:0.64rem; display:block; margin-bottom:2px;">HANDGELD / UNTERSCHRIFTSPRÄMIE (SOFORT)</label>
+                        <select id="ct-bonus" class="bmh-select" style="margin-bottom:0; font-size:0.72rem; padding:4px;">
+                            <option value="0" selected>0 € (Kein Handgeld)</option>
+                            <option value="250000">250k € (Kleiner Treuebonus)</option>
+                            <option value="750000">750k € (Hohes Handgeld)</option>
+                        </select>
+                    </div>
+
+                    <div style="display:flex; gap:6px; margin-top:8px;">
+                        <button id="btn-sign-contract" class="bmh-btn primary" style="flex:2;">✅ ANGEBOT VORLEGEN</button>
+                        <button id="btn-cancel-contract" class="bmh-btn danger" style="flex:1;">ABBRUCH</button>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    viewport.innerHTML = `
+        <h2 class="section-title">✍️ SPIELERVERTRÄGE & GEHÄLTER</h2>
+
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <span class="kpi-label">GEHALTSLISTE / SAISON</span>
+                <span class="kpi-value">${formatMoneyShort(totalAnnualSalary)}</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">KOSTEN PRO SPIELTAG</span>
+                <span class="kpi-value">${formatMoneyShort(perMatchSalary)}</span>
+            </div>
+        </div>
+
+        ${expiringPlayers.length > 0 ? `
+            <div class="bmh-box" style="background:#ffe3e3; border-color:#a82424; padding:7px 8px; font-size:0.74rem;">
+                <strong>⚠️ Achtung:</strong> ${expiringPlayers.length} Spieler-Verträge laufen am Saisonende (${seasonEnd}) aus und können ablösefrei wechseln!
+            </div>
+        ` : ''}
+
+        ${negotiationHtml}
+
+        <div class="bmh-box" style="padding:6px;">
+            <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:4px; margin-bottom:6px;">
+                <button class="sort-btn ${contractFilter === 'ALL' ? 'active' : ''}" data-cfilter="ALL">ALLE (${squad.length})</button>
+                <button class="sort-btn ${contractFilter === 'EXPIRING' ? 'active' : ''}" data-cfilter="EXPIRING">AUSLAUFEND (${expiringPlayers.length})</button>
+                <button class="sort-btn ${contractFilter === 'TOP' ? 'active' : ''}" data-cfilter="TOP">TOP-GEHALT</button>
+            </div>
+
+            ${filtered.length === 0 ? '<p style="font-size:0.76rem;">Keine Spieler in dieser Filteransicht.</p>' : `
+            <table class="bmh-table">
+                <thead>
+                    <tr>
+                        <th style="width:11%;">POS</th>
+                        <th style="width:33%;">SPIELER</th>
+                        <th style="width:11%;">STÄ</th>
+                        <th style="width:17%;">GEHALT</th>
+                        <th style="width:13%;">BIS</th>
+                        <th style="width:15%;">AKT.</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${filtered.map(p => {
+                        const yrsLeft = (p.contractUntil || seasonEnd) - seasonEnd;
+                        let pillClass = "long";
+                        if (yrsLeft <= 0) pillClass = "expiring";
+                        else if (yrsLeft === 1) pillClass = "medium";
+                        return `
+                        <tr>
+                            <td><strong>${p.pos}</strong></td>
+                            <td title="${p.name} (${p.age} J.)">
+                                <strong>${p.name}</strong><br>
+                                <span style="font-size:0.62rem; color:#444;">${p.age} Jahre</span>
+                            </td>
+                            <td><strong>${p.rating.toFixed(1)}</strong></td>
+                            <td>${formatMoneyShort(p.salary)}</td>
+                            <td><span class="contract-pill ${pillClass}">'${String(p.contractUntil).slice(-2)}</span></td>
+                            <td><button class="mini-action-btn btn-open-contract" data-pid="${p.id}">VERL.</button></td>
+                        </tr>
+                    `}).join('')}
+                </tbody>
+            </table>`}
+        </div>
+    `;
+
+    document.querySelectorAll('[data-cfilter]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            contractFilter = e.currentTarget.dataset.cfilter;
+            renderContractsView(viewport);
+        });
+    });
+
+    document.querySelectorAll('.btn-open-contract').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            activeContractPlayerId = e.currentTarget.dataset.pid;
+            renderContractsView(viewport);
+            document.getElementById('main-viewport').scrollTop = 0;
+        });
+    });
+
+    const cancelCtBtn = document.getElementById('btn-cancel-contract');
+    if (cancelCtBtn) {
+        cancelCtBtn.addEventListener('click', () => {
+            activeContractPlayerId = null;
+            renderContractsView(viewport);
+        });
+    }
+
+    const signCtBtn = document.getElementById('btn-sign-contract');
+    if (signCtBtn) {
+        signCtBtn.addEventListener('click', () => {
+            const player = squad.find(p => p.id === activeContractPlayerId);
+            if (!club || !player) return;
+
+            const addYears = parseInt(document.getElementById('ct-years').value, 10) || 2;
+            const newSalary = parseInt(document.getElementById('ct-salary').value, 10) || calculateExpectedSalary(player);
+            const bonus = parseInt(document.getElementById('ct-bonus').value, 10) || 0;
+            const expectedSal = calculateExpectedSalary(player);
+
+            if (club.budget < bonus) {
+                alert("Nicht genügend Budget für das geforderte Handgeld!");
+                return;
+            }
+
+            if (player.age >= 35 && addYears > 2) {
+                alert(`${player.name} (${player.age} J.): "In meinem Alter unterschreibe ich maximal für 1 oder 2 Jahre!"`);
+                return;
+            }
+
+            // Ablehnungsrisiko bei Sparangebot ohne ausreichendes Handgeld
+            if (newSalary < expectedSal) {
+                const rejectChance = bonus >= 750000 ? 0.10 : (bonus >= 250000 ? 0.25 : 0.45);
+                if (Math.random() < rejectChance) {
+                    alert(`${player.name} lehnt ab: "Das Grundgehalt ist mir zu niedrig. Biete ein faires Gehalt oder mehr Handgeld!"`);
+                    return;
+                }
+            }
+
+            club.budget -= bonus;
+            player.salary = newSalary;
+            player.contractUntil = seasonEnd + addYears;
+            activeContractPlayerId = null;
+
+            saveGame();
+            renderHeader();
+            setStatus(`✍️ ${player.name} verlängert bis ${player.contractUntil} (${formatMoneyShort(newSalary)}/J.)!`);
+            renderContractsView(viewport);
+        });
+    }
+}
+
+// ==========================================
+// MODUL: SPONSOREN (TRIKOT & BANDENWERBUNG)
+// ==========================================
+function renderSponsorsView(viewport) {
+    ensureSponsorOffersInitialized(false);
+    const club = GameState.clubs[GameState.activeClubId];
+    const seasonEnd = getCurrentSeasonEndYear();
+    const mainDeal = GameState.sponsors.main;
+    const boardsDeal = GameState.sponsors.boards;
+
+    // 3-Klick-Verhandlungsfenster falls ein Angebot gewählt wurde
+    let negotiationHtml = "";
+    if (activeSponsorOffer) {
+        const pool = activeSponsorOffer.slot === 'main' ? GameState.sponsors.offersMain : GameState.sponsors.offersBoards;
+        const offer = pool.find(o => o.id === activeSponsorOffer.offerId);
+        if (offer) {
+            const slotLabel = offer.slot === 'main' ? 'Trikot- & Hauptsponsor' : 'Bandenwerbung & Stadion';
+            negotiationHtml = `
+                <div class="negotiation-box">
+                    <h3>💼 SPONSOREN-VERHANDLUNG: ${offer.name}</h3>
+                    <p>Bereich: <strong>${slotLabel}</strong> • Branche: <strong>${offer.sector}</strong></p>
+                    <p style="margin-top:4px;">Basis-Konditionen (1 Jahr):</p>
+                    <p>• Sofort-Antrittsprämie: <strong>${formatMoneyShort(offer.signOnBonus)}</strong></p>
+                    <p>• Grundbetrag: <strong>${formatMoneyShort(offer.perMatch)} / ${offer.slot === 'main' ? 'Spieltag' : 'Heimspiel'}</strong></p>
+                    <p>• Siegprämie: <strong>+${formatMoneyShort(offer.winBonus)}</strong></p>
+
+                    <div style="margin-top:8px;">
+                        <label style="font-size:0.65rem; display:block; margin-bottom:2px;">VERTRAGSLAUFZEIT & TREUE-BONUS WÄHLEN</label>
+                        <select id="sp-years" class="bmh-select" style="margin-bottom:0; font-size:0.74rem; padding:4px;">
+                            <option value="1">1 Jahr (bis ${seasonEnd}) – Standard (100%)</option>
+                            <option value="2" selected>2 Jahre (bis ${seasonEnd + 1}) – +8% Treue-Bonus</option>
+                            <option value="3">3 Jahre (bis ${seasonEnd + 2}) – +16% Treue-Bonus</option>
+                        </select>
+                    </div>
+
+                    <div style="display:flex; gap:6px; margin-top:8px;">
+                        <button id="btn-sign-sponsor" class="bmh-btn primary" style="flex:2;">✅ DEAL ABSCHLIESSEN</button>
+                        <button id="btn-cancel-sponsor" class="bmh-btn danger" style="flex:1;">ABBRUCH</button>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    const renderSlotSection = (slotKey, title, unitLabel, activeDeal, offersList) => {
+        if (activeDeal) {
+            return `
+                <div class="bmh-box">
+                    <h3 style="font-size:0.84rem; margin-bottom:6px;">${title}</h3>
+                    <div class="sponsor-card active-deal">
+                        <div class="sponsor-card-header">
+                            <strong>✅ ${activeDeal.name}</strong>
+                            <span class="sponsor-tag">BIS ${activeDeal.untilYear}</span>
+                        </div>
+                        <p style="font-size:0.72rem; color:#333;">Branche: ${activeDeal.sector} (${activeDeal.years} J. Laufzeit)</p>
+                        <p style="font-size:0.75rem; margin-top:4px;">
+                            Fixum: <strong>${formatMoneyShort(activeDeal.perMatch)}/${unitLabel}</strong> • Siegprämie: <strong>+${formatMoneyShort(activeDeal.winBonus)}</strong>
+                        </p>
+                    </div>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="bmh-box">
+                <h3 style="font-size:0.84rem; margin-bottom:6px;">${title} (3 Angebote)</h3>
+                ${offersList.map(o => `
+                    <div class="sponsor-card">
+                        <div class="sponsor-card-header">
+                            <strong>${o.name}</strong>
+                            <span class="sponsor-tag">${o.style.toUpperCase()}</span>
+                        </div>
+                        <p style="font-size:0.68rem; color:#444;">${o.sector}</p>
+                        <p style="font-size:0.73rem; margin-top:4px;">
+                            Antritt: <strong style="color:#184d25;">+${formatMoneyShort(o.signOnBonus)}</strong> | Fix: <strong>${formatMoneyShort(o.perMatch)}/${unitLabel}</strong> | Sieg: <strong>+${formatMoneyShort(o.winBonus)}</strong>
+                        </p>
+                        <button class="bmh-btn primary small-btn btn-open-sponsor" data-slot="${slotKey}" data-oid="${o.id}" style="width:100%; margin-top:6px;">
+                            ✍️ VERHANDELN & LAUFZEIT WÄHLEN
+                        </button>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    };
+
+    viewport.innerHTML = `
+        <h2 class="section-title">💼 SPONSOREN & WERBEPARTNER</h2>
+
+        ${negotiationHtml}
+
+        ${renderSlotSection('main', '👕 TRIKOT- & HAUPTSPONSOR', 'ST', mainDeal, GameState.sponsors.offersMain)}
+        ${renderSlotSection('boards', '📺 BANDENWERBUNG & PARTNER', 'HS', boardsDeal, GameState.sponsors.offersBoards)}
+
+        ${(!mainDeal || !boardsDeal) ? `
+            <div class="bmh-box">
+                <button id="btn-refresh-sponsors" class="bmh-btn" style="width:100%; background:#e5b822;">
+                    🔄 NEUE SPONSOREN-ANGEBOTE EINHOLEN (100k €)
+                </button>
+            </div>
+        ` : ''}
+    `;
+
+    document.querySelectorAll('.btn-open-sponsor').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            activeSponsorOffer = {
+                slot: e.currentTarget.dataset.slot,
+                offerId: e.currentTarget.dataset.oid
+            };
+            renderSponsorsView(viewport);
+            document.getElementById('main-viewport').scrollTop = 0;
+        });
+    });
+
+    const cancelSpBtn = document.getElementById('btn-cancel-sponsor');
+    if (cancelSpBtn) {
+        cancelSpBtn.addEventListener('click', () => {
+            activeSponsorOffer = null;
+            renderSponsorsView(viewport);
+        });
+    }
+
+    const signSpBtn = document.getElementById('btn-sign-sponsor');
+    if (signSpBtn) {
+        signSpBtn.addEventListener('click', () => {
+            if (!club || !activeSponsorOffer) return;
+            const pool = activeSponsorOffer.slot === 'main' ? GameState.sponsors.offersMain : GameState.sponsors.offersBoards;
+            const offer = pool.find(o => o.id === activeSponsorOffer.offerId);
+            if (!offer) return;
+
+            const years = parseInt(document.getElementById('sp-years').value, 10) || 2;
+            const mult = years === 3 ? 1.16 : (years === 2 ? 1.08 : 1.0);
+
+            const finalSignOn = Math.round((offer.signOnBonus * mult) / 5000) * 5000;
+            const finalPerMatch = Math.round((offer.perMatch * mult) / 5000) * 5000;
+            const finalWinBonus = Math.round((offer.winBonus * mult) / 5000) * 5000;
+
+            club.budget += finalSignOn;
+            GameState.sponsors[activeSponsorOffer.slot] = {
+                name: offer.name,
+                sector: offer.sector,
+                years,
+                untilYear: seasonEnd + (years - 1),
+                perMatch: finalPerMatch,
+                winBonus: finalWinBonus
+            };
+
+            activeSponsorOffer = null;
+            saveGame();
+            renderHeader();
+            setStatus(`💼 Vertrag mit ${offer.name} unterschrieben (+${formatMoneyShort(finalSignOn)} Antritt)!`);
+            renderSponsorsView(viewport);
+        });
+    }
+
+    const refreshSpBtn = document.getElementById('btn-refresh-sponsors');
+    if (refreshSpBtn) {
+        refreshSpBtn.addEventListener('click', () => {
+            if (!club) return;
+            if (club.budget < 100000) {
+                alert("Nicht genügend Budget für die Agentur-Gebühr (100k €)!");
+                return;
+            }
+            club.budget -= 100000;
+            ensureSponsorOffersInitialized(true);
+            renderHeader();
+            setStatus("Neue Sponsoren-Angebote eingetroffen (-100k €)!");
+            renderSponsorsView(viewport);
+        });
+    }
+}
+
+// ==========================================
+// MODUL: STADION & AUSBAU
+// ==========================================
+function renderStadiumView(viewport) {
+    const club = GameState.clubs[GameState.activeClubId];
+    if (!club) return;
+    ensureClubStadiumInitialized();
+
+    const st = club.stadium;
+    const forecast = calculateStadiumForecast(club);
+    const proj = GameState.stadiumProject && GameState.stadiumProject.clubId === club.id ? GameState.stadiumProject : null;
+
+    let projectHtml = "";
+    if (proj) {
+        const doneSteps = proj.totalMatchdays - proj.remainingMatchdays;
+        const pct = Math.max(10, Math.round((doneSteps / proj.totalMatchdays) * 100));
+        projectHtml = `
+            <div class="bmh-box" style="background:#d7eadc; border-color:#246b35;">
+                <h3 style="font-size:0.84rem; color:#184d25;">🏗️ AKTIVES BAUPROJEKT</h3>
+                <p style="font-size:0.78rem; margin-top:4px;"><strong>${proj.title}</strong></p>
+                <div class="progress-bar-wrap">
+                    <div class="progress-bar-fill" style="width:${pct}%;"></div>
+                </div>
+                <p style="font-size:0.72rem;">Fertigstellung in <strong>${proj.remainingMatchdays} Spieltag(en)</strong> (Klick auf WEITER ▶ baut weiter).</p>
+            </div>
+        `;
+    }
+
+    const upgrades = [
+        {
+            id: "upg_standing",
+            type: "standing",
+            title: "Stehplatztribüne (+3.000 Plätze)",
+            desc: "Mehr Stimmung & günstige Tickets für Fans",
+            cost: 2400000,
+            days: 3,
+            amount: 3000,
+            disabled: Boolean(proj)
+        },
+        {
+            id: "upg_seated",
+            type: "seated",
+            title: "Sitzplatztribüne (+3.000 Plätze)",
+            desc: "Hohe Ticket-Einnahmen pro Heimspiel",
+            cost: 4500000,
+            days: 4,
+            amount: 3000,
+            disabled: Boolean(proj)
+        },
+        {
+            id: "upg_roof",
+            type: "roof",
+            title: st.roof ? "Stadiondach (✅ Bereits vorhanden)" : "Komplett-Überdachung bauen",
+            desc: "+6% wetterunabhängige Zuschauer-Auslastung",
+            cost: 3500000,
+            days: 3,
+            amount: 1,
+            disabled: Boolean(proj) || Boolean(st.roof)
+        },
+        {
+            id: "upg_vip",
+            type: "vip",
+            title: (st.vipLevel || 0) >= 3 ? "VIP-Logen (✅ Max. Stufe 3 erreicht)" : `VIP-Logen ausbauen (Stufe ${(st.vipLevel || 0) + 1}/3)`,
+            desc: "+15% höhere Erlöse auf alle Sitzplätze",
+            cost: 5000000,
+            days: 4,
+            amount: 1,
+            disabled: Boolean(proj) || (st.vipLevel || 0) >= 3
+        }
+    ];
+
+    viewport.innerHTML = `
+        <h2 class="section-title">🏟️ ${st.name.toUpperCase()}</h2>
+
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <span class="kpi-label">GESAMTKAPAZITÄT</span>
+                <span class="kpi-value">${(st.capacity || 0).toLocaleString('de-DE')}</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">STEH / SITZ</span>
+                <span class="kpi-value">${(st.standing || 0).toLocaleString('de-DE')} / ${(st.seated || 0).toLocaleString('de-DE')}</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">ÜBERDACHUNG</span>
+                <span class="kpi-value">${st.roof ? '✅ Ja' : '❌ Nein'}</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">VIP-LOGEN</span>
+                <span class="kpi-value">Stufe ${st.vipLevel || 0} / 3</span>
+            </div>
+        </div>
+
+        <div class="bmh-box">
+            <h3 style="font-size:0.84rem; margin-bottom:4px;">🎟️ EINTRITTSPREIS & ZUSCHAUER-PROGNOSE</h3>
+            <div class="price-control-row">
+                <button id="btn-price-down" class="bmh-btn small-btn">- 2 €</button>
+                <div style="text-align:center;">
+                    <span style="font-size:0.66rem; color:#444; display:block;">BASIS-TICKETPREIS</span>
+                    <strong style="font-size:1.05rem; color:#184d25;">${st.ticketPrice} €</strong>
+                </div>
+                <button id="btn-price-up" class="bmh-btn small-btn">+ 2 €</button>
+            </div>
+
+            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:4px; margin-bottom:8px;">
+                <button class="sort-btn btn-quick-price" data-price="18">18 €</button>
+                <button class="sort-btn btn-quick-price" data-price="25">25 €</button>
+                <button class="sort-btn btn-quick-price" data-price="32">32 €</button>
+                <button class="sort-btn btn-quick-price" data-price="40">40 €</button>
+            </div>
+
+            <div style="background:#e9ecea; border:1px solid #767a77; padding:6px 8px; font-size:0.75rem;">
+                <p>Erwartete Auslastung: <strong>${forecast.occupancyPct}%</strong> (${forecast.totalVisitors.toLocaleString('de-DE')} Zuschauer)</p>
+                <p style="margin-top:2px;">Geschätzte Einnahme / Heimspiel: <strong style="color:#184d25;">+${formatMoneyShort(forecast.totalMatchRevenue)}</strong></p>
+            </div>
+        </div>
+
+        ${projectHtml}
+
+        <div class="bmh-box">
+            <h3 style="font-size:0.84rem; margin-bottom:6px;">🏗️ STADION-AUSBAU</h3>
+            ${upgrades.map(u => {
+                const canAfford = club.budget >= u.cost;
+                return `
+                <div class="sponsor-card">
+                    <div class="sponsor-card-header">
+                        <strong style="font-size:0.78rem;">${u.title}</strong>
+                        <span class="sponsor-tag">${u.days} ST</span>
+                    </div>
+                    <p style="font-size:0.7rem; color:#444;">${u.desc}</p>
+                    <button class="bmh-btn primary small-btn btn-build-stadium"
+                            data-type="${u.type}"
+                            data-title="${u.title}"
+                            data-cost="${u.cost}"
+                            data-days="${u.days}"
+                            data-amount="${u.amount}"
+                            style="width:100%; margin-top:6px;"
+                            ${(u.disabled || !canAfford) ? 'disabled' : ''}>
+                        ${u.disabled ? (proj ? '⏳ BAUSTELLE LÄUFT' : '✅ AUSGEBAUT') : (canAfford ? `🔨 BAUEN (${formatMoneyShort(u.cost)})` : `❌ ZU TEUER (${formatMoneyShort(u.cost)})`)}
+                    </button>
+                </div>
+            `}).join('')}
+        </div>
+    `;
+
+    const setTicketPrice = (newPrice) => {
+        st.ticketPrice = Math.max(10, Math.min(70, newPrice));
+        saveGame();
+        renderStadiumView(viewport);
+    };
+
+    document.getElementById('btn-price-down').addEventListener('click', () => setTicketPrice((st.ticketPrice || 24) - 2));
+    document.getElementById('btn-price-up').addEventListener('click', () => setTicketPrice((st.ticketPrice || 24) + 2));
+
+    document.querySelectorAll('.btn-quick-price').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            setTicketPrice(parseInt(e.currentTarget.dataset.price, 10));
+        });
+    });
+
+    document.querySelectorAll('.btn-build-stadium').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            if (GameState.stadiumProject) {
+                alert("Es läuft bereits ein Stadion-Bauprojekt!");
+                return;
+            }
+            const b = e.currentTarget.dataset;
+            const cost = parseInt(b.cost, 10);
+            if (club.budget < cost) {
+                alert("Nicht genügend Budget für diesen Ausbau!");
+                return;
+            }
+
+            club.budget -= cost;
+            GameState.stadiumProject = {
+                clubId: club.id,
+                type: b.type,
+                title: b.title,
+                amount: parseInt(b.amount, 10),
+                totalMatchdays: parseInt(b.days, 10),
+                remainingMatchdays: parseInt(b.days, 10)
+            };
+
+            saveGame();
+            renderHeader();
+            setStatus(`🏗️ Bauauftrag erteilt: ${b.title} (-${formatMoneyShort(cost)})!`);
+            renderStadiumView(viewport);
+        });
+    });
 }
 
 // ==========================================
@@ -667,7 +1529,6 @@ function renderSquadAndMarketView(viewport) {
         ${tabContentHtml}
     `;
 
-    // Sub-Tab Events
     document.querySelectorAll('.sub-tab-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             squadSubTab = e.currentTarget.dataset.subtab;
@@ -711,7 +1572,6 @@ function buildRosterTabHtml(mySquad) {
         return rosterSortDir === 'asc' ? " ↑" : " ↓";
     };
 
-    // Verkaufs-Dialog falls ein Spieler zum Verkauf angeklickt wurde
     let sellDialogHtml = "";
     if (activeSellTargetId) {
         const sellPlayer = mySquad.find(p => p.id === activeSellTargetId);
@@ -792,14 +1652,13 @@ function buildRosterTabHtml(mySquad) {
 }
 
 function bindRosterTabEvents(viewport) {
-    document.querySelectorAll('.sort-btn').forEach(btn => {
+    document.querySelectorAll('.sort-btn[data-sort]').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const key = e.currentTarget.dataset.sort;
             if (rosterSortBy === key) {
                 rosterSortDir = rosterSortDir === 'asc' ? 'desc' : 'asc';
             } else {
                 rosterSortBy = key;
-                // Sinnvolle Standardrichtung je Kriterium
                 rosterSortDir = (key === 'pos' || key === 'contract') ? 'asc' : 'desc';
             }
             renderSquadAndMarketView(viewport);
@@ -839,7 +1698,6 @@ function bindRosterTabEvents(viewport) {
             player.clubId = "free";
             player.contractUntil = getCurrentSeasonEndYear();
 
-            // Aus Startelf & Bank entfernen
             GameState.tactics.lineup = GameState.tactics.lineup.map(id => id === player.id ? null : id);
             GameState.tactics.bench = GameState.tactics.bench.map(id => id === player.id ? null : id);
 
@@ -878,9 +1736,8 @@ function buildTransferMarketTabHtml() {
             if (marketSortBy === 'age') return a.age - b.age;
             return b.rating - a.rating;
         })
-        .slice(0, 35); // Performance & Übersichtlichkeit auf Mobile
+        .slice(0, 35);
 
-    // Verhandlungsfenster wenn ein Spieler angeklickt wurde
     let negotiationHtml = "";
     if (activeTransferTargetId) {
         const target = GameState.players.find(p => p.id === activeTransferTargetId);
@@ -1025,19 +1882,16 @@ function bindTransferMarketEvents(viewport) {
             const offeredSalary = parseInt(document.getElementById('neg-salary').value, 10) || calculateExpectedSalary(target);
             const expectedSal = calculateExpectedSalary(target);
 
-            // Kleine Verhandlungslogik bei -10% Gehalt
             if (offeredSalary < expectedSal && Math.random() < 0.35) {
                 alert(`${target.name} lehnt das niedrige Gehalt ab! Biete mindestens ${formatMoneyShort(expectedSal)}.`);
                 return;
             }
 
-            // Ablöse verbuchen
             club.budget -= fee;
             if (target.clubId && target.clubId !== 'free' && GameState.clubs[target.clubId]) {
                 GameState.clubs[target.clubId].budget += fee;
             }
 
-            // Spieler transferieren
             target.clubId = GameState.activeClubId;
             target.salary = offeredSalary;
             target.contractUntil = getCurrentSeasonEndYear() + years;
@@ -1054,7 +1908,6 @@ function bindTransferMarketEvents(viewport) {
 
 // --- TAB 3: JUGENDCAMP (NACHWUCHSLEISTUNGSZENTRUM) ---
 function buildYouthCampTabHtml() {
-    const club = GameState.clubs[GameState.activeClubId];
     const youths = GameState.youthAcademy.players || [];
 
     return `
@@ -1525,8 +2378,12 @@ function renderAdminView(viewport) {
             GameState.activeClubId = selectedId;
             GameState.tactics.lineup = [];
             GameState.tactics.bench = [];
+            GameState.sponsors = { clubId: selectedId, main: null, boards: null, offersMain: [], offersBoards: [] };
+            GameState.stadiumProject = null;
             ensureValidSquadAssignment();
             ensureYouthPool(true);
+            ensureSponsorOffersInitialized(true);
+            ensureClubStadiumInitialized();
             saveGame();
             renderHeader();
             setStatus(`Verein: ${GameState.clubs[selectedId].name}`);
