@@ -993,11 +993,16 @@ function calculateClubMatchStrength(clubId, isHome) {
 function pickScorerForClub(clubId) {
     let candidates = [];
     if (clubId === GameState.activeClubId) {
-        const activeIds = new Set([
-            ...GameState.tactics.lineup.filter(Boolean),
-            ...GameState.tactics.bench.filter(Boolean).slice(0, 3)
-        ]);
-        candidates = getClubPlayers(clubId).filter(p => activeIds.has(p.id));
+        const onPitchIds = new Set(GameState.tactics.lineup.filter(Boolean));
+        candidates = getClubPlayers(clubId).filter(p => {
+            if (!onPitchIds.has(p.id)) return false;
+            if (liveMatchState) {
+                if (liveMatchState.sentOffIds.includes(p.id)) return false;
+                if (liveMatchState.injuredIds.includes(p.id)) return false;
+                if (liveMatchState.subbedOutIds.includes(p.id)) return false;
+            }
+            return true;
+        });
     }
     if (candidates.length === 0) {
         candidates = [...getClubPlayers(clubId)].sort((a, b) => b.rating - a.rating).slice(0, 11);
