@@ -5902,3 +5902,9 @@ function formatMoneyShort(amount) {
 function setStatus(msg) {
     document.getElementById('status-message').textContent = msg;
 }
+
+window.FCM_APP_LOADED = true;
+window.addEventListener('error', function(ev) {
+    var st = document.getElementById('status-message');
+    if (st) st.textContent = 'Fehler: ' + (ev.message || 'Unbekannt');
+});

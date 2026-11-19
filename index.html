@@ -11,7 +11,7 @@
     <title>FC Manager - Retro Edition</title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="apple-touch-icon" href="logo.png">
-    <link rel="stylesheet" href="style.css?v=11.0">
+    <link rel="stylesheet" href="style.css?v=11.2">
 </head>
 <body>
     <div id="app-container">
@@ -46,7 +46,7 @@
         <!-- Fixierter unterer Bereich: Status/Weiter-Button + 9 Kacheln nebeneinander -->
         <div class="bmh-bottom-dock">
             <div class="bmh-footer">
-                <span id="status-message">Bereit (v1.1 Live-Ticker, Konferenz & Unterzahl-Taktik)</span>
+                <span id="status-message">Bereit (v1.1.2 Live-Ticker, Konferenz & Unterzahl-Taktik)</span>
                 <button id="btn-next-day" class="bmh-btn primary small-btn">WEITER ▶</button>
             </div>
 
@@ -64,6 +64,17 @@
         </div>
     </div>
 
-    <script src="app.js?v=11.0"></script>
+    <script src="app.js?v=11.2"></script>
+    <script>
+        if (!window.FCM_APP_LOADED) {
+            var vp = document.getElementById('main-viewport');
+            if (vp) {
+                vp.innerHTML = '<div class="bmh-box" style="border-color:#a82424; background:#ffe3e3; color:#111;">' +
+                    '<h3 style="color:#a82424;">⚠️ DATEI app.js FEHLT AUF GITHUB</h3>' +
+                    '<p style="font-size:0.78rem; margin-top:6px;">Die Datei <code>app.js</code> konnte nicht geladen werden. Bitte prüfe in deinem GitHub-Repository, ob alle 6 Dateien aus der ZIP-Datei (<code>start.html</code>, <code>setup.js</code>, <code>index.html</code>, <code>style.css</code>, <code>app.js</code>, <code>logo.png</code>) exakt so benannt hochgeladen wurden.</p>' +
+                    '</div>';
+            }
+        }
+    </script>
 </body>
 </html>
