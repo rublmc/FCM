@@ -555,3 +555,128 @@ html, body {
     opacity: 0.65;
     outline: 2px dashed var(--accent-gold);
 }
+
+/* ==========================================
+   KADER SUB-TABS, SORTIERUNG & TRANSFERMARKT
+   ========================================== */
+.sub-tab-bar {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    margin-bottom: 10px;
+}
+
+.sub-tab-btn {
+    padding: 7px 4px;
+    background-color: var(--panel-bg);
+    border: 2px solid var(--panel-light);
+    border-right-color: var(--panel-shadow);
+    border-bottom-color: var(--panel-shadow);
+    font-weight: bold;
+    font-size: 0.72rem;
+    cursor: pointer;
+    text-align: center;
+    color: var(--text-dark);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sub-tab-btn.active {
+    background-color: var(--pitch-dark);
+    color: var(--accent-gold);
+    border-color: var(--panel-shadow);
+    border-right-color: var(--panel-light);
+    border-bottom-color: var(--panel-light);
+}
+
+.sort-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 3px;
+    margin-bottom: 8px;
+}
+
+.sort-btn {
+    padding: 5px 2px;
+    background-color: #e2e5e3;
+    border: 1px solid var(--panel-shadow);
+    font-size: 0.66rem;
+    font-weight: bold;
+    cursor: pointer;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.sort-btn.active {
+    background-color: var(--pitch-green);
+    color: #fff;
+    border-color: #0e2e16;
+}
+
+.filter-bar {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 3px;
+    margin-bottom: 6px;
+}
+
+.filter-btn {
+    padding: 4px 2px;
+    background-color: #e2e5e3;
+    border: 1px solid var(--panel-shadow);
+    font-size: 0.65rem;
+    font-weight: bold;
+    cursor: pointer;
+    text-align: center;
+}
+
+.filter-btn.active {
+    background-color: var(--pitch-dark);
+    color: var(--accent-gold);
+}
+
+.mini-action-btn {
+    padding: 2px 4px;
+    font-size: 0.62rem;
+    font-weight: bold;
+    border: 1px solid #333;
+    background-color: var(--pitch-green);
+    color: #fff;
+    cursor: pointer;
+    width: 100%;
+    text-align: center;
+}
+
+.mini-action-btn.sell {
+    background-color: #b5482a;
+}
+
+.mini-action-btn.youth {
+    background-color: #1f6b48;
+}
+
+.negotiation-box {
+    background-color: #184d25;
+    color: #f4f4f4;
+    border: 2px solid var(--accent-gold);
+    padding: 10px;
+    margin-bottom: 10px;
+    font-size: 0.76rem;
+}
+
+.negotiation-box h3 {
+    color: var(--accent-gold);
+    font-size: 0.86rem;
+    margin-bottom: 6px;
+}
+
+.youth-badge {
+    display: inline-block;
+    background-color: #2b8a3e;
+    color: #fff;
+    font-size: 0.6rem;
+    padding: 1px 4px;
+    border: 1px solid #0e2e16;
+    font-weight: bold;
+}
