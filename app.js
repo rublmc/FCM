@@ -1142,7 +1142,7 @@ const TEAM_TALK_OPTIONS = [
     {
         id: "wake_up",
         icon: "🔥",
-        title: "Lautstark aufrütteln ("Wacht auf!")",
+        title: "Lautstark aufrütteln (\„Wacht auf!\“)",
         desc: "+6% Motivation & +0,22 Offensiv-Schub für die 2. Halbzeit",
         motDelta: 6,
         strBonus: 0.22,
@@ -1151,7 +1151,7 @@ const TEAM_TALK_OPTIONS = [
     {
         id: "praise",
         icon: "👏",
-        title: "Loben & Selbstvertrauen ("Weiter so!")",
+        title: "Loben & Selbstvertrauen (\„Weiter so!\“)",
         desc: "+5% Motivation & +0,16 Team-Stabilität nach der Pause",
         motDelta: 5,
         strBonus: 0.16,
@@ -1160,7 +1160,7 @@ const TEAM_TALK_OPTIONS = [
     {
         id: "tactical",
         icon: "🧠",
-        title: "Taktisch neu einstellen ("Räume eng!")",
+        title: "Taktisch neu einstellen (\„Räume eng!\“)",
         desc: "+0,16 Defensiv-Disziplin & -35% Kartenrisiko in HZ 2",
         motDelta: 2,
         strBonus: 0.16,
@@ -1169,7 +1169,7 @@ const TEAM_TALK_OPTIONS = [
     {
         id: "calm",
         icon: "🧊",
-        title: "Ruhig & sachlich ("Kühlen Kopf!")",
+        title: "Ruhig & sachlich (\„Kühlen Kopf!\“)",
         desc: "+3% Motivation & +0,10 ruhiger Spielaufbau",
         motDelta: 3,
         strBonus: 0.10,
