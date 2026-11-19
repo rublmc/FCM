@@ -1026,3 +1026,255 @@ html, body {
     color: #555555;
     font-weight: bold;
 }
+
+
+/* ==========================================
+   LIVE-TICKER, KONFERENZ, HALBZEIT & KABINEN-ANSPRACHE (v1.0)
+   ========================================== */
+.live-scoreboard-card {
+    background-color: #122918;
+    color: #f4f4f4;
+    border: 2px solid var(--accent-gold);
+    padding: 8px 10px;
+    margin-bottom: 8px;
+}
+
+.live-clock-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    font-size: 0.72rem;
+}
+
+.live-minute-pill {
+    display: inline-block;
+    background-color: var(--accent-red);
+    color: #ffffff;
+    font-weight: bold;
+    padding: 2px 7px;
+    border: 1px solid #ff8787;
+    font-size: 0.76rem;
+}
+
+.live-minute-pill.paused {
+    background-color: var(--accent-gold);
+    color: #111111;
+    border-color: #ffffff;
+}
+
+.live-minute-pill.fulltime {
+    background-color: var(--pitch-green);
+    color: #ffffff;
+    border-color: var(--accent-gold);
+}
+
+.live-teams-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #0b1c10;
+    border: 1px solid var(--pitch-green);
+    padding: 8px 6px;
+    gap: 4px;
+}
+
+.live-team-name {
+    flex: 1;
+    font-size: 0.80rem;
+    font-weight: bold;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.live-team-name.away {
+    text-align: right;
+}
+
+.live-score-digits {
+    padding: 2px 10px;
+    font-size: 1.18rem;
+    font-weight: bold;
+    color: var(--accent-gold);
+    background-color: #184d25;
+    border: 1px solid var(--accent-gold);
+    flex-shrink: 0;
+}
+
+.live-controls-bar {
+    display: grid;
+    grid-template-columns: 1.3fr repeat(3, 0.7fr) 1.1fr;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.speed-btn {
+    padding: 5px 2px;
+    background-color: #1e3b26;
+    color: #f4f4f4;
+    border: 1px solid #3c6e49;
+    font-weight: bold;
+    font-size: 0.68rem;
+    cursor: pointer;
+    text-align: center;
+}
+
+.speed-btn.active {
+    background-color: var(--accent-gold);
+    color: #111111;
+    border-color: #ffffff;
+}
+
+.speed-btn.pause-active {
+    background-color: var(--accent-red);
+    color: #ffffff;
+    border-color: #ff8787;
+}
+
+.live-pause-banner {
+    background-color: #fff3bf;
+    border: 2px solid #e5b822;
+    color: #111111;
+    padding: 8px;
+    margin-bottom: 8px;
+    font-size: 0.75rem;
+}
+
+.live-pause-banner.danger-alert {
+    background-color: #ffe3e3;
+    border-color: #a82424;
+    color: #5e1111;
+}
+
+.live-pause-banner.goal-alert {
+    background-color: #d3f9d8;
+    border-color: #246b35;
+    color: #0e2e16;
+}
+
+.ticker-feed-box {
+    max-height: 290px;
+    overflow-y: auto;
+    background-color: #e9ecea;
+    border: 1px solid var(--panel-shadow);
+    padding: 6px;
+}
+
+.ticker-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 5px 4px;
+    border-bottom: 1px solid #c4c8c5;
+    font-size: 0.73rem;
+    line-height: 1.28;
+}
+
+.ticker-item.goal {
+    background-color: #d3f9d8;
+    font-weight: bold;
+    border-left: 3px solid #246b35;
+}
+
+.ticker-item.opp-goal {
+    background-color: #ffe3e3;
+    font-weight: bold;
+    border-left: 3px solid #a82424;
+}
+
+.ticker-item.card-red, .ticker-item.injury {
+    background-color: #fff3bf;
+    font-weight: bold;
+    border-left: 3px solid #d9480f;
+}
+
+.ticker-item.halftime {
+    background-color: #184d25;
+    color: #e5b822;
+    font-weight: bold;
+}
+
+.ticker-min {
+    min-width: 36px;
+    font-weight: bold;
+    color: var(--pitch-dark);
+    flex-shrink: 0;
+}
+
+.ticker-item.halftime .ticker-min {
+    color: #ffffff;
+}
+
+.live-mini-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    margin-bottom: 8px;
+    font-size: 0.68rem;
+}
+
+.live-mini-stat-cell {
+    background-color: #e9ecea;
+    border: 1px solid var(--panel-shadow);
+    padding: 4px;
+    text-align: center;
+}
+
+.teamtalk-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+    margin: 8px 0;
+}
+
+.teamtalk-btn {
+    text-align: left;
+    padding: 7px 8px;
+    background-color: #0e2e16;
+    color: #f4f4f4;
+    border: 2px solid #246b35;
+    cursor: pointer;
+    font-size: 0.73rem;
+}
+
+.teamtalk-btn.selected {
+    border-color: var(--accent-gold);
+    background-color: #244a1c;
+}
+
+.rank-move-up {
+    color: #184d25;
+    font-weight: bold;
+    font-size: 0.66rem;
+}
+
+.rank-move-down {
+    color: #a82424;
+    font-weight: bold;
+    font-size: 0.66rem;
+}
+
+.rank-move-same {
+    color: #666666;
+    font-size: 0.66rem;
+}
+
+.live-sub-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 6px;
+    background-color: #e9ecea;
+    border: 1px solid var(--panel-shadow);
+    margin-bottom: 4px;
+    font-size: 0.72rem;
+    gap: 6px;
+}
+
+.live-sub-row.sent-off {
+    background-color: #ffe3e3;
+    border-color: #a82424;
+    opacity: 0.85;
+}

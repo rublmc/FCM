@@ -6,7 +6,7 @@ const STORAGE_KEY = 'fcm_savegame_v1';
 
 let GameState = {
     meta: {
-        coreVersion: "0.9.0",
+        coreVersion: "1.0.0",
         season: "2026/27",
         phase: "preseason",
         preseasonWeek: 1,
@@ -115,7 +115,7 @@ function renderSetup() {
                 <p><strong>Ablauf beim Neustart:</strong></p>
                 <p>1. Manager-Namen eingeben</p>
                 <p>2. Land & Verein übernehmen</p>
-                <p>3. Saisonvorbereitung (Testspiele, Camps, Sponsoren)</p>
+                <p>3. Saisonvorbereitung & Live-Ticker-Spieltage mit Konferenz</p>
             </div>
         `;
 
