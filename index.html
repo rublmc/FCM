@@ -11,7 +11,7 @@
     <title>FC Manager - Retro Edition</title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="apple-touch-icon" href="logo.png">
-    <link rel="stylesheet" href="style.css?v=11.6">
+    <link rel="stylesheet" href="style.css?v=11.7">
 </head>
 <body>
     <div id="app-container">
@@ -46,7 +46,7 @@
         <!-- Fixierter unterer Bereich: Status/Weiter-Button + 9 Kacheln nebeneinander -->
         <div class="bmh-bottom-dock">
             <div class="bmh-footer">
-                <span id="status-message">Bereit (v1.1.6)</span>
+                <span id="status-message">Bereit (v1.1.7)</span>
                 <button id="btn-next-day" class="bmh-btn primary small-btn">WEITER ▶</button>
             </div>
 
@@ -72,7 +72,7 @@
             if (st) st.textContent = 'Fehler: ' + window.FCM_SCRIPT_ERROR;
         });
     </script>
-    <script src="app.js?v=11.6" onerror="window.FCM_NETWORK_ERROR = true;"></script>
+    <script src="app.js?v=11.7" onerror="window.FCM_NETWORK_ERROR = true;"></script>
     <script>
         if (!window.FCM_APP_LOADED) {
             var vp = document.getElementById('main-viewport');
@@ -86,7 +86,7 @@
                     '<h3 style="color:#a82424;">⚠️ DIAGNOSE: app.js NICHT AKTIV</h3>' +
                     '<p style="font-size:0.78rem; margin-top:6px;">' + reason + '</p>' +
                     '<p style="font-size:0.74rem; margin-top:8px;">Prüfe auf GitHub unter <strong>rublmc/FCM → app.js</strong>, ob oben <strong>247 KB / 5910 lines</strong> steht (nicht 0 Bytes).</p>' +
-                    '<button onclick="location.href='start.html'" class="bmh-btn primary" style="width:100%; margin-top:10px;">◀ ZURÜCK ZUM STARTBILDSCHIRM</button>' +
+                    '<button onclick="location.href=\'start.html\'" class="bmh-btn primary" style="width:100%; margin-top:10px;">◀ ZURÜCK ZUM STARTBILDSCHIRM</button>' +
                     '</div>';
             }
         }

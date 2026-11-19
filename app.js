@@ -3547,7 +3547,7 @@ function renderLiveTickerView(viewport) {
                 </div>
 
                 <button id="btn-start-second-half" class="bmh-btn gold-btn" style="width:100%; padding:9px; font-size:0.80rem; ${!st.teamTalkApplied ? 'opacity:0.55;' : ''}">
-                    ${st.teamTalkApplied ? '▶ ANPFIFF 2. HALBZEIT (46')' : '🔒 ZUERST ANSPRACHE WÄHLEN'}
+                    ${st.teamTalkApplied ? "▶ ANPFIFF 2. HALBZEIT (46')" : "🔒 ZUERST ANSPRACHE WÄHLEN"}
                 </button>
             </div>
         `;
