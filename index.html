@@ -11,7 +11,7 @@
     <title>FC Manager - Retro Edition</title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="apple-touch-icon" href="logo.png">
-    <link rel="stylesheet" href="style.css?v=11.4">
+    <link rel="stylesheet" href="style.css?v=11.6">
 </head>
 <body>
     <div id="app-container">
@@ -46,7 +46,7 @@
         <!-- Fixierter unterer Bereich: Status/Weiter-Button + 9 Kacheln nebeneinander -->
         <div class="bmh-bottom-dock">
             <div class="bmh-footer">
-                <span id="status-message">Bereit (v1.1.4)</span>
+                <span id="status-message">Bereit (v1.1.6)</span>
                 <button id="btn-next-day" class="bmh-btn primary small-btn">WEITER ▶</button>
             </div>
 
@@ -72,7 +72,7 @@
             if (st) st.textContent = 'Fehler: ' + window.FCM_SCRIPT_ERROR;
         });
     </script>
-    <script src="app.js?v=11.4" onerror="window.FCM_NETWORK_ERROR = true;"></script>
+    <script src="app.js?v=11.6" onerror="window.FCM_NETWORK_ERROR = true;"></script>
     <script>
         if (!window.FCM_APP_LOADED) {
             var vp = document.getElementById('main-viewport');

@@ -1140,6 +1140,15 @@ const ATMOSPHERIC_COMMENTS = [
 
 const TEAM_TALK_OPTIONS = [
     {
+        id: "none",
+        icon: "🤐",
+        title: "Keine Ansprache",
+        desc: "Mannschaft geht ohne Sonder-Impuls in die 2. Halbzeit",
+        motDelta: 0,
+        strBonus: 0,
+        cardMult: 1.0
+    },
+    {
         id: "wake_up",
         icon: "🔥",
         title: "Lautstark aufrütteln (\„Wacht auf!\“)",
@@ -1259,6 +1268,10 @@ function skipLiveToNextBreak() {
 
 function startSecondHalf() {
     if (!liveMatchState || liveMatchState.phase !== 'HALFTIME') return;
+    if (!liveMatchState.teamTalkApplied) {
+        alert("Bitte wähle zuerst eine Kabinen-Ansprache aus (oder „Keine Ansprache“), bevor die 2. Halbzeit startet!");
+        return;
+    }
     liveMatchState.phase = 'SECOND_HALF';
     liveMatchState.minute = 45;
     liveMatchState.stoppageElapsed = 0;
@@ -1433,7 +1446,8 @@ function addLiveTickerEntry(minLabel, side, type, text) {
 
 function triggerLiveInterruption(reasonText, forcePause = false) {
     if (!liveMatchState) return;
-    if (forcePause || liveMatchState.autoPause) {
+    const isCritical = reasonText.includes("VERLETZUNG") || reasonText.includes("PLATZVERWEIS");
+    if (forcePause || (liveMatchState.autoPause && isCritical)) {
         liveMatchState.isPaused = true;
         liveMatchState.pauseReason = reasonText;
         stopLiveTickerTimer();
@@ -1728,10 +1742,8 @@ function tickLiveMatchday(silentRender = false) {
             if (userIsHome) {
                 if (scorer) adjustPlayerMotivation(scorer, 3);
                 addLiveTickerEntry(minLabel, "home", "goal", `⚽ TOR FÜR ${um.homeName.toUpperCase()}! ${scorer ? scorer.name : 'Stürmer'} trifft zum ${um.homeGoals}:${um.awayGoals}!`);
-                triggerLiveInterruption(`⚽ TOR FÜR UNS! (${minLabel} ${scorer ? scorer.name : ''})`);
             } else {
-                addLiveTickerEntry(minLabel, "home", "opp-goal", `⚽ TOR FÜR ${um.homeName.toUpperCase()}! ${scorer ? scorer.name : 'Stürmer'} erhöht/verkürzt auf ${um.homeGoals}:${um.awayGoals}.`);
-                triggerLiveInterruption(`⚠️ GEGENTOR! (${minLabel} ${um.homeName})`);
+                addLiveTickerEntry(minLabel, "home", "opp-goal", `⚽ TOR FÜR ${um.homeName.toUpperCase()}! ${scorer ? scorer.name : 'Stürmer'} trifft zum ${um.homeGoals}:${um.awayGoals}.`);
             }
             highlightOccurred = true;
         }
@@ -1751,10 +1763,8 @@ function tickLiveMatchday(silentRender = false) {
             if (!userIsHome) {
                 if (scorer) adjustPlayerMotivation(scorer, 3);
                 addLiveTickerEntry(minLabel, "away", "goal", `⚽ TOR FÜR ${um.awayName.toUpperCase()}! ${scorer ? scorer.name : 'Stürmer'} trifft zum ${um.homeGoals}:${um.awayGoals}!`);
-                triggerLiveInterruption(`⚽ TOR FÜR UNS! (${minLabel} ${scorer ? scorer.name : ''})`);
             } else {
                 addLiveTickerEntry(minLabel, "away", "opp-goal", `⚽ TOR FÜR ${um.awayName.toUpperCase()}! ${scorer ? scorer.name : 'Stürmer'} trifft zum ${um.homeGoals}:${um.awayGoals}.`);
-                triggerLiveInterruption(`⚠️ GEGENTOR! (${minLabel} ${um.awayName})`);
             }
             highlightOccurred = true;
         }
@@ -1786,7 +1796,7 @@ function tickLiveMatchday(silentRender = false) {
                     "injury",
                     `🚑 VERLETZUNG! ${victimObj.player.name} (${reason}) muss raus → 🔄 AUTO-WECHSEL: ${subRes.subIn.name} (${subRes.subIn.pos}) kommt aufs Feld! (Wechsel ${subRes.subsUsed}/5)`
                 );
-                triggerLiveInterruption(`🚑 VERLETZUNG & AUTO-WECHSEL (${victimObj.player.name} ➔ ${subRes.subIn.name})`, true);
+                triggerLiveInterruption(`🚑 VERLETZUNG & AUTO-WECHSEL (${victimObj.player.name} ➔ ${subRes.subIn.name})`, false);
             } else {
                 addLiveTickerEntry(
                     minLabel,
@@ -1794,7 +1804,7 @@ function tickLiveMatchday(silentRender = false) {
                     "card-red",
                     `🚑 VERLETZUNG! ${victimObj.player.name} (${reason}) muss vom Platz – ${subRes ? subRes.reason : 'kein Wechsel möglich!'}`
                 );
-                triggerLiveInterruption(`🚑 VERLETZUNG OHNE ERSATZ (${victimObj.player.name})!`, true);
+                triggerLiveInterruption(`🚑 VERLETZUNG OHNE ERSATZ (${victimObj.player.name})!`, false);
             }
             highlightOccurred = true;
         }
@@ -1831,7 +1841,7 @@ function tickLiveMatchday(silentRender = false) {
                     "card-red",
                     `🟥 ${cardLabel}! ${pl.name} (${pl.pos}) fliegt vom Platz! Weiter in Unterzahl.${gkNote}`
                 );
-                triggerLiveInterruption(`🟥 PLATZVERWEIS: ${pl.name} (${cardLabel})!`, true);
+                triggerLiveInterruption(`🟥 PLATZVERWEIS: ${pl.name} (${cardLabel})!`, false);
                 highlightOccurred = true;
             } else {
                 liveMatchState.yellowCardIds.push(pl.id);
@@ -1857,7 +1867,7 @@ function tickLiveMatchday(silentRender = false) {
                 if (Math.random() < (hStr / (hStr + aStr))) liveMatchState.stats.homeCorners++;
                 else liveMatchState.stats.awayCorners++;
             }
-            if (Math.random() < 0.14) {
+            if (Math.random() < 0.06) {
                 const phrase = ATMOSPHERIC_COMMENTS[Math.floor(Math.random() * ATMOSPHERIC_COMMENTS.length)];
                 addLiveTickerEntry(minLabel, "neutral", "info", phrase);
             }
@@ -2142,8 +2152,7 @@ function finalizeLiveMatchday() {
     saveGame();
     renderHeader();
 
-    leagueSubTab = 'fixtures';
-    switchToView('league');
+    switchToView('office');
 
     if (um) {
         setStatus(`ST ${currentMd}: ${um.homeName} ${um.homeGoals}:${um.awayGoals} ${um.awayName}`);
@@ -3041,7 +3050,7 @@ function renderHeader() {
         if (phaseLabelEl) phaseLabelEl.textContent = "LIVE-TICKER";
         dateEl.textContent = `🔴 ST ${liveMatchState.matchday}`;
         if (nextBtn) {
-            if (liveMatchState.phase === 'FULLTIME') nextBtn.textContent = "🏁 ABPFIFF ▶";
+            if (liveMatchState.phase === 'FULLTIME') nextBtn.textContent = "🏢 INS BÜRO ▶";
             else if (liveMatchState.phase === 'HALFTIME') nextBtn.textContent = "▶ 2. HZ";
             else if (liveMatchState.isPaused) nextBtn.textContent = "▶ WEITER";
             else nextBtn.textContent = "⏸ PAUSE";
@@ -3467,29 +3476,26 @@ function renderLiveTickerView(viewport) {
         pillClass = "paused";
     }
 
-    const homeStr = um ? calculateLiveClubStrength(um.homeId, true).toFixed(1) : "-";
-    const awayStr = um ? calculateLiveClubStrength(um.awayId, false).toFixed(1) : "-";
-
-    // 1. Scoreboard + Tempo-Steuerung
+    // 1. Kompaktes Scoreboard + Tempo-Steuerung (aufgeräumt)
     const scoreboardHtml = `
-        <div class="live-scoreboard-card">
-            <div class="live-clock-bar">
-                <span style="color:#99b8a1; font-weight:bold;">📺 ${leagueName.toUpperCase()} • ST ${st.matchday}/${st.totalMds}</span>
+        <div class="live-scoreboard-card" style="padding:7px 9px; margin-bottom:6px;">
+            <div class="live-clock-bar" style="margin-bottom:4px;">
+                <span style="color:#99b8a1; font-weight:bold; font-size:0.68rem;">${leagueName.toUpperCase()} • ST ${st.matchday}/${st.totalMds}</span>
                 <span class="live-minute-pill ${pillClass}">${clockDisplay}</span>
             </div>
 
             ${um ? `
-                <div class="live-teams-row">
-                    <span class="live-team-name" title="${um.homeName}">${um.homeName} <span style="font-size:0.62rem; color:#99b8a1;">(Ø${homeStr})</span></span>
+                <div class="live-teams-row" style="padding:6px;">
+                    <span class="live-team-name" title="${um.homeName}">${um.homeName}</span>
                     <span class="live-score-digits">${um.homeGoals} : ${um.awayGoals}</span>
-                    <span class="live-team-name away" title="${um.awayName}"><span style="font-size:0.62rem; color:#99b8a1;">(Ø${awayStr})</span> ${um.awayName}</span>
+                    <span class="live-team-name away" title="${um.awayName}">${um.awayName}</span>
                 </div>
             ` : ''}
 
             ${st.phase !== 'FULLTIME' ? `
-                <div class="live-controls-bar">
+                <div class="live-controls-bar" style="margin-top:6px;">
                     <button id="btn-live-pause" class="speed-btn ${st.isPaused ? 'pause-active' : ''}">
-                        ${st.phase === 'HALFTIME' ? '▶ 2. HZ' : (st.isPaused ? '▶ WEITER' : '⏸ PAUSE')}
+                        ${st.phase === 'HALFTIME' ? (st.teamTalkApplied ? '▶ 2. HZ' : '🔒 PAUSE') : (st.isPaused ? '▶ WEITER' : '⏸ PAUSE')}
                     </button>
                     <button class="speed-btn btn-live-speed ${!st.isPaused && st.speed === 1 ? 'active' : ''}" data-spd="1">1x</button>
                     <button class="speed-btn btn-live-speed ${!st.isPaused && st.speed === 2 ? 'active' : ''}" data-spd="2">2x</button>
@@ -3497,96 +3503,67 @@ function renderLiveTickerView(viewport) {
                     <button id="btn-live-skip" class="speed-btn">⏭ SKIP</button>
                 </div>
 
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; font-size:0.66rem; color:#d3f9d8;">
-                    <button id="btn-toggle-autopause" class="sort-btn" style="padding:2px 6px; font-size:0.62rem;">
-                        ${st.autoPause ? '⏸ Auto-Pause: AN' : '▶️ Auto-Pause: AUS'}
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:5px; font-size:0.62rem; color:#c3dec9;">
+                    <button id="btn-toggle-autopause" class="sort-btn" style="padding:2px 6px; font-size:0.60rem;">
+                        ${st.autoPause ? '⏸ Auto-Stopp (Verl./Rot): AN' : '▶️ Auto-Stopp: AUS'}
                     </button>
-                    <span>🔄 Wechsel: <strong>${st.subsUsed}/${st.maxSubs}</strong> | 🟨 ${st.yellowCardIds.length} | 🟥 ${st.sentOffIds.length}</span>
+                    <span>Wechsel ${st.subsUsed}/${st.maxSubs} • 🟨 ${st.yellowCardIds.length} • 🟥 ${st.sentOffIds.length}</span>
                 </div>
             ` : ''}
         </div>
     `;
 
-    // 2. Unterbrechungs-Banner (bei Tor, Verletzung, Platzverweis oder manueller Pause)
+    // 2. Unterbrechungs-Banner (nur bei Verletzung, Roter Karte oder manueller Pause)
     let interruptionHtml = "";
     if (st.isPaused && st.phase !== 'HALFTIME' && st.phase !== 'FULLTIME') {
-        const isDanger = st.pauseReason.includes("VERLETZUNG") || st.pauseReason.includes("PLATZVERWEIS") || st.pauseReason.includes("GEGENTOR");
-        const isGoal = st.pauseReason.includes("TOR FÜR UNS");
-        const alertCls = isDanger ? "danger-alert" : (isGoal ? "goal-alert" : "");
+        const isDanger = st.pauseReason.includes("VERLETZUNG") || st.pauseReason.includes("PLATZVERWEIS");
+        const alertCls = isDanger ? "danger-alert" : "";
         interruptionHtml = `
-            <div class="live-pause-banner ${alertCls}">
-                <div style="font-weight:bold; margin-bottom:5px;">${st.pauseReason || '⏸ UNTERBRECHUNG'}</div>
+            <div class="live-pause-banner ${alertCls}" style="padding:7px 9px; margin-bottom:6px;">
+                <div style="font-weight:bold; font-size:0.74rem; margin-bottom:4px;">${st.pauseReason || '⏸ PAUSE'}</div>
                 <div style="display:flex; gap:6px;">
-                    <button id="btn-resume-from-banner" class="bmh-btn primary small-btn" style="flex:2;">▶ SPIEL FORTSETZEN (${st.speed}x)</button>
-                    <button id="btn-open-live-tactics" class="bmh-btn gold-btn small-btn" style="flex:1;">📋 TAKTIK / WECHSEL</button>
+                    <button id="btn-resume-from-banner" class="bmh-btn primary small-btn" style="flex:2;">▶ WEITER (${st.speed}x)</button>
+                    <button id="btn-open-live-tactics" class="bmh-btn gold-btn small-btn" style="flex:1;">📋 WECHSEL</button>
                 </div>
             </div>
         `;
     }
 
-    // 3. Halbzeit-Pause: Kabinen-Ansprache & Taktik vor Anpfiff der 2. Halbzeit
+    // 3. Halbzeit-Pause: Schlanke Kabinen-Ansprache (inkl. "Keine Ansprache") -> erst danach 2. Halbzeit
     let halftimeHtml = "";
     if (st.phase === 'HALFTIME') {
-        const formationOptions = Object.keys(FORMATIONS).map(f =>
-            `<option value="${f}" ${GameState.tactics.formation === f ? 'selected' : ''}>System ${f}</option>`
-        ).join('');
-
         halftimeHtml = `
-            <div class="negotiation-box">
-                <h3>🗣️ KABINEN-ANSPRACHE (HALBZEITPAUSE)</h3>
-                <p style="font-size:0.70rem; color:#d3f9d8;">Wähle deine Ansprache an die Mannschaft vor dem Anpfiff der 2. Halbzeit:</p>
+            <div class="negotiation-box" style="padding:8px; margin-bottom:6px;">
+                <h3 style="font-size:0.78rem; margin-bottom:2px;">🗣️ HALBZEIT-ANSPRACHE</h3>
+                <p style="font-size:0.65rem; color:#d3f9d8; margin-bottom:6px;">Wähle eine Option (oder „Keine Ansprache“), um die 2. Halbzeit freizuschalten:</p>
 
-                <div class="teamtalk-grid">
+                <div class="teamtalk-grid" style="gap:4px; margin-bottom:8px;">
                     ${TEAM_TALK_OPTIONS.map(t => `
-                        <button class="teamtalk-btn btn-select-teamtalk ${st.teamTalkId === t.id ? 'selected' : ''}" data-talk="${t.id}">
-                            <strong>${t.icon} ${t.title}</strong><br>
-                            <span style="font-size:0.65rem; color:#d3f9d8;">${t.desc}</span>
+                        <button class="teamtalk-btn btn-select-teamtalk ${st.teamTalkId === t.id ? 'selected' : ''}" data-talk="${t.id}" style="padding:5px 7px;">
+                            <strong style="font-size:0.71rem;">${t.icon} ${t.title}</strong>
+                            <span style="display:block; font-size:0.60rem; color:#d3f9d8;">${t.desc}</span>
                         </button>
                     `).join('')}
                 </div>
 
-                <div style="background:#0e2e16; border:1px solid #246b35; padding:7px; margin-bottom:8px;">
-                    <div style="font-size:0.68rem; font-weight:bold; color:#e5b822; margin-bottom:4px;">📋 SCHNELL-TAKTIK & WECHSEL FÜR HZ 2</div>
-                    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:4px; margin-bottom:6px;">
-                        <select id="ht-formation" class="bmh-select" style="margin-bottom:0; font-size:0.68rem; padding:3px;">
-                            ${formationOptions}
-                        </select>
-                        <select id="ht-mentality" class="bmh-select" style="margin-bottom:0; font-size:0.68rem; padding:3px;">
-                            <option value="ultra_def" ${GameState.tactics.mentality === 'ultra_def' ? 'selected' : ''}>Riegel</option>
-                            <option value="defensive" ${GameState.tactics.mentality === 'defensive' ? 'selected' : ''}>Defensiv</option>
-                            <option value="normal" ${GameState.tactics.mentality === 'normal' ? 'selected' : ''}>Normal</option>
-                            <option value="offensive" ${GameState.tactics.mentality === 'offensive' ? 'selected' : ''}>Offensiv</option>
-                            <option value="all_out" ${GameState.tactics.mentality === 'all_out' ? 'selected' : ''}>Brechst.</option>
-                        </select>
-                        <select id="ht-aggression" class="bmh-select" style="margin-bottom:0; font-size:0.68rem; padding:3px;">
-                            <option value="soft" ${GameState.tactics.aggression === 'soft' ? 'selected' : ''}>Schonen</option>
-                            <option value="normal" ${GameState.tactics.aggression === 'normal' ? 'selected' : ''}>Normal</option>
-                            <option value="hard" ${GameState.tactics.aggression === 'hard' ? 'selected' : ''}>Hart</option>
-                        </select>
-                    </div>
-                    <button id="btn-ht-goto-subs" class="bmh-btn small-btn" style="width:100%;">
-                        🔄 SPIELER AUSWECHSELN (${st.subsUsed}/${st.maxSubs} Wechsel genutzt)
-                    </button>
-                </div>
-
-                <button id="btn-start-second-half" class="bmh-btn gold-btn" style="width:100%; padding:10px; font-size:0.86rem;">
-                    ▶ ANPFIFF 2. HALBZEIT (46')
+                <button id="btn-start-second-half" class="bmh-btn gold-btn" style="width:100%; padding:9px; font-size:0.80rem; ${!st.teamTalkApplied ? 'opacity:0.55;' : ''}">
+                    ${st.teamTalkApplied ? '▶ ANPFIFF 2. HALBZEIT (46')' : '🔒 ZUERST ANSPRACHE WÄHLEN'}
                 </button>
             </div>
         `;
     }
 
-    // 4. Abpfiff-Banner
+    // 4. Abpfiff-Banner -> Direkt zurück ins Büro
     let fulltimeHtml = "";
     if (st.phase === 'FULLTIME') {
         fulltimeHtml = `
-            <div class="bmh-box" style="background:#184d25; color:#fff; border-color:#e5b822; text-align:center;">
-                <p style="font-size:0.86rem; color:#e5b822; font-weight:bold;">🏁 SCHLUSSPFIFF AM ${st.matchday}. SPIELTAG!</p>
-                <p style="font-size:0.72rem; margin:4px 0 8px 0;">
+            <div class="bmh-box" style="background:#184d25; color:#fff; border-color:#e5b822; text-align:center; padding:9px; margin-bottom:6px;">
+                <p style="font-size:0.82rem; color:#e5b822; font-weight:bold;">🏁 SCHLUSSPFIFF • ${st.matchday}. SPIELTAG BEENDET</p>
+                <p style="font-size:0.68rem; margin:3px 0 7px 0;">
                     Wechsel: ${st.subsUsed}/${st.maxSubs} • Verletzungen: ${st.injuredIds.length} • Platzverweise: ${st.sentOffIds.length}
                 </p>
-                <button id="btn-finalize-live-md" class="bmh-btn gold-btn" style="width:100%; padding:10px; font-size:0.84rem;">
-                    🏁 SPIELTAG ABSCHLIESSEN & ZUR BILANZ ▶
+                <button id="btn-finalize-live-md" class="bmh-btn gold-btn" style="width:100%; padding:9px; font-size:0.82rem;">
+                    🏢 SPIELTAG BEENDEN & INS BÜRO ▶
                 </button>
             </div>
         `;
@@ -3598,10 +3575,10 @@ function renderLiveTickerView(viewport) {
         const possH = st.stats.homePossession;
         const possA = 100 - possH;
         subContentHtml = `
-            <div class="live-mini-stats">
-                <div class="live-mini-stat-cell"><strong>${possH}% : ${possA}%</strong><br>Ballbesitz</div>
-                <div class="live-mini-stat-cell"><strong>${st.stats.homeShots} : ${st.stats.awayShots}</strong><br>Torschüsse</div>
-                <div class="live-mini-stat-cell"><strong>${st.stats.homeCorners} : ${st.stats.awayCorners}</strong><br>Ecken</div>
+            <div style="display:flex; justify-content:space-around; background:#e9ecea; border:1px solid var(--panel-shadow); padding:4px; margin-bottom:6px; font-size:0.65rem;">
+                <span>Ballbesitz <strong>${possH}:${possA}%</strong></span>
+                <span>Schüsse <strong>${st.stats.homeShots}:${st.stats.awayShots}</strong></span>
+                <span>Ecken <strong>${st.stats.homeCorners}:${st.stats.awayCorners}</strong></span>
             </div>
 
             <div class="ticker-feed-box">
@@ -4289,6 +4266,25 @@ function renderOfficeView(viewport) {
                 ${isPreseason ? `• <strong>Vorbereitung W${GameState.meta.preseasonWeek}/4</strong>` : (myRank > 0 ? `• <strong>${myRank}. Platz (${myPoints} Pkt)</strong>` : '')}
             </p>
         </div>
+
+        ${(!isPreseason && GameState.lastMatchReport && GameState.lastMatchReport.match) ? (() => {
+            const rep = GameState.lastMatchReport;
+            const m = rep.match;
+            const sign = rep.netBalance >= 0 ? '+' : '';
+            return `
+                <div class="bmh-box" style="background:#eef5f0; border-color:#246b35;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <strong style="font-size:0.74rem; color:#184d25;">📋 LETZTES SPIEL (ST ${rep.matchday})</strong>
+                        <span style="font-size:0.72rem; font-weight:bold; color:${rep.netBalance >= 0 ? '#184d25' : '#a82424'};">${sign}${formatMoneyShort(rep.netBalance)}</span>
+                    </div>
+                    <p style="font-size:0.80rem; font-weight:bold; margin-bottom:2px;">${m.homeName} ${m.homeGoals} : ${m.awayGoals} ${m.awayName}</p>
+                    <p style="font-size:0.68rem; color:#333;">
+                        ${m.isHome ? `Zuschauer: ${rep.visitors.toLocaleString('de-DE')} (+${formatMoneyShort(rep.ticketIncome)}) • ` : 'Auswärtsspiel • '}
+                        Sponsoren: +${formatMoneyShort(rep.sponsorIncome)} • Gehälter: -${formatMoneyShort(rep.salaryCost)}${rep.buildStatusMsg || ''}
+                    </p>
+                </div>
+            `;
+        })() : ''}
 
         ${isPreseason ? `
             <div class="open-window-banner">
