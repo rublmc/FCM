@@ -11,7 +11,7 @@
     <title>FC Manager - Retro Edition</title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="apple-touch-icon" href="logo.png">
-    <link rel="stylesheet" href="style.css?v=11.2">
+    <link rel="stylesheet" href="style.css?v=11.3">
 </head>
 <body>
     <div id="app-container">
@@ -46,7 +46,7 @@
         <!-- Fixierter unterer Bereich: Status/Weiter-Button + 9 Kacheln nebeneinander -->
         <div class="bmh-bottom-dock">
             <div class="bmh-footer">
-                <span id="status-message">Bereit (v1.1.2 Live-Ticker, Konferenz & Unterzahl-Taktik)</span>
+                <span id="status-message">Bereit (v1.1.3)</span>
                 <button id="btn-next-day" class="bmh-btn primary small-btn">WEITER ▶</button>
             </div>
 
@@ -64,14 +64,29 @@
         </div>
     </div>
 
-    <script src="app.js?v=11.2"></script>
+    <script>
+        window.FCM_SCRIPT_ERROR = null;
+        window.addEventListener('error', function(ev) {
+            window.FCM_SCRIPT_ERROR = (ev.message || 'JS-Fehler') + (ev.lineno ? ' (Zeile ' + ev.lineno + ')' : '');
+            var st = document.getElementById('status-message');
+            if (st) st.textContent = 'Fehler: ' + window.FCM_SCRIPT_ERROR;
+        });
+    </script>
+    <script src="app.js?v=11.3" onerror="window.FCM_NETWORK_ERROR = true;"></script>
     <script>
         if (!window.FCM_APP_LOADED) {
             var vp = document.getElementById('main-viewport');
+            var reason = window.FCM_NETWORK_ERROR
+                ? 'Netzwerk/404-Fehler beim Laden von <code>app.js</code> (GitHub Pages liefert die Datei unter <code>' + location.href + '</code> noch nicht aus oder sie ist 0 Bytes groß).'
+                : (window.FCM_SCRIPT_ERROR
+                    ? 'JavaScript-Syntax-/Laufzeitfehler in <code>app.js</code>: <strong>' + window.FCM_SCRIPT_ERROR + '</strong>'
+                    : '<code>app.js</code> wurde nicht vollständig ausgeführt (möglicherweise beschädigte/abgeschnittene Datei auf GitHub).');
             if (vp) {
                 vp.innerHTML = '<div class="bmh-box" style="border-color:#a82424; background:#ffe3e3; color:#111;">' +
-                    '<h3 style="color:#a82424;">⚠️ DATEI app.js FEHLT AUF GITHUB</h3>' +
-                    '<p style="font-size:0.78rem; margin-top:6px;">Die Datei <code>app.js</code> konnte nicht geladen werden. Bitte prüfe in deinem GitHub-Repository, ob alle 6 Dateien aus der ZIP-Datei (<code>start.html</code>, <code>setup.js</code>, <code>index.html</code>, <code>style.css</code>, <code>app.js</code>, <code>logo.png</code>) exakt so benannt hochgeladen wurden.</p>' +
+                    '<h3 style="color:#a82424;">⚠️ DIAGNOSE: app.js NICHT AKTIV</h3>' +
+                    '<p style="font-size:0.78rem; margin-top:6px;">' + reason + '</p>' +
+                    '<p style="font-size:0.74rem; margin-top:8px;">Prüfe auf GitHub unter <strong>rublmc/FCM → app.js</strong>, ob oben <strong>247 KB / 5910 lines</strong> steht (nicht 0 Bytes).</p>' +
+                    '<button onclick="location.href='start.html'" class="bmh-btn primary" style="width:100%; margin-top:10px;">◀ ZURÜCK ZUM STARTBILDSCHIRM</button>' +
                     '</div>';
             }
         }

@@ -1,3 +1,4 @@
+window.FCM_APP_STARTED = true;
 // ==========================================
 // FC MANAGER - CORE ENGINE (v1.0 LIVE-TICKER, KONFERENZ & HALBZEIT)
 // ==========================================
