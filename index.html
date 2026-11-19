@@ -11,7 +11,7 @@
     <title>FC Manager - Retro Edition</title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="apple-touch-icon" href="logo.png">
-    <link rel="stylesheet" href="style.css?v=7.0">
+    <link rel="stylesheet" href="style.css?v=9.0">
 </head>
 <body>
     <div id="app-container">
@@ -26,9 +26,9 @@
                     </div>
                 </div>
                 <div class="header-right">
-                    <div class="stat-box">
-                        <span class="label">SAISON / ST</span>
-                        <span id="header-date" class="value">26/27 | ST 1</span>
+                    <div id="header-date-box" class="stat-box" style="cursor:pointer;" title="Kalender öffnen">
+                        <span id="header-phase-label" class="label">SAISON / VORB.</span>
+                        <span id="header-date" class="value">26/27 | W1</span>
                     </div>
                     <div class="stat-box">
                         <span class="label">BUDGET</span>
@@ -43,15 +43,16 @@
             <!-- Inhalte werden dynamisch von app.js gerendert -->
         </main>
 
-        <!-- Fixierter unterer Bereich: Status/Weiter-Button + 8 Kacheln nebeneinander -->
+        <!-- Fixierter unterer Bereich: Status/Weiter-Button + 9 Kacheln nebeneinander -->
         <div class="bmh-bottom-dock">
             <div class="bmh-footer">
-                <span id="status-message">Bereit (v0.7 Verträge, Sponsoren & Stadion)</span>
+                <span id="status-message">Bereit (v0.9 Vorbereitung, Kalender & Entwicklung)</span>
                 <button id="btn-next-day" class="bmh-btn primary small-btn">WEITER ▶</button>
             </div>
 
             <nav class="bmh-nav">
                 <button class="nav-btn active" data-view="office"><span class="nav-icon">🏢</span><span>BÜRO</span></button>
+                <button class="nav-btn" data-view="calendar"><span class="nav-icon">📅</span><span>KAL.</span></button>
                 <button class="nav-btn" data-view="squad"><span class="nav-icon">👥</span><span>KADER</span></button>
                 <button class="nav-btn" data-view="tactics"><span class="nav-icon">📋</span><span>TAKTIK</span></button>
                 <button class="nav-btn" data-view="contracts"><span class="nav-icon">✍️</span><span>VERTR.</span></button>
@@ -63,6 +64,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=7.0"></script>
+    <script src="app.js?v=9.0"></script>
 </body>
 </html>

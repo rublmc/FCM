@@ -1,5 +1,5 @@
 // ==========================================
-// FC MANAGER - CORE ENGINE (MOBILE OPTIMIZED)
+// FC MANAGER - CORE ENGINE (v0.9 VORBEREITUNG, KALENDER & ENTWICKLUNG)
 // ==========================================
 
 const STORAGE_KEY = 'fcm_savegame_v1';
@@ -12,7 +12,6 @@ const FORMATIONS = {
     "5-3-2":   ["TW", "LV", "IV", "IV", "IV", "RV", "ZM", "ZM", "OM", "ST", "ST"]
 };
 
-// Prozentuale Koordinaten auf dem grafischen Spielfeld (Torwart unten bei y=88, Stürmer oben)
 const FORMATION_COORDS = {
     "4-4-2": [
         { x: 50, y: 88 },
@@ -112,10 +111,124 @@ const SPONSOR_BRANDS_BOARDS = [
     { name: "Solaris Energy", sector: "Solartechnik", style: "Erfolg" }
 ];
 
+const REGIONAL_FRIENDLY_CLUBS = [
+    { name: "SpVgg Unterhaching", strength: 5.3 },
+    { name: "TSV 1860 München", strength: 5.5 },
+    { name: "FC Ingolstadt 04", strength: 5.6 },
+    { name: "Rot-Weiss Essen", strength: 5.5 },
+    { name: "SV Sandhausen", strength: 5.4 },
+    { name: "Viktoria Köln", strength: 5.3 }
+];
+
+const INTERNATIONAL_TOP_CLUBS = [
+    { name: "Real Madrid", strength: 9.1 },
+    { name: "FC Liverpool", strength: 8.9 },
+    { name: "AC Mailand", strength: 8.4 },
+    { name: "Inter Mailand", strength: 8.7 },
+    { name: "FC Barcelona", strength: 8.8 },
+    { name: "Paris Saint-Germain", strength: 8.8 }
+];
+
+const TRAINING_CAMPS = [
+    {
+        id: "camp_bavaria",
+        category: "camp",
+        icon: "🏔️",
+        title: "Kurz-Camp Bayern (Tegernsee)",
+        desc: "Kompaktes Konditions- & Taktik-Camp am Tegernsee.",
+        cost: 350000,
+        revenue: 0,
+        motivationDelta: 9,
+        devBonus: 0.12,
+        trainingMinutes: 180
+    },
+    {
+        id: "camp_austria",
+        category: "camp",
+        icon: "⛰️",
+        title: "Alpen-Camp Österreich (Tirol)",
+        desc: "Intensives Höhentraining in den Kitzbüheler Alpen.",
+        cost: 850000,
+        revenue: 0,
+        motivationDelta: 15,
+        devBonus: 0.22,
+        trainingMinutes: 270
+    },
+    {
+        id: "camp_spain",
+        category: "camp",
+        icon: "☀️",
+        title: "Elite-Camp Spanien (Marbella)",
+        desc: "Top-Bedingungen, Taktik-Feinschliff & Extra-Schub für U26-Spieler.",
+        cost: 1600000,
+        revenue: 0,
+        motivationDelta: 22,
+        devBonus: 0.35,
+        trainingMinutes: 360
+    }
+];
+
+const CLUB_EVENTS = [
+    {
+        id: "ev_bbq",
+        category: "event",
+        icon: "🌭",
+        title: "Mannschafts- & Fan-Grillfest",
+        desc: "Lockere Stimmung am Trainingsgelände: +16% Motivation & +3% Fan-Zuspruch.",
+        cost: 40000,
+        revenue: 0,
+        motivationDelta: 16,
+        fanBonus: 0.03,
+        sponsorMultAdd: 0,
+        youthScout: false
+    },
+    {
+        id: "ev_openhouse",
+        category: "event",
+        icon: "🚪",
+        title: "Tag der offenen Tür & Stadionfest",
+        desc: "Stadionführungen & Autogramme: +7% Stadion-Auslastung & +150k € Fanartikel.",
+        cost: 90000,
+        revenue: 150000,
+        motivationDelta: 8,
+        fanBonus: 0.07,
+        sponsorMultAdd: 0,
+        youthScout: false
+    },
+    {
+        id: "ev_gala",
+        category: "event",
+        icon: "🤝",
+        title: "Sponsoren-Gala & VIP-Abend",
+        desc: "Exklusiver Netzwerk-Abend: +12% bessere Sponsoren-Deals & +250k € VIP-Erlös.",
+        cost: 120000,
+        revenue: 250000,
+        motivationDelta: 5,
+        fanBonus: 0.01,
+        sponsorMultAdd: 0.12,
+        youthScout: false
+    },
+    {
+        id: "ev_youthday",
+        category: "event",
+        icon: "🏆",
+        title: "Autogrammstunde & Jugend-Turnier",
+        desc: "+10% Motivation, +4% Fans & Entdeckung eines Top-Jugendtalents!",
+        cost: 55000,
+        revenue: 0,
+        motivationDelta: 10,
+        fanBonus: 0.04,
+        sponsorMultAdd: 0,
+        youthScout: true
+    }
+];
+
 let GameState = {
     meta: {
-        coreVersion: "0.7.0",
+        coreVersion: "0.9.0",
         season: "2026/27",
+        phase: "preseason", // 'preseason' | 'season'
+        preseasonWeek: 1,   // 1..4
         matchday: 1,
         installedUpdates: [],
         managerName: "",
@@ -126,6 +239,10 @@ let GameState = {
     clubs: {},
     players: [],
     competitions: {},
+    schedule: {},
+    preseason: null,
+    lastMatchReport: null,
+    lastSeasonDevelopmentReport: null,
     tactics: {
         formation: "4-4-2",
         mentality: "normal",
@@ -152,18 +269,27 @@ let selectedSwapSource = null;
 let draggedSwapSource = null;
 
 // Temporärer UI-State für Kader, Sortierung & Transfermarkt
-let squadSubTab = 'roster'; // 'roster' | 'market' | 'youth'
-let rosterSortBy = 'rating'; // 'pos' | 'rating' | 'salary' | 'contract'
-let rosterSortDir = 'desc';  // 'asc' | 'desc'
-let marketPosFilter = 'ALL'; // 'ALL' | 'TW' | 'DEF' | 'MID' | 'FWD'
-let marketSortBy = 'rating'; // 'rating' | 'fee' | 'age'
+let squadSubTab = 'roster';
+let rosterSortBy = 'rating';
+let rosterSortDir = 'desc';
+let marketPosFilter = 'ALL';
+let marketSortBy = 'rating';
 let activeTransferTargetId = null;
 let activeSellTargetId = null;
 
 // Temporärer UI-State für Verträge & Sponsoren
-let contractFilter = 'ALL'; // 'ALL' | 'EXPIRING' | 'TOP'
+let contractFilter = 'ALL';
 let activeContractPlayerId = null;
-let activeSponsorOffer = null; // { slot: 'main'|'boards', offerId: string }
+let activeSponsorOffer = null;
+
+// Temporärer UI-State für Tabelle & Spieltag
+let leagueSubTab = 'table'; // 'table' | 'fixtures' | 'scorers'
+let selectedLeagueViewId = null;
+let selectedFixtureMatchday = null;
+
+// Temporärer UI-State für Kalender & Saisonvorbereitung (v0.9)
+let calendarSubTab = 'preseason'; // 'preseason' | 'season_cal'
+let bookingDialogState = null;    // { week: 1..4, category: 'friendly'|'camp'|'event' }
 
 document.addEventListener('DOMContentLoaded', () => {
     loadGame();
@@ -171,14 +297,23 @@ document.addEventListener('DOMContentLoaded', () => {
         window.location.href = 'start.html';
         return;
     }
+    ensurePlayerStatsInitialized();
     ensureFreeAgentsInitialized();
     ensureYouthPool();
     ensureSponsorOffersInitialized();
     ensureClubStadiumInitialized();
     ensureValidSquadAssignment();
+    ensureAllSchedulesInitialized();
+    ensurePreseasonInitialized();
     setupNavigation();
     renderHeader();
-    renderView('office');
+
+    // Bei Saisonvorbereitung direkt in den Kalender starten
+    if (GameState.meta.phase === 'preseason') {
+        switchToView('calendar');
+    } else {
+        switchToView('office');
+    }
 });
 
 // ==========================================
@@ -196,6 +331,16 @@ function loadGame() {
             const parsed = JSON.parse(saved);
             GameState = { ...GameState, ...parsed };
             GameState.meta = { ...GameState.meta, ...(parsed.meta || {}) };
+            if (!GameState.meta.phase) {
+                GameState.meta.phase = (GameState.meta.matchday && GameState.meta.matchday > 1) ? 'season' : 'preseason';
+            }
+            if (!GameState.meta.preseasonWeek) {
+                GameState.meta.preseasonWeek = 1;
+            }
+            GameState.schedule = parsed.schedule || {};
+            GameState.preseason = parsed.preseason || null;
+            GameState.lastMatchReport = parsed.lastMatchReport || null;
+            GameState.lastSeasonDevelopmentReport = parsed.lastSeasonDevelopmentReport || null;
             GameState.tactics = {
                 formation: "4-4-2",
                 mentality: "normal",
@@ -232,6 +377,1178 @@ function resetGame() {
     }
 }
 
+function switchToView(viewName) {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    const targetBtn = document.querySelector(`.nav-btn[data-view="${viewName}"]`);
+    if (targetBtn) targetBtn.classList.add('active');
+    selectedSwapSource = null;
+    activeTransferTargetId = null;
+    activeSellTargetId = null;
+    activeContractPlayerId = null;
+    activeSponsorOffer = null;
+    document.getElementById('main-viewport').scrollTop = 0;
+    renderView(viewName);
+}
+
+// ==========================================
+// SPIELER-STATISTIKEN, MOTIVATION & TALENT (v0.9)
+// ==========================================
+function computeDefaultTalent(player) {
+    const age = player.age || 25;
+    const r = player.rating || 6.5;
+    if (player.isYouthProduct) return 5;
+    if (age <= 20) return r >= 7.2 ? 5 : 4;
+    if (age <= 23) return r >= 7.5 ? 5 : (r >= 6.4 ? 4 : 3);
+    if (age <= 27) return r >= 8.0 ? 4 : 3;
+    if (age <= 31) return 2;
+    return 1;
+}
+
+function ensurePlayerStatsInitialized() {
+    GameState.players.forEach(p => {
+        if (typeof p.seasonApps !== 'number') p.seasonApps = 0;
+        if (typeof p.seasonMinutes !== 'number') p.seasonMinutes = 0;
+        if (typeof p.seasonGoals !== 'number') p.seasonGoals = 0;
+        if (typeof p.seasonCleanSheets !== 'number') p.seasonCleanSheets = 0;
+        if (typeof p.motivation !== 'number') p.motivation = 78;
+        if (typeof p.talent !== 'number') p.talent = computeDefaultTalent(p);
+        if (typeof p.campDevBonus !== 'number') p.campDevBonus = 0;
+    });
+}
+
+function adjustPlayerMotivation(player, delta) {
+    if (!player) return;
+    const cur = typeof player.motivation === 'number' ? player.motivation : 78;
+    player.motivation = Math.max(25, Math.min(100, Math.round(cur + delta)));
+}
+
+function getMotivationIcon(mot) {
+    const m = typeof mot === 'number' ? mot : 78;
+    if (m >= 82) return "😊";
+    if (m >= 60) return "😐";
+    return "😞";
+}
+
+// ==========================================
+// SAISONVORBEREITUNG & KALENDER-LOGIK (v0.9)
+// ==========================================
+function ensurePreseasonInitialized(forceReset = false) {
+    if (!forceReset && GameState.preseason && Array.isArray(GameState.preseason.weeks) && GameState.preseason.weeks.length === 4) {
+        return;
+    }
+
+    const weekLabels = [
+        "KW 28 • Vorbereitung Woche 1 (Trainingsauftakt)",
+        "KW 29 • Vorbereitung Woche 2 (Aufbauphase)",
+        "KW 30 • Vorbereitung Woche 3 (Feinschliff)",
+        "KW 31 • Vorbereitung Woche 4 (Generalprobe)"
+    ];
+
+    GameState.preseason = {
+        weeks: weekLabels.map((lbl, idx) => ({
+            week: idx + 1,
+            label: lbl,
+            booking: null,
+            completed: false,
+            summary: ""
+        })),
+        lastWeekReport: null,
+        fanBonus: 0,
+        sponsorBonusMult: 1.0
+    };
+}
+
+function getFriendlyOptionsForClub() {
+    const club = GameState.clubs[GameState.activeClubId];
+    const myName = club ? club.name : "";
+
+    // 1. Regionaler Aufbaugegner
+    const regPool = REGIONAL_FRIENDLY_CLUBS.filter(c => c.name !== myName);
+    const regOpp = regPool[Math.floor(Math.random() * regPool.length)] || REGIONAL_FRIENDLY_CLUBS[0];
+
+    // 2. Zweitliga- / Liga-Konkurrent
+    const otherClubs = Object.values(GameState.clubs).filter(c => c.id !== GameState.activeClubId);
+    let leagueOppName = "Fortuna Düsseldorf";
+    let leagueOppStr = 6.5;
+    if (otherClubs.length > 0) {
+        const picked = otherClubs[Math.floor(Math.random() * otherClubs.length)];
+        leagueOppName = picked.name;
+        const sq = getClubPlayers(picked.id);
+        leagueOppStr = sq.length > 0
+            ? parseFloat((sq.reduce((s, p) => s + p.rating, 0) / sq.length).toFixed(1))
+            : 6.5;
+    }
+
+    // 3. Internationaler Top-Klub
+    const topPool = INTERNATIONAL_TOP_CLUBS.filter(c => c.name !== myName);
+    const topOpp = topPool[Math.floor(Math.random() * topPool.length)] || INTERNATIONAL_TOP_CLUBS[0];
+
+    const estTopTicketRev = club ? Math.round((calculateStadiumForecast(club).totalMatchRevenue * 0.65) / 10000) * 10000 : 450000;
+
+    return [
+        {
+            id: "fr_local",
+            category: "friendly",
+            icon: "⚽",
+            title: `Testspiel vs. ${regOpp.name} (Heim)`,
+            oppName: regOpp.name,
+            oppStrength: regOpp.strength,
+            desc: "Aufbaugegner zum Einspielen & Selbstvertrauen tanken.",
+            cost: 0,
+            revenue: 120000,
+            motivationDelta: 6,
+            devBonus: 0.05
+        },
+        {
+            id: "fr_league",
+            category: "friendly",
+            icon: "⚽",
+            title: `Härtetest vs. ${leagueOppName} (Heim)`,
+            oppName: leagueOppName,
+            oppStrength: leagueOppStr,
+            desc: "Echter Formtest auf Augenhöhe mit guter Kulisse.",
+            cost: 0,
+            revenue: 280000,
+            motivationDelta: 9,
+            devBonus: 0.10
+        },
+        {
+            id: "fr_top",
+            category: "friendly",
+            icon: "🌟",
+            title: `Gala-Testspiel vs. ${topOpp.name} (Heim)`,
+            oppName: topOpp.name,
+            oppStrength: topOpp.strength,
+            desc: `Antrittsgage 350k €, aber ca. +${formatMoneyShort(estTopTicketRev)} Zuschauer-Erlös & Top-Lerneffekt!`,
+            cost: 350000,
+            revenue: estTopTicketRev,
+            motivationDelta: 13,
+            devBonus: 0.18
+        }
+    ];
+}
+
+function bookPreseasonActivity(weekNum, item) {
+    ensurePreseasonInitialized(false);
+    const club = GameState.clubs[GameState.activeClubId];
+    if (!club) return;
+
+    const weekObj = GameState.preseason.weeks.find(w => w.week === weekNum);
+    if (!weekObj || weekObj.completed) {
+        alert("Diese Woche ist bereits abgeschlossen!");
+        return;
+    }
+
+    if (item.cost > 0 && club.budget < item.cost) {
+        alert(`Nicht genügend Budget! Benötigt werden ${formatMoneyShort(item.cost)}.`);
+        return;
+    }
+
+    if (item.cost > 0) {
+        club.budget -= item.cost;
+    }
+
+    weekObj.booking = { ...item };
+    bookingDialogState = null;
+    saveGame();
+    renderHeader();
+    setStatus(`📅 Woche ${weekNum} gebucht: ${item.title}`);
+    renderView('calendar');
+}
+
+function cancelPreseasonBooking(weekNum) {
+    ensurePreseasonInitialized(false);
+    const club = GameState.clubs[GameState.activeClubId];
+    const weekObj = GameState.preseason.weeks.find(w => w.week === weekNum);
+    if (!club || !weekObj || weekObj.completed || !weekObj.booking) return;
+
+    if (weekObj.booking.cost > 0) {
+        club.budget += weekObj.booking.cost;
+    }
+    const oldTitle = weekObj.booking.title;
+    weekObj.booking = null;
+    saveGame();
+    renderHeader();
+    setStatus(`❌ Storniert: ${oldTitle} (Kosten erstattet)`);
+    renderView('calendar');
+}
+
+function autoPlanPreseason() {
+    ensurePreseasonInitialized(false);
+    const club = GameState.clubs[GameState.activeClubId];
+    if (!club) return;
+
+    const friendlies = getFriendlyOptionsForClub();
+    const planTemplates = [
+        friendlies[0],       // Woche 1: Aufbaugegner
+        TRAINING_CAMPS[0],   // Woche 2: Kurz-Camp Bayern
+        CLUB_EVENTS[0],      // Woche 3: Grillfest
+        friendlies[1]        // Woche 4: Liga-Härtetest
+    ];
+
+    let bookedCount = 0;
+    GameState.preseason.weeks.forEach((w, idx) => {
+        if (!w.completed && !w.booking && w.week >= GameState.meta.preseasonWeek) {
+            const candidate = planTemplates[idx];
+            if (candidate && club.budget >= (candidate.cost || 0)) {
+                if (candidate.cost > 0) club.budget -= candidate.cost;
+                w.booking = { ...candidate };
+                bookedCount++;
+            }
+        }
+    });
+
+    bookingDialogState = null;
+    saveGame();
+    renderHeader();
+    setStatus(`⚡ ${bookedCount} Vorbereitungs-Termine automatisch geplant!`);
+    renderView('calendar');
+}
+
+function advancePreseasonWeek() {
+    const club = GameState.clubs[GameState.activeClubId];
+    if (!club) return;
+
+    ensurePreseasonInitialized(false);
+    ensurePlayerStatsInitialized();
+    ensureValidSquadAssignment();
+
+    const curWeekNum = GameState.meta.preseasonWeek || 1;
+    const weekObj = GameState.preseason.weeks.find(w => w.week === curWeekNum);
+    const squad = getClubPlayers();
+
+    let reportTitle = `WOCHE ${curWeekNum} / 4 ABGESCHLOSSEN`;
+    let details = [];
+    let netFinance = 0;
+
+    if (weekObj && weekObj.booking) {
+        const b = weekObj.booking;
+
+        if (b.category === 'friendly') {
+            // Freundschaftsspiel simulieren
+            const myStr = calculateClubMatchStrength(club.id, true);
+            const oppStr = b.oppStrength || 6.0;
+            const diff = myStr - oppStr;
+
+            const sampleGoals = (lambda) => {
+                const L = Math.exp(-Math.max(0.25, Math.min(4.5, lambda)));
+                let k = 0, p = 1.0;
+                do { k++; p *= Math.random(); } while (p > L && k < 7);
+                return k - 1;
+            };
+
+            const myGoals = sampleGoals(1.55 + diff * 0.55);
+            const oppGoals = sampleGoals(1.10 - diff * 0.50);
+
+            const goalLines = [];
+            for (let g = 0; g < myGoals; g++) {
+                const sc = pickScorerForClub(club.id);
+                const min = 5 + Math.floor(Math.random() * 84);
+                if (sc) goalLines.push(`⚽ ${min}' ${sc.name}`);
+            }
+
+            const winBonusMot = myGoals > oppGoals ? 4 : (myGoals === oppGoals ? 1 : -2);
+            const totalMotDelta = (b.motivationDelta || 6) + winBonusMot;
+
+            // Startelf & Bank erhalten Match-Fitness & Entwicklungsbonus
+            const lineupSet = new Set(GameState.tactics.lineup.filter(Boolean));
+            const benchSet = new Set(GameState.tactics.bench.filter(Boolean));
+            squad.forEach(p => {
+                if (lineupSet.has(p.id)) {
+                    p.seasonMinutes = (p.seasonMinutes || 0) + 90;
+                    p.campDevBonus = Math.min(0.6, (p.campDevBonus || 0) + (b.devBonus || 0.06));
+                    adjustPlayerMotivation(p, totalMotDelta);
+                } else if (benchSet.has(p.id)) {
+                    p.seasonMinutes = (p.seasonMinutes || 0) + 35;
+                    p.campDevBonus = Math.min(0.6, (p.campDevBonus || 0) + (b.devBonus || 0.06) * 0.6);
+                    adjustPlayerMotivation(p, Math.round(totalMotDelta * 0.7));
+                } else {
+                    adjustPlayerMotivation(p, 2);
+                }
+            });
+
+            const rev = b.revenue || 120000;
+            club.budget += rev;
+            netFinance = rev - (b.cost || 0);
+
+            reportTitle = `⚽ TESTSPIEL: ${club.name} ${myGoals}:${oppGoals} ${b.oppName}`;
+            details.push(goalLines.length > 0 ? `Torschützen: ${goalLines.join(', ')}` : 'Keine eigenen Tore im Testspiel');
+            details.push(`Zuschauer- & Antrittserlös: +${formatMoneyShort(rev)}`);
+            details.push(`Spielpraxis (+90 Min Startelf / +35 Min Bank) & Motivation (${totalMotDelta >= 0 ? '+' : ''}${totalMotDelta}%)`);
+            weekObj.summary = `✅ ${myGoals}:${oppGoals} vs. ${b.oppName} (+${formatMoneyShort(rev)})`;
+
+        } else if (b.category === 'camp') {
+            // Trainingslager durchführen
+            let u26Boosted = 0;
+            squad.forEach(p => {
+                p.seasonMinutes = (p.seasonMinutes || 0) + (b.trainingMinutes || 180);
+                p.campDevBonus = Math.min(0.6, (p.campDevBonus || 0) + (b.devBonus || 0.12));
+                adjustPlayerMotivation(p, b.motivationDelta || 10);
+                if (b.id === 'camp_spain' && (p.age || 25) <= 25 && p.rating < 9.5) {
+                    p.rating = parseFloat(Math.min(10.0, p.rating + 0.1).toFixed(1));
+                    u26Boosted++;
+                }
+            });
+
+            netFinance = -(b.cost || 0);
+            reportTitle = `${b.icon} ${b.title.toUpperCase()} ABSOLVIERT`;
+            details.push(`Team-Motivation im gesamten Kader um +${b.motivationDelta}% gestiegen!`);
+            details.push(`Trainings-Entwicklungsbonus (+${b.devBonus.toFixed(2)}) & +${b.trainingMinutes} Trainingsminuten gesammelt.`);
+            if (u26Boosted > 0) {
+                details.push(`🌟 Elite-Effekt Marbella: ${u26Boosted} U26-Spieler haben sofort +0,1 Stärke zugelegt!`);
+            }
+            weekObj.summary = `✅ ${b.title} (+${b.motivationDelta}% Mot.)`;
+
+        } else if (b.category === 'event') {
+            // Vereins-Veranstaltung durchführen
+            squad.forEach(p => adjustPlayerMotivation(p, b.motivationDelta || 8));
+            if (b.fanBonus) {
+                GameState.preseason.fanBonus = Math.min(0.18, (GameState.preseason.fanBonus || 0) + b.fanBonus);
+            }
+            if (b.sponsorMultAdd) {
+                GameState.preseason.sponsorBonusMult = (GameState.preseason.sponsorBonusMult || 1.0) + b.sponsorMultAdd;
+                // Laufende Sponsoren-Angebote sofort aufwerten!
+                ['offersMain', 'offersBoards'].forEach(key => {
+                    if (Array.isArray(GameState.sponsors[key])) {
+                        GameState.sponsors[key] = GameState.sponsors[key].map(o => ({
+                            ...o,
+                            signOnBonus: Math.round((o.signOnBonus * (1 + b.sponsorMultAdd)) / 5000) * 5000,
+                            perMatch: Math.round((o.perMatch * (1 + b.sponsorMultAdd)) / 5000) * 5000,
+                            winBonus: Math.round((o.winBonus * (1 + b.sponsorMultAdd)) / 5000) * 5000
+                        }));
+                    }
+                });
+            }
+            if (b.revenue > 0) {
+                club.budget += b.revenue;
+            }
+            if (b.youthScout) {
+                ensureYouthPool(true);
+            }
+
+            netFinance = (b.revenue || 0) - (b.cost || 0);
+            reportTitle = `${b.icon} ${b.title.toUpperCase()}`;
+            details.push(`Kader-Motivation um +${b.motivationDelta}% gesteigert!`);
+            if (b.fanBonus) details.push(`Stadion-Auslastung dauerhaft um +${Math.round(b.fanBonus * 100)}% gestiegen.`);
+            if (b.sponsorMultAdd) details.push(`Alle Sponsoren-Angebote um +${Math.round(b.sponsorMultAdd * 100)}% aufgewertet!`);
+            if (b.revenue > 0) details.push(`Event-Einnahmen verbucht: +${formatMoneyShort(b.revenue)}`);
+            if (b.youthScout) details.push(`🌱 Neue Top-Jugendtalente im Nachwuchs-Camp entdeckt!`);
+            weekObj.summary = `✅ ${b.title}`;
+        }
+    } else {
+        // Standard-Trainingswoche ohne gebuchtes Event
+        squad.forEach(p => {
+            p.seasonMinutes = (p.seasonMinutes || 0) + 90;
+            p.campDevBonus = Math.min(0.6, (p.campDevBonus || 0) + 0.03);
+            adjustPlayerMotivation(p, 3);
+        });
+        reportTitle = `🏃 STANDARD-TRAININGSWOCHE (WOCHE ${curWeekNum})`;
+        details.push(`Grundlagen-Training absolviert: +3% Motivation & +90 Trainingsminuten für alle Spieler.`);
+        if (weekObj) weekObj.summary = `✅ Standard-Training (+3% Mot.)`;
+    }
+
+    if (weekObj) {
+        weekObj.completed = true;
+    }
+
+    const nextWeek = curWeekNum + 1;
+    let seasonStartedMsg = "";
+    if (nextWeek > 4) {
+        GameState.meta.phase = "season";
+        GameState.meta.preseasonWeek = 4;
+        GameState.meta.matchday = 1;
+        seasonStartedMsg = "🚨 SAISONSTART! Die Saisonvorbereitung ist beendet – Sponsorenverhandlungen sind ab sofort geschlossen. Als Nächstes folgt Spieltag 1!";
+    } else {
+        GameState.meta.preseasonWeek = nextWeek;
+    }
+
+    GameState.preseason.lastWeekReport = {
+        week: curWeekNum,
+        title: reportTitle,
+        details,
+        netFinance,
+        seasonStartedMsg
+    };
+
+    saveGame();
+    renderHeader();
+
+    if (GameState.meta.phase === 'season') {
+        setStatus(`Saisonstart ${GameState.meta.season}! Weiter mit Spieltag 1.`);
+    } else {
+        setStatus(`Vorbereitung Woche ${curWeekNum} beendet – jetzt Woche ${nextWeek}/4.`);
+    }
+
+    switchToView('calendar');
+}
+
+// ==========================================
+// SPIELPLAN, TABELLE & MATCHDAY-SIMULATION
+// ==========================================
+function ensureAllSchedulesInitialized(forceRegenerate = false) {
+    Object.keys(GameState.leagues).forEach(leagueId => {
+        ensureLeagueSchedule(leagueId, forceRegenerate);
+    });
+}
+
+function ensureLeagueSchedule(leagueId, forceRegenerate = false) {
+    const clubsInLeague = Object.values(GameState.clubs).filter(c => c.leagueId === leagueId);
+    if (clubsInLeague.length < 2) return;
+
+    const existing = GameState.schedule[leagueId];
+    if (!forceRegenerate && existing && Array.isArray(existing.matchdays) && existing.matchdays.length > 0) {
+        return;
+    }
+
+    const teamIds = clubsInLeague.map(c => c.id).sort(() => Math.random() - 0.5);
+    if (teamIds.length % 2 !== 0) {
+        teamIds.push("BYE");
+    }
+
+    const n = teamIds.length;
+    const halfRounds = n - 1;
+    const matchesPerRound = n / 2;
+    const rotation = [...teamIds];
+    const firstHalf = [];
+
+    for (let round = 0; round < halfRounds; round++) {
+        const roundMatches = [];
+        for (let i = 0; i < matchesPerRound; i++) {
+            const t1 = rotation[i];
+            const t2 = rotation[n - 1 - i];
+            if (t1 === "BYE" || t2 === "BYE") continue;
+
+            const isEvenRound = round % 2 === 0;
+            const homeId = (i === 0) ? (isEvenRound ? t1 : t2) : (isEvenRound ? t2 : t1);
+            const awayId = (homeId === t1) ? t2 : t1;
+
+            roundMatches.push({
+                homeId,
+                awayId,
+                homeGoals: null,
+                awayGoals: null,
+                events: []
+            });
+        }
+        firstHalf.push({
+            matchday: round + 1,
+            played: false,
+            matches: roundMatches
+        });
+
+        const fixed = rotation[0];
+        const rest = rotation.slice(1);
+        rest.unshift(rest.pop());
+        rotation.splice(0, n, fixed, ...rest);
+    }
+
+    const secondHalf = firstHalf.map((mdObj, idx) => ({
+        matchday: halfRounds + idx + 1,
+        played: false,
+        matches: mdObj.matches.map(m => ({
+            homeId: m.awayId,
+            awayId: m.homeId,
+            homeGoals: null,
+            awayGoals: null,
+            events: []
+        }))
+    }));
+
+    const allMatchdays = [...firstHalf, ...secondHalf];
+    GameState.schedule[leagueId] = {
+        totalMatchdays: allMatchdays.length,
+        matchdays: allMatchdays
+    };
+}
+
+function getLeagueTotalMatchdays(leagueId) {
+    ensureLeagueSchedule(leagueId, false);
+    const sched = GameState.schedule[leagueId];
+    return sched ? sched.totalMatchdays : 34;
+}
+
+function computeLeagueStandings(leagueId) {
+    ensureLeagueSchedule(leagueId, false);
+    const clubsInLeague = Object.values(GameState.clubs).filter(c => c.leagueId === leagueId);
+    const tableMap = {};
+
+    clubsInLeague.forEach(c => {
+        tableMap[c.id] = {
+            clubId: c.id,
+            name: c.name,
+            played: 0,
+            won: 0,
+            drawn: 0,
+            lost: 0,
+            gf: 0,
+            ga: 0,
+            gd: 0,
+            points: 0
+        };
+    });
+
+    const sched = GameState.schedule[leagueId];
+    if (sched && Array.isArray(sched.matchdays)) {
+        sched.matchdays.forEach(md => {
+            if (!md.played) return;
+            md.matches.forEach(m => {
+                if (m.homeGoals === null || m.awayGoals === null) return;
+                const home = tableMap[m.homeId];
+                const away = tableMap[m.awayId];
+                if (!home || !away) return;
+
+                home.played++;
+                away.played++;
+                home.gf += m.homeGoals;
+                home.ga += m.awayGoals;
+                away.gf += m.awayGoals;
+                away.ga += m.homeGoals;
+
+                if (m.homeGoals > m.awayGoals) {
+                    home.won++;
+                    home.points += 3;
+                    away.lost++;
+                } else if (m.homeGoals < m.awayGoals) {
+                    away.won++;
+                    away.points += 3;
+                    home.lost++;
+                } else {
+                    home.drawn++;
+                    away.drawn++;
+                    home.points += 1;
+                    away.points += 1;
+                }
+            });
+        });
+    }
+
+    const standings = Object.values(tableMap).map(row => ({
+        ...row,
+        gd: row.gf - row.ga
+    }));
+
+    standings.sort((a, b) => {
+        if (b.points !== a.points) return b.points - a.points;
+        if (b.gd !== a.gd) return b.gd - a.gd;
+        if (b.gf !== a.gf) return b.gf - a.gf;
+        return a.name.localeCompare(b.name);
+    });
+
+    return standings;
+}
+
+function getLeagueTopScorers(leagueId) {
+    const clubsInLeague = new Set(
+        Object.values(GameState.clubs).filter(c => c.leagueId === leagueId).map(c => c.id)
+    );
+    return GameState.players
+        .filter(p => clubsInLeague.has(p.clubId) && (p.seasonGoals || 0) > 0)
+        .sort((a, b) => {
+            if ((b.seasonGoals || 0) !== (a.seasonGoals || 0)) {
+                return (b.seasonGoals || 0) - (a.seasonGoals || 0);
+            }
+            return b.rating - a.rating;
+        })
+        .slice(0, 15);
+}
+
+function calculateClubMatchStrength(clubId, isHome) {
+    if (clubId === GameState.activeClubId) {
+        ensureValidSquadAssignment();
+        let str = parseFloat(calculateTeamStrength()) || 6.5;
+        const ment = GameState.tactics.mentality || "normal";
+        if (ment === "all_out") str += 0.25;
+        else if (ment === "offensive") str += 0.12;
+        else if (ment === "defensive") str -= 0.08;
+        else if (ment === "ultra_def") str -= 0.15;
+
+        // Leichter Motivations-Einfluss auf Tagesform
+        const lineupIds = new Set(GameState.tactics.lineup.filter(Boolean));
+        const starters = getClubPlayers(clubId).filter(p => lineupIds.has(p.id));
+        if (starters.length > 0) {
+            const avgMot = starters.reduce((s, p) => s + (p.motivation || 78), 0) / starters.length;
+            str += (avgMot - 75) * 0.008;
+        }
+
+        if (isHome) str += 0.35;
+        return Math.max(1.0, str);
+    }
+
+    const squad = [...getClubPlayers(clubId)].sort((a, b) => b.rating - a.rating);
+    const top11 = squad.slice(0, 11);
+    let avg = top11.length > 0
+        ? top11.reduce((sum, p) => sum + p.rating, 0) / top11.length
+        : 6.5;
+
+    if (isHome) avg += 0.35;
+    return Math.max(1.0, avg);
+}
+
+function pickScorerForClub(clubId) {
+    let candidates = [];
+    if (clubId === GameState.activeClubId) {
+        const activeIds = new Set([
+            ...GameState.tactics.lineup.filter(Boolean),
+            ...GameState.tactics.bench.filter(Boolean).slice(0, 3)
+        ]);
+        candidates = getClubPlayers(clubId).filter(p => activeIds.has(p.id));
+    }
+    if (candidates.length === 0) {
+        candidates = [...getClubPlayers(clubId)].sort((a, b) => b.rating - a.rating).slice(0, 11);
+    }
+    if (candidates.length === 0) return null;
+
+    const weighted = [];
+    candidates.forEach(p => {
+        let w = 2;
+        if (p.pos === "ST") w = 14;
+        else if (["LA", "RA", "OM"].includes(p.pos)) w = 9;
+        else if (["ZM", "LM", "RM"].includes(p.pos)) w = 5;
+        else if (["DM", "IV", "LV", "RV"].includes(p.pos)) w = 2;
+        else if (p.pos === "TW") w = 0;
+
+        for (let i = 0; i < w; i++) weighted.push(p);
+    });
+
+    if (weighted.length === 0) return candidates[0];
+    return weighted[Math.floor(Math.random() * weighted.length)];
+}
+
+function simulateSingleMatch(match, isOfficialLeagueMatch = true) {
+    const homeStr = calculateClubMatchStrength(match.homeId, true);
+    const awayStr = calculateClubMatchStrength(match.awayId, false);
+    const diff = homeStr - awayStr;
+
+    let goalFactor = 1.0;
+    if (match.homeId === GameState.activeClubId || match.awayId === GameState.activeClubId) {
+        const ment = GameState.tactics.mentality || "normal";
+        if (ment === "all_out") goalFactor = 1.32;
+        else if (ment === "offensive") goalFactor = 1.15;
+        else if (ment === "defensive") goalFactor = 0.85;
+        else if (ment === "ultra_def") goalFactor = 0.72;
+    }
+
+    const expectedHome = Math.max(0.25, Math.min(4.6, (1.42 + diff * 0.58) * goalFactor));
+    const expectedAway = Math.max(0.20, Math.min(4.3, (1.15 - diff * 0.55) * goalFactor));
+
+    const sampleGoals = (lambda) => {
+        const L = Math.exp(-lambda);
+        let k = 0;
+        let p = 1.0;
+        do {
+            k++;
+            p *= Math.random();
+        } while (p > L && k < 8);
+        return k - 1;
+    };
+
+    const homeGoals = sampleGoals(expectedHome);
+    const awayGoals = sampleGoals(expectedAway);
+
+    const events = [];
+    const totalGoals = homeGoals + awayGoals;
+    const minutes = [];
+    for (let i = 0; i < totalGoals; i++) {
+        minutes.push(3 + Math.floor(Math.random() * 88));
+    }
+    minutes.sort((a, b) => a - b);
+
+    let hLeft = homeGoals;
+    let aLeft = awayGoals;
+    minutes.forEach(min => {
+        const scoreHome = (hLeft > 0 && aLeft > 0) ? (Math.random() < (hLeft / (hLeft + aLeft))) : (hLeft > 0);
+        if (scoreHome) {
+            hLeft--;
+            const scorer = pickScorerForClub(match.homeId);
+            if (scorer && isOfficialLeagueMatch) {
+                scorer.seasonGoals = (scorer.seasonGoals || 0) + 1;
+                if (scorer.clubId === GameState.activeClubId) adjustPlayerMotivation(scorer, 3);
+            }
+            events.push({
+                minute: min,
+                side: "home",
+                type: "goal",
+                playerName: scorer ? scorer.name : "Eigentor"
+            });
+        } else {
+            aLeft--;
+            const scorer = pickScorerForClub(match.awayId);
+            if (scorer && isOfficialLeagueMatch) {
+                scorer.seasonGoals = (scorer.seasonGoals || 0) + 1;
+                if (scorer.clubId === GameState.activeClubId) adjustPlayerMotivation(scorer, 3);
+            }
+            events.push({
+                minute: min,
+                side: "away",
+                type: "goal",
+                playerName: scorer ? scorer.name : "Eigentor"
+            });
+        }
+    });
+
+    // Einsatzminuten & Zu-Null-Spiele für KI-Vereine mitführen
+    if (isOfficialLeagueMatch) {
+        [match.homeId, match.awayId].forEach(cid => {
+            if (cid === GameState.activeClubId) return; // Eigener Kader wird detailliert in advanceMatchdayAndSimulate verbucht
+            const conceded = cid === match.homeId ? awayGoals : homeGoals;
+            const sq = [...getClubPlayers(cid)].sort((a, b) => b.rating - a.rating);
+            sq.slice(0, 11).forEach(p => {
+                p.seasonApps = (p.seasonApps || 0) + 1;
+                p.seasonMinutes = (p.seasonMinutes || 0) + 90;
+                if (conceded === 0 && ["TW", "IV", "LV", "RV", "DM"].includes(p.pos)) {
+                    p.seasonCleanSheets = (p.seasonCleanSheets || 0) + 1;
+                }
+            });
+            sq.slice(11, 15).forEach(p => {
+                p.seasonApps = (p.seasonApps || 0) + 1;
+                p.seasonMinutes = (p.seasonMinutes || 0) + 22;
+            });
+        });
+    }
+
+    match.homeGoals = homeGoals;
+    match.awayGoals = awayGoals;
+    match.events = events;
+}
+
+function advanceMatchdayAndSimulate() {
+    const club = GameState.clubs[GameState.activeClubId];
+    if (!club) {
+        alert("Bitte zuerst im Adminbereich ein Datenpaket einspielen!");
+        return;
+    }
+
+    ensureAllSchedulesInitialized(false);
+    ensurePlayerStatsInitialized();
+    const userLeagueId = club.leagueId;
+    const totalMds = getLeagueTotalMatchdays(userLeagueId);
+    const currentMd = GameState.meta.matchday;
+
+    if (currentMd > totalMds) {
+        alert("Die Saison ist beendet! Gehe in die Tabelle (🏆 TAB.), um den Saisonabschluss durchzuführen.");
+        return;
+    }
+
+    // 1. Alle Spiele des aktuellen Spieltags in allen Ligen simulieren
+    let userMatchSummary = null;
+    Object.keys(GameState.schedule).forEach(lid => {
+        const sched = GameState.schedule[lid];
+        const mdObj = sched.matchdays.find(m => m.matchday === currentMd);
+        if (mdObj && !mdObj.played) {
+            mdObj.matches.forEach(match => {
+                simulateSingleMatch(match, true);
+                if (match.homeId === club.id || match.awayId === club.id) {
+                    userMatchSummary = {
+                        leagueId: lid,
+                        matchday: currentMd,
+                        homeId: match.homeId,
+                        awayId: match.awayId,
+                        homeName: GameState.clubs[match.homeId]?.name || match.homeId,
+                        awayName: GameState.clubs[match.awayId]?.name || match.awayId,
+                        homeGoals: match.homeGoals,
+                        awayGoals: match.awayGoals,
+                        events: match.events,
+                        isHome: match.homeId === club.id
+                    };
+                }
+            });
+            mdObj.played = true;
+        }
+    });
+
+    // 2. Spieltags-Finanzen & Einsatzzeiten / Motivation für eigenen Kader verbuchen
+    let ticketIncome = 0;
+    let visitors = 0;
+    let sponsorIncome = 0;
+    let salaryCost = 0;
+
+    const squad = getClubPlayers();
+    const totalAnnualSalary = squad.reduce((sum, p) => sum + (p.salary || 0), 0);
+    salaryCost = Math.round(totalAnnualSalary / Math.max(1, totalMds));
+
+    if (userMatchSummary) {
+        const isHome = userMatchSummary.isHome;
+        const userGoals = isHome ? userMatchSummary.homeGoals : userMatchSummary.awayGoals;
+        const oppGoals = isHome ? userMatchSummary.awayGoals : userMatchSummary.homeGoals;
+        const won = userGoals > oppGoals;
+        const draw = userGoals === oppGoals;
+        const cleanSheet = oppGoals === 0;
+
+        // Einsatzzeiten, Zu-Null-Spiele & Motivation für Startelf, Bank & Tribüne aktualisieren
+        const lineupSet = new Set(GameState.tactics.lineup.filter(Boolean));
+        const benchIds = GameState.tactics.bench.filter(Boolean);
+        const subUsedSet = new Set(benchIds.slice(0, 5)); // bis zu 5 Einwechselspieler bekommen Teil-Einsätze
+        const benchAllSet = new Set(benchIds);
+
+        squad.forEach(p => {
+            if (lineupSet.has(p.id)) {
+                p.seasonApps = (p.seasonApps || 0) + 1;
+                p.seasonMinutes = (p.seasonMinutes || 0) + 90;
+                if (cleanSheet && ["TW", "IV", "LV", "RV", "DM"].includes(p.pos)) {
+                    p.seasonCleanSheets = (p.seasonCleanSheets || 0) + 1;
+                }
+                adjustPlayerMotivation(p, won ? 3 : (draw ? 1 : -1));
+            } else if (subUsedSet.has(p.id)) {
+                p.seasonApps = (p.seasonApps || 0) + 1;
+                p.seasonMinutes = (p.seasonMinutes || 0) + 22;
+                adjustPlayerMotivation(p, won ? 2 : 0);
+            } else if (benchAllSet.has(p.id)) {
+                adjustPlayerMotivation(p, -1);
+            } else {
+                // Tribüne: Unzufriedenheit bei fehlender Nominierung
+                adjustPlayerMotivation(p, -2);
+            }
+        });
+
+        if (isHome) {
+            const forecast = calculateStadiumForecast(club);
+            ticketIncome = forecast.totalMatchRevenue;
+            visitors = forecast.totalVisitors;
+        }
+
+        if (GameState.sponsors.main) {
+            sponsorIncome += GameState.sponsors.main.perMatch || 0;
+            if (won) sponsorIncome += GameState.sponsors.main.winBonus || 0;
+        }
+
+        if (isHome && GameState.sponsors.boards) {
+            sponsorIncome += GameState.sponsors.boards.perMatch || 0;
+            if (won) sponsorIncome += GameState.sponsors.boards.winBonus || 0;
+        }
+    }
+
+    const netBalance = ticketIncome + sponsorIncome - salaryCost;
+    club.budget += netBalance;
+
+    // 3. Stadion-Bauprojekt voranbringen
+    let buildStatusMsg = "";
+    if (GameState.stadiumProject && GameState.stadiumProject.clubId === club.id) {
+        GameState.stadiumProject.remainingMatchdays--;
+        if (GameState.stadiumProject.remainingMatchdays <= 0) {
+            const proj = GameState.stadiumProject;
+            if (club.stadium) {
+                if (proj.type === 'standing') {
+                    club.stadium.standing = (club.stadium.standing || 0) + proj.amount;
+                    club.stadium.capacity = (club.stadium.capacity || 0) + proj.amount;
+                } else if (proj.type === 'seated') {
+                    club.stadium.seated = (club.stadium.seated || 0) + proj.amount;
+                    club.stadium.capacity = (club.stadium.capacity || 0) + proj.amount;
+                } else if (proj.type === 'roof') {
+                    club.stadium.roof = true;
+                } else if (proj.type === 'vip') {
+                    club.stadium.vipLevel = (club.stadium.vipLevel || 0) + 1;
+                }
+            }
+            buildStatusMsg = ` 🏗️ ${proj.title} fertig!`;
+            GameState.stadiumProject = null;
+        }
+    }
+
+    GameState.lastMatchReport = {
+        matchday: currentMd,
+        match: userMatchSummary,
+        visitors,
+        ticketIncome,
+        sponsorIncome,
+        salaryCost,
+        netBalance,
+        buildStatusMsg
+    };
+
+    GameState.meta.matchday = currentMd + 1;
+    selectedFixtureMatchday = currentMd;
+    selectedLeagueViewId = userLeagueId;
+
+    saveGame();
+    renderHeader();
+
+    // Direkt zur Spieltags-Auswertung wechseln
+    leagueSubTab = 'fixtures';
+    switchToView('league');
+
+    if (userMatchSummary) {
+        setStatus(`ST ${currentMd}: ${userMatchSummary.homeName} ${userMatchSummary.homeGoals}:${userMatchSummary.awayGoals} ${userMatchSummary.awayName}`);
+    } else {
+        setStatus(`Spieltag ${currentMd} simuliert.`);
+    }
+}
+
+// ==========================================
+// SAISONÜBERGANG & STÄRKEENTWICKLUNG (v0.9)
+// ==========================================
+function evaluatePlayerSeasonDevelopment(player, teamSuccessDelta, isUserClub) {
+    const oldRating = player.rating || 6.0;
+    const age = player.age || 25;
+    const talent = player.talent || computeDefaultTalent(player);
+    const apps = player.seasonApps || 0;
+    const minutes = player.seasonMinutes || 0;
+    const goals = player.seasonGoals || 0;
+    const cleanSheets = player.seasonCleanSheets || 0;
+    const mot = typeof player.motivation === 'number' ? player.motivation : 78;
+    const campBonus = player.campDevBonus || 0;
+
+    let score = 0;
+    const reasons = [];
+
+    // 1. Alter & Entwicklungspotenzial (Talent)
+    if (age <= 20) {
+        const ageGain = 0.20 + Math.max(0, talent - 2) * 0.04;
+        score += ageGain;
+        reasons.push(`Jungtalent (${age} J., ${talent}★): +${ageGain.toFixed(2)}`);
+    } else if (age <= 24) {
+        const ageGain = 0.12 + Math.max(0, talent - 3) * 0.03;
+        score += ageGain;
+        reasons.push(`Entwicklungsalter (${age} J.): +${ageGain.toFixed(2)}`);
+    } else if (age <= 28) {
+        score += 0.03;
+    } else if (age <= 31) {
+        score -= 0.05;
+        reasons.push(`Alter (${age} J.): -0.05`);
+    } else if (age <= 34) {
+        score -= 0.18;
+        reasons.push(`Routinier (${age} J.): -0.18`);
+    } else {
+        score -= 0.32;
+        reasons.push(`Karriereherbst (${age} J.): -0.32`);
+    }
+
+    // 2. Einsatzzeiten & Spielpraxis
+    if (minutes >= 2000 || apps >= 24) {
+        score += 0.18;
+        reasons.push(`Stammspieler (${apps} Sp. / ${minutes}'): +0.18`);
+    } else if (minutes >= 1000 || apps >= 13) {
+        score += 0.08;
+        reasons.push(`Regelmäßige Einsätze (${apps} Sp.): +0.08`);
+    } else if (minutes >= 350) {
+        // neutral
+    } else {
+        score -= 0.16;
+        reasons.push(`Kaum Spielpraxis (${apps} Sp.): -0.16`);
+    }
+
+    // 3. Tore & Individuelle Leistung
+    const isForward = ["ST", "LA", "RA", "OM"].includes(player.pos);
+    const isMid = ["ZM", "DM", "LM", "RM"].includes(player.pos);
+    const isDefOrGk = ["TW", "IV", "LV", "RV"].includes(player.pos);
+
+    if (isForward) {
+        if (goals >= 20) {
+            score += 0.24;
+            reasons.push(`Torjäger (${goals} Tore): +0.24`);
+        } else if (goals >= 12) {
+            score += 0.15;
+            reasons.push(`Torgefährlich (${goals} Tore): +0.15`);
+        } else if (goals >= 6) {
+            score += 0.07;
+            reasons.push(`${goals} Saisontore: +0.07`);
+        } else if (apps >= 16 && goals <= 1) {
+            score -= 0.08;
+            reasons.push(`Torflaute (${goals} Tore): -0.08`);
+        }
+    } else if (isMid) {
+        if (goals >= 8) {
+            score += 0.14;
+            reasons.push(`Torgefährliches Mittelfeld (${goals} Tore): +0.14`);
+        } else if (goals >= 4) {
+            score += 0.07;
+            reasons.push(`${goals} Saisontore: +0.07`);
+        }
+    } else if (isDefOrGk) {
+        if (cleanSheets >= 12) {
+            score += 0.18;
+            reasons.push(`Abwehrbollwerk (${cleanSheets}x Zu Null): +0.18`);
+        } else if (cleanSheets >= 7) {
+            score += 0.10;
+            reasons.push(`Stabile Defensive (${cleanSheets}x Zu Null): +0.10`);
+        }
+    }
+
+    // 4. Mannschaftserfolg (Meisterschaft, Top-4, Aufstieg, Abstieg)
+    if (teamSuccessDelta !== 0) {
+        score += teamSuccessDelta;
+        reasons.push(`Team-Erfolg: ${teamSuccessDelta > 0 ? '+' : ''}${teamSuccessDelta.toFixed(2)}`);
+    }
+
+    // 5. Motivation & Trainingslager-Vorbereitung
+    if (isUserClub) {
+        if (mot >= 88) {
+            score += 0.10;
+            reasons.push(`Top-Motivation (${mot}%): +0.10`);
+        } else if (mot >= 76) {
+            score += 0.04;
+            reasons.push(`Gute Stimmung (${mot}%): +0.04`);
+        } else if (mot < 50) {
+            score -= 0.12;
+            reasons.push(`Unzufrieden (${mot}% Mot.): -0.12`);
+        }
+
+        if (campBonus >= 0.08) {
+            const cGain = Math.min(0.16, parseFloat((campBonus * 0.45).toFixed(2)));
+            score += cGain;
+            reasons.push(`Vorbereitung & Camps: +${cGain.toFixed(2)}`);
+        }
+    }
+
+    // Kleiner Zufallsfaktor (-0.04 bis +0.04) für Natürlichkeit
+    score += (Math.random() * 0.08 - 0.04);
+
+    // Auf 0.1 runden und im Bereich [-0.6, +0.7] deckeln
+    let delta = Math.round(score * 10) / 10;
+    delta = Math.max(-0.6, Math.min(0.7, delta));
+    const newRating = parseFloat(Math.max(1.0, Math.min(10.0, oldRating + delta)).toFixed(1));
+    const actualDelta = parseFloat((newRating - oldRating).toFixed(1));
+
+    return {
+        playerId: player.id,
+        name: player.name,
+        pos: player.pos,
+        ageAfter: age + 1,
+        oldRating,
+        newRating,
+        delta: actualDelta,
+        apps,
+        minutes,
+        goals,
+        motivation: mot,
+        reasons
+    };
+}
+
+function finishSeasonAndAdvance() {
+    const club = GameState.clubs[GameState.activeClubId];
+    if (!club) return;
+
+    ensurePlayerStatsInitialized();
+
+    const seasonEnd = getCurrentSeasonEndYear();
+    const finishedSeasonLabel = GameState.meta.season;
+    const nextStart = seasonEnd;
+    const nextEndShort = String(seasonEnd + 1).slice(-2);
+    const nextSeasonLabel = `${nextStart}/${nextEndShort}`;
+
+    // 1. Tabellenplatz & TV-Prämie berechnen
+    const standings = computeLeagueStandings(club.leagueId);
+    const myRank = standings.findIndex(r => r.clubId === club.id) + 1;
+    const league = GameState.leagues[club.leagueId];
+    const isTopTier = !league || (league.tier || 1) === 1;
+    const baseTv = isTopTier ? 26000000 : 8500000;
+    const rankFactor = Math.max(0.35, 1.15 - (myRank - 1) * 0.045);
+    const tvPrize = Math.round((baseTv * rankFactor) / 100000) * 100000;
+    club.budget += tvPrize;
+
+    // 2. Auf- und Abstieg zwischen BL1 und BL2 (falls beide existieren)
+    let promoRelMsg = "";
+    let userPromoted = false;
+    let userRelegated = false;
+    if (GameState.leagues["bl1"] && GameState.leagues["bl2"]) {
+        const bl1Standings = computeLeagueStandings("bl1");
+        const bl2Standings = computeLeagueStandings("bl2");
+        if (bl1Standings.length >= 16 && bl2Standings.length >= 2) {
+            const relegated = bl1Standings.slice(-2).map(r => r.clubId);
+            const promoted = bl2Standings.slice(0, 2).map(r => r.clubId);
+            relegated.forEach(cid => { if (GameState.clubs[cid]) GameState.clubs[cid].leagueId = "bl2"; });
+            promoted.forEach(cid => { if (GameState.clubs[cid]) GameState.clubs[cid].leagueId = "bl1"; });
+            if (relegated.includes(club.id)) {
+                userRelegated = true;
+                promoRelMsg = " Leider abgestiegen in Liga 2.";
+            }
+            if (promoted.includes(club.id)) {
+                userPromoted = true;
+                promoRelMsg = " 🎉 AUFSTIEG in die 1. Bundesliga!";
+            }
+        }
+    }
+
+    // Team-Erfolgs-Multiplikator für Stärkeentwicklung
+    let teamSuccessDelta = 0;
+    if (myRank === 1 || userPromoted) teamSuccessDelta = 0.14;
+    else if (myRank <= 4) teamSuccessDelta = 0.07;
+    else if (userRelegated || myRank >= standings.length - 1) teamSuccessDelta = -0.14;
+
+    // 3. Stärkeentwicklung aller Spieler berechnen & Saisonwerte zurücksetzen
+    let leftPlayersCount = 0;
+    const userDevList = [];
+
+    GameState.players.forEach(p => {
+        if (p.clubId && p.clubId !== "free") {
+            const isUserPlayer = p.clubId === club.id;
+            const devResult = evaluatePlayerSeasonDevelopment(
+                p,
+                isUserPlayer ? teamSuccessDelta : 0,
+                isUserPlayer
+            );
+
+            p.rating = devResult.newRating;
+            if (isUserPlayer) {
+                userDevList.push(devResult);
+            }
+
+            p.age = (p.age || 25) + 1;
+            p.seasonApps = 0;
+            p.seasonMinutes = 0;
+            p.seasonGoals = 0;
+            p.seasonCleanSheets = 0;
+            p.campDevBonus = 0;
+            // Motivation pendelt sich zur neuen Saison leicht Richtung 75% ein
+            p.motivation = Math.round(((p.motivation || 78) + 75) / 2);
+
+            if ((p.contractUntil || seasonEnd + 1) <= seasonEnd) {
+                if (isUserPlayer) leftPlayersCount++;
+                p.clubId = "free";
+            }
+        } else {
+            p.seasonApps = 0;
+            p.seasonMinutes = 0;
+            p.seasonGoals = 0;
+            p.seasonCleanSheets = 0;
+            p.campDevBonus = 0;
+        }
+    });
+
+    // Nach größter Veränderung sortieren (Aufsteiger & Absteiger sofort erkennbar)
+    userDevList.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || b.newRating - a.newRating);
+
+    GameState.lastSeasonDevelopmentReport = {
+        finishedSeason: finishedSeasonLabel,
+        nextSeason: nextSeasonLabel,
+        rank: myRank,
+        tvPrize,
+        promoRelMsg,
+        leftPlayersCount,
+        players: userDevList
+    };
+
+    // 4. Sponsoren auf Laufzeit prüfen
+    if (GameState.sponsors.main && GameState.sponsors.main.untilYear <= seasonEnd) {
+        GameState.sponsors.main = null;
+    }
+    if (GameState.sponsors.boards && GameState.sponsors.boards.untilYear <= seasonEnd) {
+        GameState.sponsors.boards = null;
+    }
+    ensureSponsorOffersInitialized(true);
+    ensureYouthPool(true);
+
+    // 5. Neue Saison in der SAISONVORBEREITUNG (4 Wochen) starten!
+    GameState.meta.season = nextSeasonLabel;
+    GameState.meta.phase = "preseason";
+    GameState.meta.preseasonWeek = 1;
+    GameState.meta.matchday = 1;
+    GameState.schedule = {};
+    GameState.lastMatchReport = null;
+    ensurePreseasonInitialized(true);
+    ensureAllSchedulesInitialized(true);
+    ensureValidSquadAssignment();
+
+    selectedLeagueViewId = club.leagueId;
+    selectedFixtureMatchday = 1;
+    calendarSubTab = 'preseason';
+
+    saveGame();
+    renderHeader();
+    setStatus(`Saisonübergang ${nextSeasonLabel}: Stärkeentwicklung berechnet & Vorbereitung gestartet!`);
+    switchToView('calendar');
+}
+
 // ==========================================
 // MARKTWERT, TRANSFER & JUGEND LOGIK
 // ==========================================
@@ -248,7 +1565,16 @@ function ensureFreeAgentsInitialized() {
     let added = false;
     FREE_AGENT_POOL.forEach(fa => {
         if (!existingIds.has(fa.id)) {
-            GameState.players.push({ ...fa });
+            GameState.players.push({
+                ...fa,
+                seasonApps: 0,
+                seasonMinutes: 0,
+                seasonGoals: 0,
+                seasonCleanSheets: 0,
+                motivation: 78,
+                talent: 1,
+                campDevBonus: 0
+            });
             added = true;
         }
     });
@@ -374,9 +1700,8 @@ function ensureSponsorOffersInitialized(forceRegenerate = false) {
         ? squad.reduce((sum, p) => sum + p.rating, 0) / squad.length
         : (isTopTier ? 7.2 : 6.2);
 
-    // Skalierungsfaktor je nach Liga & Klubstärke
-    const scale = isTopTier ? Math.max(0.8, (avgStrength / 7.5) * 1.4) : Math.max(0.3, (avgStrength / 6.5) * 0.45);
-
+    const galaMult = GameState.preseason?.sponsorBonusMult || 1.0;
+    const scale = (isTopTier ? Math.max(0.8, (avgStrength / 7.5) * 1.4) : Math.max(0.3, (avgStrength / 6.5) * 0.45)) * galaMult;
     const pickThree = (pool) => [...pool].sort(() => Math.random() - 0.5).slice(0, 3);
 
     const mainBrands = pickThree(SPONSOR_BRANDS_MAIN);
@@ -492,9 +1817,9 @@ function calculateStadiumForecast(club) {
     const isTopTier = !league || (league.tier || 1) === 1;
     const idealPrice = isTopTier ? 28 : 19;
     const priceDiff = (st.ticketPrice || idealPrice) - idealPrice;
+    const eventFanBoost = GameState.preseason?.fanBonus || 0;
 
-    // Basisauslastung nach Liga, Dach & Preis
-    let occupancy = isTopTier ? 0.88 : 0.76;
+    let occupancy = (isTopTier ? 0.88 : 0.76) + eventFanBoost;
     if (st.roof) occupancy += 0.06;
     if (st.vipLevel > 0) occupancy += st.vipLevel * 0.015;
     occupancy -= priceDiff * 0.018;
@@ -734,8 +2059,10 @@ function applyUpdatePackage(updateData) {
         date: new Date().toLocaleString('de-DE')
     });
 
+    ensurePlayerStatsInitialized();
     ensureFreeAgentsInitialized();
     ensureClubStadiumInitialized();
+    ensureAllSchedulesInitialized(false);
     saveGame();
     renderHeader();
     setStatus(`Update "${updateData.name}" installiert!`);
@@ -743,63 +2070,26 @@ function applyUpdatePackage(updateData) {
 }
 
 // ==========================================
-// NAVIGATION & SPIELTAG-FORTSCHRITT
+// NAVIGATION & ZEIT-FORTSCHRITT
 // ==========================================
 function setupNavigation() {
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            const targetBtn = e.currentTarget;
-            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-            targetBtn.classList.add('active');
-            selectedSwapSource = null;
-            activeTransferTargetId = null;
-            activeSellTargetId = null;
-            activeContractPlayerId = null;
-            activeSponsorOffer = null;
-            document.getElementById('main-viewport').scrollTop = 0;
-            renderView(targetBtn.dataset.view);
+            switchToView(e.currentTarget.dataset.view);
         });
     });
 
+    const dateBox = document.getElementById('header-date-box');
+    if (dateBox) {
+        dateBox.addEventListener('click', () => switchToView('calendar'));
+    }
+
     document.getElementById('btn-next-day').addEventListener('click', () => {
-        if (!GameState.activeClubId) {
-            alert("Bitte zuerst im Adminbereich ein Datenpaket einspielen!");
-            return;
+        if (GameState.meta.phase === 'preseason') {
+            advancePreseasonWeek();
+        } else {
+            advanceMatchdayAndSimulate();
         }
-        GameState.meta.matchday++;
-
-        // Stadion-Bauprojekt um 1 Spieltag voranbringen
-        let buildStatusMsg = "";
-        if (GameState.stadiumProject && GameState.stadiumProject.clubId === GameState.activeClubId) {
-            GameState.stadiumProject.remainingMatchdays--;
-            if (GameState.stadiumProject.remainingMatchdays <= 0) {
-                const club = GameState.clubs[GameState.activeClubId];
-                const proj = GameState.stadiumProject;
-                if (club && club.stadium) {
-                    if (proj.type === 'standing') {
-                        club.stadium.standing = (club.stadium.standing || 0) + proj.amount;
-                        club.stadium.capacity = (club.stadium.capacity || 0) + proj.amount;
-                    } else if (proj.type === 'seated') {
-                        club.stadium.seated = (club.stadium.seated || 0) + proj.amount;
-                        club.stadium.capacity = (club.stadium.capacity || 0) + proj.amount;
-                    } else if (proj.type === 'roof') {
-                        club.stadium.roof = true;
-                    } else if (proj.type === 'vip') {
-                        club.stadium.vipLevel = (club.stadium.vipLevel || 0) + 1;
-                    }
-                }
-                buildStatusMsg = ` | 🏗️ ${proj.title} fertig!`;
-                GameState.stadiumProject = null;
-            }
-        }
-
-        saveGame();
-        renderHeader();
-        const activeNav = document.querySelector('.nav-btn.active');
-        if (activeNav && (activeNav.dataset.view === 'stadium' || activeNav.dataset.view === 'office')) {
-            renderView(activeNav.dataset.view);
-        }
-        setStatus(`Spieltag ${GameState.meta.matchday} erreicht.${buildStatusMsg}`);
     });
 }
 
@@ -809,9 +2099,23 @@ function renderHeader() {
     const leagueInfoEl = document.getElementById('header-league-info');
     const budgetEl = document.getElementById('header-budget');
     const dateEl = document.getElementById('header-date');
+    const phaseLabelEl = document.getElementById('header-phase-label');
+    const nextBtn = document.getElementById('btn-next-day');
 
     const shortSeason = GameState.meta.season.replace("20", "");
-    dateEl.textContent = `${shortSeason} | ST ${GameState.meta.matchday}`;
+    const isPreseason = GameState.meta.phase === 'preseason';
+
+    if (isPreseason) {
+        if (phaseLabelEl) phaseLabelEl.textContent = "SAISON / VORB.";
+        dateEl.textContent = `${shortSeason} | W${GameState.meta.preseasonWeek}/4`;
+        if (nextBtn) nextBtn.textContent = `WOCHE ${GameState.meta.preseasonWeek} ▶`;
+    } else {
+        if (phaseLabelEl) phaseLabelEl.textContent = "SAISON / ST";
+        const maxMd = club ? getLeagueTotalMatchdays(club.leagueId) : 34;
+        const mdDisplay = GameState.meta.matchday > maxMd ? "ENDE" : `ST ${GameState.meta.matchday}`;
+        dateEl.textContent = `${shortSeason} | ${mdDisplay}`;
+        if (nextBtn) nextBtn.textContent = "WEITER ▶";
+    }
 
     if (club) {
         const league = GameState.leagues[club.leagueId];
@@ -827,6 +2131,10 @@ function renderView(viewName) {
     switch (viewName) {
         case 'office':
             renderOfficeView(viewport);
+            break;
+
+        case 'calendar':
+            renderCalendarView(viewport);
             break;
 
         case 'squad':
@@ -849,18 +2157,650 @@ function renderView(viewName) {
             renderStadiumView(viewport);
             break;
 
+        case 'league':
+            renderLeagueView(viewport);
+            break;
+
         case 'admin':
             renderAdminView(viewport);
             break;
 
         default:
-            viewport.innerHTML = `
-                <h2 class="section-title">🏆 TABELLE & SPIELTAG</h2>
-                <div class="bmh-box">
-                    <p>Das Tabellen- & Spieltags-Simulationsmodul folgt als Nächstes in <strong>v0.8</strong>!</p>
+            renderOfficeView(viewport);
+    }
+}
+
+// ==========================================
+// MODUL: KALENDER, SAISONVORBEREITUNG & ENTWICKLUNG (v0.9)
+// ==========================================
+function renderCalendarView(viewport) {
+    const club = GameState.clubs[GameState.activeClubId];
+    if (!club) return;
+
+    ensurePreseasonInitialized(false);
+    ensureAllSchedulesInitialized(false);
+
+    const isPreseason = GameState.meta.phase === 'preseason';
+    const curWeek = GameState.meta.preseasonWeek || 1;
+
+    // 1. Banner für letzte Vorbereitungs-Woche
+    let weekReportHtml = "";
+    if (GameState.preseason && GameState.preseason.lastWeekReport) {
+        const rep = GameState.preseason.lastWeekReport;
+        weekReportHtml = `
+            <div class="match-report-card">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="color:#e5b822; font-weight:bold;">📋 BERICHT VORBEREITUNG W${rep.week}</span>
+                    <span style="font-size:0.68rem; color:${rep.netFinance >= 0 ? '#6ee787' : '#ff8787'};">
+                        ${rep.netFinance >= 0 ? '+' : ''}${formatMoneyShort(rep.netFinance)}
+                    </span>
+                </div>
+                <p style="font-weight:bold; margin:4px 0; font-size:0.8rem;">${rep.title}</p>
+                <div class="match-events-list">
+                    ${rep.details.map(d => `• ${d}`).join('<br>')}
+                </div>
+                ${rep.seasonStartedMsg ? `<p style="margin-top:6px; color:#e5b822; font-weight:bold;">${rep.seasonStartedMsg}</p>` : ''}
+            </div>
+        `;
+    }
+
+    // 2. Banner für Saisonübergang & Stärkeentwicklung (falls vorhanden)
+    let devReportHtml = "";
+    if (GameState.lastSeasonDevelopmentReport) {
+        const dev = GameState.lastSeasonDevelopmentReport;
+        devReportHtml = `
+            <div class="bmh-box" style="background:#122918; color:#f4f4f4; border-color:#e5b822;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                    <strong style="color:#e5b822; font-size:0.82rem;">📊 STÄRKEENTWICKLUNG (${dev.finishedSeason} → ${dev.nextSeason})</strong>
+                    <button id="btn-hide-dev-report" class="bmh-btn danger small-btn" style="padding:2px 6px;">✕</button>
+                </div>
+                <p style="font-size:0.7rem; color:#d3f9d8; margin-bottom:6px;">
+                    Abschlussplatz: <strong>${dev.rank}. Platz</strong> • TV-Prämie: <strong>+${formatMoneyShort(dev.tvPrize)}</strong>${dev.promoRelMsg}
+                </p>
+                <div style="max-height:210px; overflow-y:auto; background:#e9ecea; color:#111; padding:4px; border:1px solid #246b35;">
+                    <table class="bmh-table">
+                        <thead>
+                            <tr>
+                                <th style="width:11%;">POS</th>
+                                <th style="width:35%;">SPIELER</th>
+                                <th style="width:20%;">STÄRKE</th>
+                                <th style="width:34%;">FAKTOREN</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${dev.players.map(pl => {
+                                const cls = pl.delta > 0 ? 'dev-delta-pos' : (pl.delta < 0 ? 'dev-delta-neg' : 'dev-delta-zero');
+                                const sign = pl.delta > 0 ? `+${pl.delta.toFixed(1)}` : pl.delta.toFixed(1);
+                                const topReason = pl.reasons.length > 0 ? pl.reasons[0] : `${pl.apps} Sp. / ${pl.motivation}% Mot.`;
+                                return `
+                                <tr>
+                                    <td><strong>${pl.pos}</strong></td>
+                                    <td title="${pl.name} (${pl.ageAfter} J.)"><strong>${pl.name}</strong> (${pl.ageAfter})</td>
+                                    <td>${pl.oldRating.toFixed(1)}→<strong>${pl.newRating.toFixed(1)}</strong> <span class="${cls}">(${sign})</span></td>
+                                    <td style="font-size:0.62rem;" title="${pl.reasons.join(' | ')}">${topReason}</td>
+                                </tr>
+                            `}).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+
+    // 3. Aktiver Buchungs-Dialog (Freundschaftsspiel / Trainingslager / Veranstaltung)
+    let bookingModalHtml = "";
+    if (isPreseason && bookingDialogState) {
+        const { week, category } = bookingDialogState;
+        let options = [];
+        let dialogTitle = "";
+        if (category === 'friendly') {
+            options = getFriendlyOptionsForClub();
+            dialogTitle = `⚽ FREUNDSCHAFTSSPIEL BUCHEN (WOCHE ${week})`;
+        } else if (category === 'camp') {
+            options = TRAINING_CAMPS;
+            dialogTitle = `🏔️ TRAININGSLAGER BUCHEN (WOCHE ${week})`;
+        } else {
+            options = CLUB_EVENTS;
+            dialogTitle = `🎪 VEREINS-VERANSTALTUNG BUCHEN (WOCHE ${week})`;
+        }
+
+        bookingModalHtml = `
+            <div class="negotiation-box">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <h3 style="margin:0;">${dialogTitle}</h3>
+                    <button id="btn-close-booking" class="bmh-btn danger small-btn" style="padding:2px 6px;">✕</button>
+                </div>
+                ${options.map((opt, i) => {
+                    const canAfford = club.budget >= (opt.cost || 0);
+                    const priceLabel = opt.cost > 0
+                        ? `Kosten: -${formatMoneyShort(opt.cost)}`
+                        : (opt.revenue > 0 ? `Erlös: +${formatMoneyShort(opt.revenue)}` : 'Kostenlos');
+                    return `
+                        <div style="background:#0e2e16; border:1px solid #246b35; padding:7px; margin-bottom:6px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <strong style="color:#e5b822;">${opt.icon} ${opt.title}</strong>
+                                <span style="font-size:0.68rem; color:${opt.cost > 0 ? '#ff8787' : '#6ee787'};">${priceLabel}</span>
+                            </div>
+                            <p style="font-size:0.68rem; color:#d3f9d8; margin:3px 0;">${opt.desc}</p>
+                            <button class="bmh-btn primary small-btn btn-confirm-booking" data-idx="${i}" style="width:100%; margin-top:4px;" ${!canAfford ? 'disabled' : ''}>
+                                ${canAfford ? '✅ TERMIN FÜR WOCHE ' + week + ' FIXIEREN' : '❌ BUDGET REICHT NICHT'}
+                            </button>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+        // Optionen temporär für Click-Handler speichern
+        bookingDialogState.currentOptions = options;
+    }
+
+    // 4. Status-Kopfbereich
+    const phaseBannerHtml = isPreseason ? `
+        <div class="open-window-banner">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+                <div>
+                    <strong>🗓️ SAISONVORBEREITUNG • WOCHE ${curWeek} / 4</strong><br>
+                    <span style="font-size:0.68rem;">Plane Freundschaftsspiele, Trainingslager & Events und verhandle jetzt deine Sponsoren!</span>
+                </div>
+                <button id="btn-sim-preseason-week" class="bmh-btn primary small-btn">WOCHE ${curWeek} ▶</button>
+            </div>
+            <div style="display:flex; gap:6px; margin-top:6px;">
+                <button id="btn-goto-sponsors-pre" class="bmh-btn gold-btn small-btn" style="flex:1;">💼 SPONSOREN (${(!GameState.sponsors.main || !GameState.sponsors.boards) ? 'OFFEN!' : '✅ FIX'})</button>
+                <button id="btn-auto-preseason" class="bmh-btn small-btn" style="flex:1;">⚡ AUTO-PLANEN</button>
+            </div>
+        </div>
+    ` : `
+        <div class="bmh-box" style="padding:8px; background:#d7eadc; border-color:#246b35; font-size:0.74rem;">
+            <strong>⚽ LAUFENDE SAISON ${GameState.meta.season} • SPIELTAG ${GameState.meta.matchday}</strong><br>
+            <span style="font-size:0.68rem;">Die Saisonvorbereitung ist abgeschlossen. Die nächste Vorbereitungsphase startet nach dem 34. Spieltag.</span>
+        </div>
+    `;
+
+    let tabBodyHtml = "";
+    if (calendarSubTab === 'preseason') {
+        const weeks = GameState.preseason.weeks;
+        tabBodyHtml = `
+            <div class="bmh-box" style="padding:8px;">
+                <h3 style="font-size:0.84rem; color:#184d25; margin-bottom:6px;">🗓️ TERMINPLAN SAISONVORBEREITUNG (${GameState.meta.season})</h3>
+                ${weeks.map(w => {
+                    const isCurrent = isPreseason && w.week === curWeek && !w.completed;
+                    const isBooked = Boolean(w.booking);
+                    const cardCls = w.completed ? 'done-week' : (isCurrent ? 'current-week' : (isBooked ? 'booked-week' : ''));
+                    const b = w.booking;
+
+                    return `
+                        <div class="calendar-week-card ${cardCls}">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <strong>${w.label}</strong>
+                                ${w.completed
+                                    ? '<span class="cal-badge friendly">ERLEDIGT</span>'
+                                    : (isCurrent ? '<span class="cal-badge event">AKTUELLE WOCHE</span>' : '<span class="cal-badge open">GEPLANT</span>')}
+                            </div>
+
+                            ${w.completed ? `
+                                <p style="font-size:0.72rem; color:#184d25;">${w.summary || '✅ Abgeschlossen'}</p>
+                            ` : isBooked ? `
+                                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-top:4px;">
+                                    <div>
+                                        <span class="cal-badge ${b.category}">${b.category === 'friendly' ? 'TESTSPIEL' : (b.category === 'camp' ? 'TRAININGSLAGER' : 'EVENT')}</span>
+                                        <strong style="margin-left:4px;">${b.icon} ${b.title}</strong>
+                                        <p style="font-size:0.66rem; color:#333; margin-top:2px;">${b.desc}</p>
+                                    </div>
+                                    ${isPreseason ? `<button class="bmh-btn danger small-btn btn-cancel-booking" data-week="${w.week}" style="padding:3px 6px;">✕</button>` : ''}
+                                </div>
+                            ` : `
+                                <p style="font-size:0.68rem; color:#555; margin-bottom:6px;">Kein Sondertermin gebucht (Standard-Training).</p>
+                                ${isPreseason ? `
+                                    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:4px;">
+                                        <button class="bmh-btn primary small-btn btn-open-booking" data-week="${w.week}" data-cat="friendly">⚽ TESTSPIEL</button>
+                                        <button class="bmh-btn small-btn btn-open-booking" data-week="${w.week}" data-cat="camp" style="background:#2b6cb0; color:#fff;">🏔️ CAMP</button>
+                                        <button class="bmh-btn gold-btn small-btn btn-open-booking" data-week="${w.week}" data-cat="event">🎪 EVENT</button>
+                                    </div>
+                                ` : ''}
+                            `}
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    } else {
+        // Kompletter Saison-Kalender (Vorbereitung + ST 1–34)
+        const userSched = GameState.schedule[club.leagueId];
+        const mds = userSched ? userSched.matchdays : [];
+
+        tabBodyHtml = `
+            <div class="bmh-box" style="padding:8px;">
+                <h3 style="font-size:0.84rem; color:#184d25; margin-bottom:6px;">📅 GESAMTER SAISONKALENDER (${GameState.meta.season})</h3>
+                <p style="font-size:0.68rem; color:#444; margin-bottom:6px;"><strong>JULI: SAISONVORBEREITUNG & SPONSORENFENSTER</strong></p>
+                ${GameState.preseason.weeks.map(w => `
+                    <div class="fixture-row ${isPreseason && w.week === curWeek ? 'user-match' : ''}">
+                        <span style="width:24%; font-weight:bold;">Woche ${w.week}</span>
+                        <span style="flex:1;">${w.booking ? `${w.booking.icon} ${w.booking.title}` : '🏃 Standard-Training'}</span>
+                        <span style="font-size:0.64rem; color:#184d25;">${w.completed ? '✅' : '⏳'}</span>
+                    </div>
+                `).join('')}
+
+                <p style="font-size:0.68rem; color:#444; margin:8px 0 4px 0;"><strong>AUGUST – MAI: LIGA-SPIELBETRIEB</strong></p>
+                ${mds.map(md => {
+                    const myMatch = md.matches.find(m => m.homeId === club.id || m.awayId === club.id);
+                    if (!myMatch) return '';
+                    const isHome = myMatch.homeId === club.id;
+                    const oppId = isHome ? myMatch.awayId : myMatch.homeId;
+                    const oppName = GameState.clubs[oppId]?.name || oppId;
+                    const isNext = !isPreseason && md.matchday === GameState.meta.matchday;
+                    const resText = (myMatch.homeGoals !== null && myMatch.awayGoals !== null)
+                        ? `${myMatch.homeGoals}:${myMatch.awayGoals}`
+                        : 'offen';
+                    return `
+                        <div class="fixture-row ${isNext ? 'user-match' : ''}">
+                            <span style="width:18%; font-weight:bold;">ST ${md.matchday}</span>
+                            <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                                ${isHome ? '🏟️ (H)' : '🚌 (A)'} ${oppName}
+                            </span>
+                            <span class="fixture-score ${myMatch.homeGoals === null ? 'unplayed' : ''}">${resText}</span>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    viewport.innerHTML = `
+        <h2 class="section-title">📅 KALENDER & SAISONVORBEREITUNG</h2>
+
+        ${phaseBannerHtml}
+        ${devReportHtml}
+        ${weekReportHtml}
+        ${bookingModalHtml}
+
+        <div class="sub-tab-bar two-tabs">
+            <button class="sub-tab-btn ${calendarSubTab === 'preseason' ? 'active' : ''}" data-calsub="preseason">🗓️ VORBEREITUNG (4 W.)</button>
+            <button class="sub-tab-btn ${calendarSubTab === 'season_cal' ? 'active' : ''}" data-calsub="season_cal">📅 SAISON-KALENDER</button>
+        </div>
+
+        ${tabBodyHtml}
+    `;
+
+    // Event-Handler binden
+    const hideDevBtn = document.getElementById('btn-hide-dev-report');
+    if (hideDevBtn) {
+        hideDevBtn.addEventListener('click', () => {
+            GameState.lastSeasonDevelopmentReport = null;
+            saveGame();
+            renderCalendarView(viewport);
+        });
+    }
+
+    const simPreBtn = document.getElementById('btn-sim-preseason-week');
+    if (simPreBtn) {
+        simPreBtn.addEventListener('click', () => advancePreseasonWeek());
+    }
+
+    const gotoSpBtn = document.getElementById('btn-goto-sponsors-pre');
+    if (gotoSpBtn) {
+        gotoSpBtn.addEventListener('click', () => switchToView('sponsors'));
+    }
+
+    const autoPreBtn = document.getElementById('btn-auto-preseason');
+    if (autoPreBtn) {
+        autoPreBtn.addEventListener('click', () => autoPlanPreseason());
+    }
+
+    document.querySelectorAll('[data-calsub]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            calendarSubTab = e.currentTarget.dataset.calsub;
+            renderCalendarView(viewport);
+        });
+    });
+
+    document.querySelectorAll('.btn-open-booking').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            bookingDialogState = {
+                week: parseInt(e.currentTarget.dataset.week, 10),
+                category: e.currentTarget.dataset.cat
+            };
+            renderCalendarView(viewport);
+            document.getElementById('main-viewport').scrollTop = 0;
+        });
+    });
+
+    const closeBookBtn = document.getElementById('btn-close-booking');
+    if (closeBookBtn) {
+        closeBookBtn.addEventListener('click', () => {
+            bookingDialogState = null;
+            renderCalendarView(viewport);
+        });
+    }
+
+    document.querySelectorAll('.btn-confirm-booking').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            if (!bookingDialogState || !bookingDialogState.currentOptions) return;
+            const idx = parseInt(e.currentTarget.dataset.idx, 10);
+            const chosen = bookingDialogState.currentOptions[idx];
+            if (chosen) {
+                bookPreseasonActivity(bookingDialogState.week, chosen);
+            }
+        });
+    });
+
+    document.querySelectorAll('.btn-cancel-booking').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const wNum = parseInt(e.currentTarget.dataset.week, 10);
+            cancelPreseasonBooking(wNum);
+        });
+    });
+}
+
+// ==========================================
+// MODUL: TABELLE, SPIELTAG & TORJÄGER
+// ==========================================
+function renderLeagueView(viewport) {
+    const club = GameState.clubs[GameState.activeClubId];
+    if (!club) return;
+
+    ensureAllSchedulesInitialized(false);
+
+    if (!selectedLeagueViewId || !GameState.leagues[selectedLeagueViewId]) {
+        selectedLeagueViewId = club.leagueId;
+    }
+
+    const totalMds = getLeagueTotalMatchdays(selectedLeagueViewId);
+    if (!selectedFixtureMatchday || selectedFixtureMatchday < 1 || selectedFixtureMatchday > totalMds) {
+        selectedFixtureMatchday = Math.min(totalMds, GameState.meta.matchday);
+    }
+
+    const leagueOptions = Object.values(GameState.leagues)
+        .sort((a, b) => (a.tier || 1) - (b.tier || 1))
+        .map(l => `<option value="${l.id}" ${l.id === selectedLeagueViewId ? 'selected' : ''}>${l.name}</option>`)
+        .join('');
+
+    const isPreseason = GameState.meta.phase === 'preseason';
+    const userMaxMd = getLeagueTotalMatchdays(club.leagueId);
+    const isSeasonOver = !isPreseason && GameState.meta.matchday > userMaxMd;
+
+    let nextMatchBanner = "";
+    if (isPreseason) {
+        nextMatchBanner = `
+            <div class="open-window-banner">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+                    <div>
+                        <strong>🗓️ NOCH IN SAISONVORBEREITUNG (WOCHE ${GameState.meta.preseasonWeek}/4)</strong><br>
+                        <span style="font-size:0.68rem;">Der 1. Liga-Spieltag beginnt nach Abschluss der 4 Vorbereitungswochen.</span>
+                    </div>
+                    <button id="btn-goto-preseason-cal" class="bmh-btn primary small-btn">📅 KALENDER</button>
+                </div>
+            </div>
+        `;
+    } else if (!isSeasonOver) {
+        const userSched = GameState.schedule[club.leagueId];
+        const nextMdObj = userSched?.matchdays.find(m => m.matchday === GameState.meta.matchday);
+        const nextMatch = nextMdObj?.matches.find(m => m.homeId === club.id || m.awayId === club.id);
+        if (nextMatch) {
+            const isHome = nextMatch.homeId === club.id;
+            const oppId = isHome ? nextMatch.awayId : nextMatch.homeId;
+            const oppName = GameState.clubs[oppId]?.name || oppId;
+            nextMatchBanner = `
+                <div class="bmh-box" style="padding:8px; background:#d7eadc; border-color:#246b35;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+                        <div style="font-size:0.75rem;">
+                            <span style="font-size:0.64rem; font-weight:bold; color:#184d25;">NÄCHSTES SPIEL (ST ${GameState.meta.matchday})</span><br>
+                            <strong>${isHome ? '🏟️ HEIM' : '🚌 AUSWÄRTS'} vs. ${oppName}</strong>
+                        </div>
+                        <button id="btn-sim-matchday-inline" class="bmh-btn primary small-btn">⚽ SPIELEN</button>
+                    </div>
                 </div>
             `;
+        }
+    } else {
+        nextMatchBanner = `
+            <div class="bmh-box" style="padding:10px; background:#184d25; color:#fff; border-color:#e5b822; text-align:center;">
+                <p style="font-size:0.82rem; color:#e5b822; font-weight:bold;">🏆 SAISON ${GameState.meta.season} BEENDET!</p>
+                <p style="font-size:0.72rem; margin:4px 0 8px 0;">Alle ${userMaxMd} Spieltage sind absolviert. Jetzt Stärkeentwicklung & Saisonübergang starten!</p>
+                <button id="btn-finish-season" class="bmh-btn" style="width:100%; background:#e5b822; color:#111;">
+                    🏆 SAISON ABSCHLIESSEN & STÄRKEENTWICKLUNG STARTEN
+                </button>
+            </div>
+        `;
     }
+
+    let contentHtml = "";
+    if (leagueSubTab === 'table') {
+        contentHtml = buildStandingsTableHtml(selectedLeagueViewId);
+    } else if (leagueSubTab === 'fixtures') {
+        contentHtml = buildFixturesTabHtml(selectedLeagueViewId, selectedFixtureMatchday, totalMds);
+    } else {
+        contentHtml = buildTopScorersTabHtml(selectedLeagueViewId);
+    }
+
+    viewport.innerHTML = `
+        <h2 class="section-title">🏆 LIGA, TABELLE & SPIELTAG</h2>
+
+        ${nextMatchBanner}
+
+        <div class="bmh-box" style="padding:6px; margin-bottom:8px;">
+            <select id="league-view-select" class="bmh-select" style="margin-bottom:0;">
+                ${leagueOptions}
+            </select>
+        </div>
+
+        <div class="sub-tab-bar">
+            <button class="sub-tab-btn ${leagueSubTab === 'table' ? 'active' : ''}" data-lsub="table">📊 TABELLE</button>
+            <button class="sub-tab-btn ${leagueSubTab === 'fixtures' ? 'active' : ''}" data-lsub="fixtures">⚽ SPIELTAG</button>
+            <button class="sub-tab-btn ${leagueSubTab === 'scorers' ? 'active' : ''}" data-lsub="scorers">🥅 TORJÄGER</button>
+        </div>
+
+        ${contentHtml}
+    `;
+
+    const gotoPreCal = document.getElementById('btn-goto-preseason-cal');
+    if (gotoPreCal) {
+        gotoPreCal.addEventListener('click', () => switchToView('calendar'));
+    }
+
+    const inlineSimBtn = document.getElementById('btn-sim-matchday-inline');
+    if (inlineSimBtn) {
+        inlineSimBtn.addEventListener('click', () => advanceMatchdayAndSimulate());
+    }
+
+    const finishSeasonBtn = document.getElementById('btn-finish-season');
+    if (finishSeasonBtn) {
+        finishSeasonBtn.addEventListener('click', () => finishSeasonAndAdvance());
+    }
+
+    document.getElementById('league-view-select').addEventListener('change', (e) => {
+        selectedLeagueViewId = e.currentTarget.value;
+        renderLeagueView(viewport);
+    });
+
+    document.querySelectorAll('[data-lsub]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            leagueSubTab = e.currentTarget.dataset.lsub;
+            renderLeagueView(viewport);
+        });
+    });
+
+    if (leagueSubTab === 'fixtures') {
+        const prevBtn = document.getElementById('btn-md-prev');
+        const nextBtn = document.getElementById('btn-md-next');
+        if (prevBtn) {
+            prevBtn.addEventListener('click', () => {
+                selectedFixtureMatchday = Math.max(1, selectedFixtureMatchday - 1);
+                renderLeagueView(viewport);
+            });
+        }
+        if (nextBtn) {
+            nextBtn.addEventListener('click', () => {
+                selectedFixtureMatchday = Math.min(totalMds, selectedFixtureMatchday + 1);
+                renderLeagueView(viewport);
+            });
+        }
+    }
+}
+
+function buildStandingsTableHtml(leagueId) {
+    const standings = computeLeagueStandings(leagueId);
+    const league = GameState.leagues[leagueId];
+    const isTopTier = !league || (league.tier || 1) === 1;
+
+    if (standings.length === 0) {
+        return `<div class="bmh-box"><p>Keine Vereine in dieser Liga.</p></div>`;
+    }
+
+    return `
+        <div class="bmh-box" style="padding:6px;">
+            <table class="bmh-table">
+                <thead>
+                    <tr>
+                        <th style="width:10%;">PL</th>
+                        <th style="width:38%;">VEREIN</th>
+                        <th style="width:9%;">SP</th>
+                        <th style="width:17%;">S-U-N</th>
+                        <th style="width:14%;">TORE</th>
+                        <th style="width:12%;">PKT</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${standings.map((row, idx) => {
+                        const rank = idx + 1;
+                        const isUser = row.clubId === GameState.activeClubId;
+                        let badgeClass = "";
+                        if (isTopTier) {
+                            if (rank <= 4) badgeClass = "cl";
+                            else if (rank <= 6) badgeClass = "el";
+                            else if (rank === 16) badgeClass = "rel";
+                            else if (rank >= 17) badgeClass = "down";
+                        } else {
+                            if (rank <= 2) badgeClass = "cl";
+                            else if (rank === 3) badgeClass = "rel";
+                            else if (rank >= 16) badgeClass = "down";
+                        }
+                        return `
+                        <tr class="${isUser ? 'table-row-user' : ''}">
+                            <td><span class="rank-badge ${badgeClass}">${rank}</span></td>
+                            <td title="${row.name}">${row.name}</td>
+                            <td>${row.played}</td>
+                            <td style="font-size:0.68rem;">${row.won}-${row.drawn}-${row.lost}</td>
+                            <td style="font-size:0.68rem;">${row.gf}:${row.ga}</td>
+                            <td><strong>${row.points}</strong></td>
+                        </tr>
+                    `}).join('')}
+                </tbody>
+            </table>
+            <p style="font-size:0.64rem; color:#444; margin-top:6px;">
+                ${isTopTier
+                    ? '🟩 1–4 Champions League • 🟦 5–6 Europa • 🟨 16 Relegation • 🟥 17–18 Abstieg'
+                    : '🟩 1–2 Direktaufstieg • 🟨 3 Relegation • 🟥 16–18 Abstieg'}
+            </p>
+        </div>
+    `;
+}
+
+function buildFixturesTabHtml(leagueId, mdNum, totalMds) {
+    const sched = GameState.schedule[leagueId];
+    const mdObj = sched?.matchdays.find(m => m.matchday === mdNum);
+    const report = GameState.lastMatchReport;
+
+    let reportHtml = "";
+    if (report && report.match && report.matchday === mdNum && report.match.leagueId === leagueId) {
+        const m = report.match;
+        const eventsHtml = m.events && m.events.length > 0
+            ? m.events.map(ev => `⚽ ${ev.minute}' ${ev.playerName} (${ev.side === 'home' ? 'Heim' : 'Gast'})`).join('<br>')
+            : 'Keine Tore gefallen (0:0 Taktikschlacht)';
+
+        reportHtml = `
+            <div class="match-report-card">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="color:#e5b822; font-weight:bold;">📺 SPIELBERICHT • ST ${report.matchday}</span>
+                    ${m.isHome ? `<span style="font-size:0.66rem; color:#99b8a1;">👥 ${report.visitors.toLocaleString('de-DE')} Zuschauer</span>` : `<span style="font-size:0.66rem; color:#99b8a1;">Auswärtsspiel</span>`}
+                </div>
+
+                <div class="match-report-score">
+                    <span class="match-report-team">${m.homeName}</span>
+                    <span class="match-report-result">${m.homeGoals} : ${m.awayGoals}</span>
+                    <span class="match-report-team away">${m.awayName}</span>
+                </div>
+
+                <div class="match-events-list">${eventsHtml}</div>
+
+                <div class="finance-recap">
+                    <strong>💰 SPIELTAGS-BILANZ:</strong><br>
+                    ${report.ticketIncome > 0 ? `• Zuschauereinnahmen: <span style="color:#6ee787;">+${formatMoneyShort(report.ticketIncome)}</span><br>` : ''}
+                    ${report.sponsorIncome > 0 ? `• Sponsoren & Prämien: <span style="color:#6ee787;">+${formatMoneyShort(report.sponsorIncome)}</span><br>` : ''}
+                    • Spielergehälter: <span style="color:#ff8787;">-${formatMoneyShort(report.salaryCost)}</span><br>
+                    • <strong>Netto-Saldo: <span style="color:${report.netBalance >= 0 ? '#6ee787' : '#ff8787'};">${report.netBalance >= 0 ? '+' : ''}${formatMoneyShort(report.netBalance)}</span></strong>
+                    ${report.buildStatusMsg ? `<br><span style="color:#e5b822;">${report.buildStatusMsg}</span>` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    const matchesHtml = !mdObj ? '<p>Kein Spielplan gefunden.</p>' : mdObj.matches.map(m => {
+        const homeName = GameState.clubs[m.homeId]?.name || m.homeId;
+        const awayName = GameState.clubs[m.awayId]?.name || m.awayId;
+        const isUserMatch = m.homeId === GameState.activeClubId || m.awayId === GameState.activeClubId;
+        const scoreText = (m.homeGoals !== null && m.awayGoals !== null)
+            ? `${m.homeGoals} : ${m.awayGoals}`
+            : 'vs.';
+        return `
+            <div class="fixture-row ${isUserMatch ? 'user-match' : ''}">
+                <span class="fixture-team" title="${homeName}">${homeName}</span>
+                <span class="fixture-score ${m.homeGoals === null ? 'unplayed' : ''}">${scoreText}</span>
+                <span class="fixture-team away" title="${awayName}">${awayName}</span>
+            </div>
+        `;
+    }).join('');
+
+    return `
+        ${reportHtml}
+
+        <div class="bmh-box" style="padding:8px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <button id="btn-md-prev" class="bmh-btn small-btn" ${mdNum <= 1 ? 'disabled' : ''}>◀ VOR</button>
+                <strong style="font-size:0.84rem; color:#184d25;">SPIELTAG ${mdNum} / ${totalMds}</strong>
+                <button id="btn-md-next" class="bmh-btn small-btn" ${mdNum >= totalMds ? 'disabled' : ''}>ZUR ▶</button>
+            </div>
+            ${matchesHtml}
+        </div>
+    `;
+}
+
+function buildTopScorersTabHtml(leagueId) {
+    const scorers = getLeagueTopScorers(leagueId);
+    if (scorers.length === 0) {
+        return `
+            <div class="bmh-box">
+                <p style="font-size:0.78rem;">In dieser Saison wurden noch keine Tore erzielt. Simuliere den 1. Spieltag mit <strong>WEITER ▶</strong>!</p>
+            </div>
+        `;
+    }
+
+    return `
+        <div class="bmh-box" style="padding:6px;">
+            <table class="bmh-table">
+                <thead>
+                    <tr>
+                        <th style="width:11%;">PL</th>
+                        <th style="width:41%;">SPIELER</th>
+                        <th style="width:34%;">VEREIN</th>
+                        <th style="width:14%;">TORE</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${scorers.map((p, idx) => {
+                        const isUser = p.clubId === GameState.activeClubId;
+                        const cName = GameState.clubs[p.clubId]?.name || '-';
+                        return `
+                        <tr class="${isUser ? 'table-row-user' : ''}">
+                            <td><strong>${idx + 1}.</strong></td>
+                            <td title="${p.name}"><strong>${p.name}</strong> (${p.pos})</td>
+                            <td title="${cName}">${cName}</td>
+                            <td><strong style="color:#184d25;">⚽ ${p.seasonGoals}</strong></td>
+                        </tr>
+                    `}).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
 }
 
 // ==========================================
@@ -874,6 +2814,14 @@ function renderOfficeView(viewport) {
     const totalSalary = squad.reduce((sum, p) => sum + (p.salary || 0), 0);
     const expiringCount = squad.filter(p => (p.contractUntil || seasonEnd) <= seasonEnd).length;
     const forecast = club ? calculateStadiumForecast(club) : { occupancyPct: 0, totalMatchRevenue: 0 };
+    const avgMotivation = squad.length > 0
+        ? Math.round(squad.reduce((s, p) => s + (p.motivation || 78), 0) / squad.length)
+        : 78;
+
+    const isPreseason = GameState.meta.phase === 'preseason';
+    const standings = club ? computeLeagueStandings(club.leagueId) : [];
+    const myRank = club ? (standings.findIndex(r => r.clubId === club.id) + 1) : 0;
+    const myPoints = myRank > 0 ? standings[myRank - 1].points : 0;
 
     viewport.innerHTML = `
         <h2 class="section-title">🏢 MANAGER-BÜRO</h2>
@@ -881,8 +2829,20 @@ function renderOfficeView(viewport) {
             <p><strong>Willkommen im Chefbüro, ${GameState.meta.managerName}!</strong></p>
             <p style="font-size:0.76rem; color:#333; margin-top:2px;">
                 ${club ? club.name : '-'} • ${club && GameState.leagues[club.leagueId] ? GameState.leagues[club.leagueId].name : '-'}
+                ${isPreseason ? `• <strong>Vorbereitung W${GameState.meta.preseasonWeek}/4</strong>` : (myRank > 0 ? `• <strong>${myRank}. Platz (${myPoints} Pkt)</strong>` : '')}
             </p>
         </div>
+
+        ${isPreseason ? `
+            <div class="open-window-banner">
+                <strong>🗓️ SAISONVORBEREITUNG LÄUFT (WOCHE ${GameState.meta.preseasonWeek}/4)</strong>
+                <p style="font-size:0.7rem; margin:3px 0 6px 0;">Buche Freundschaftsspiele, Trainingslager & Events und schließe jetzt Sponsorenverträge ab!</p>
+                <div style="display:flex; gap:6px;">
+                    <button id="btn-office-cal" class="bmh-btn primary small-btn" style="flex:1;">📅 ZUM KALENDER</button>
+                    <button id="btn-office-spons" class="bmh-btn gold-btn small-btn" style="flex:1;">💼 SPONSOREN</button>
+                </div>
+            </div>
+        ` : ''}
 
         <div class="kpi-grid">
             <div class="kpi-card">
@@ -890,8 +2850,8 @@ function renderOfficeView(viewport) {
                 <span class="kpi-value">${squad.length} Sp. • Ø ${calculateTeamStrength()}</span>
             </div>
             <div class="kpi-card">
-                <span class="kpi-label">GEHÄLTER / SAISON</span>
-                <span class="kpi-value">${formatMoneyShort(totalSalary)}</span>
+                <span class="kpi-label">STIMMUNG / MOTIVATION</span>
+                <span class="kpi-value">${getMotivationIcon(avgMotivation)} ${avgMotivation}%</span>
             </div>
             <div class="kpi-card">
                 <span class="kpi-label">VERTRÄGE '${String(seasonEnd).slice(-2)}</span>
@@ -904,9 +2864,10 @@ function renderOfficeView(viewport) {
         </div>
 
         <div class="bmh-box" style="font-size:0.78rem;">
-            <p><strong>💼 Trikotsponsor:</strong> ${GameState.sponsors.main ? `${GameState.sponsors.main.name} (${formatMoneyShort(GameState.sponsors.main.perMatch)}/ST)` : '<span style="color:#a82424;">Noch kein Partner!</span>'}</p>
-            <p style="margin-top:4px;"><strong>📺 Bandenwerbung:</strong> ${GameState.sponsors.boards ? `${GameState.sponsors.boards.name} (${formatMoneyShort(GameState.sponsors.boards.perMatch)}/HS)` : '<span style="color:#a82424;">Noch kein Partner!</span>'}</p>
+            <p><strong>💼 Trikotsponsor:</strong> ${GameState.sponsors.main ? `${GameState.sponsors.main.name} (${formatMoneyShort(GameState.sponsors.main.perMatch)}/ST)` : `<span style="color:#a82424;">Noch kein Partner! ${isPreseason ? '(Jetzt verhandelbar)' : '(Fenster geschlossen)'}</span>`}</p>
+            <p style="margin-top:4px;"><strong>📺 Bandenwerbung:</strong> ${GameState.sponsors.boards ? `${GameState.sponsors.boards.name} (${formatMoneyShort(GameState.sponsors.boards.perMatch)}/HS)` : `<span style="color:#a82424;">Noch kein Partner! ${isPreseason ? '(Jetzt verhandelbar)' : '(Fenster geschlossen)'}</span>`}</p>
             <p style="margin-top:4px;"><strong>🏟️ Stadion:</strong> ${club?.stadium?.name || '-'} (${(club?.stadium?.capacity || 0).toLocaleString('de-DE')} Plätze • Ticket ${club?.stadium?.ticketPrice || 24} €)</p>
+            <p style="margin-top:4px;"><strong>💶 Gehälter / Saison:</strong> ${formatMoneyShort(totalSalary)}</p>
             ${GameState.stadiumProject ? `<p style="margin-top:4px; color:#184d25;"><strong>🏗️ Baustelle:</strong> ${GameState.stadiumProject.title} (noch ${GameState.stadiumProject.remainingMatchdays} ST)</p>` : ''}
         </div>
 
@@ -914,6 +2875,12 @@ function renderOfficeView(viewport) {
             <button id="btn-back-to-start" class="bmh-btn" style="width:100%;">🏠 ZUM STARTBILDSCHIRM / NEUES SPIEL</button>
         </div>
     `;
+
+    const offCal = document.getElementById('btn-office-cal');
+    if (offCal) offCal.addEventListener('click', () => switchToView('calendar'));
+
+    const offSpons = document.getElementById('btn-office-spons');
+    if (offSpons) offSpons.addEventListener('click', () => switchToView('sponsors'));
 
     document.getElementById('btn-back-to-start').addEventListener('click', () => {
         window.location.href = 'start.html';
@@ -946,7 +2913,6 @@ function renderContractsView(viewport) {
         });
     }
 
-    // Verhandlungs-Box für ausgewählten Spieler
     let negotiationHtml = "";
     if (activeContractPlayerId) {
         const player = squad.find(p => p.id === activeContractPlayerId);
@@ -958,7 +2924,7 @@ function renderContractsView(viewport) {
             negotiationHtml = `
                 <div class="negotiation-box">
                     <h3>✍️ VERTRAGSVERHANDLUNG: ${player.name}</h3>
-                    <p>Pos: <strong>${player.pos}</strong> | Alter: <strong>${player.age}</strong> | Stärke: <strong>${player.rating.toFixed(1)}</strong></p>
+                    <p>Pos: <strong>${player.pos}</strong> | Alter: <strong>${player.age}</strong> | Stärke: <strong>${player.rating.toFixed(1)}</strong> | Mot.: <strong>${player.motivation || 78}%</strong></p>
                     <p>Aktuell: <strong>${formatMoneyShort(player.salary)}/J.</strong> (Vertrag bis <strong>${player.contractUntil}</strong>)</p>
 
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-top:8px;">
@@ -1108,7 +3074,6 @@ function renderContractsView(viewport) {
                 return;
             }
 
-            // Ablehnungsrisiko bei Sparangebot ohne ausreichendes Handgeld
             if (newSalary < expectedSal) {
                 const rejectChance = bonus >= 750000 ? 0.10 : (bonus >= 250000 ? 0.25 : 0.45);
                 if (Math.random() < rejectChance) {
@@ -1120,6 +3085,7 @@ function renderContractsView(viewport) {
             club.budget -= bonus;
             player.salary = newSalary;
             player.contractUntil = seasonEnd + addYears;
+            adjustPlayerMotivation(player, 6);
             activeContractPlayerId = null;
 
             saveGame();
@@ -1131,7 +3097,7 @@ function renderContractsView(viewport) {
 }
 
 // ==========================================
-// MODUL: SPONSOREN (TRIKOT & BANDENWERBUNG)
+// MODUL: SPONSOREN (NUR IN DER SAISONVORBEREITUNG VERHANDELBAR!)
 // ==========================================
 function renderSponsorsView(viewport) {
     ensureSponsorOffersInitialized(false);
@@ -1139,10 +3105,26 @@ function renderSponsorsView(viewport) {
     const seasonEnd = getCurrentSeasonEndYear();
     const mainDeal = GameState.sponsors.main;
     const boardsDeal = GameState.sponsors.boards;
+    const isPreseason = GameState.meta.phase === 'preseason';
 
-    // 3-Klick-Verhandlungsfenster falls ein Angebot gewählt wurde
+    if (!isPreseason) {
+        activeSponsorOffer = null;
+    }
+
+    const windowBannerHtml = isPreseason ? `
+        <div class="open-window-banner">
+            <strong>✅ SAISONVORBEREITUNG: VERHANDLUNGSFENSTER GEÖFFNET</strong>
+            <p style="font-size:0.7rem; margin-top:2px;">Schließe jetzt deine Sponsorenverträge ab! Ab dem 1. Liga-Spieltag sind während der laufenden Saison keine Verhandlungen oder Abschlüsse mehr möglich.</p>
+        </div>
+    ` : `
+        <div class="locked-banner">
+            <strong>🔒 VERHANDLUNGSFENSTER GESCHLOSSEN (LAUFENDE SAISON)</strong>
+            <p style="font-size:0.7rem; margin-top:2px;">Sponsorenverträge können ausschließlich während der <strong>Saisonvorbereitung</strong> verhandelt und abgeschlossen werden. Das Fenster öffnet wieder nach dem 34. Spieltag.</p>
+        </div>
+    `;
+
     let negotiationHtml = "";
-    if (activeSponsorOffer) {
+    if (isPreseason && activeSponsorOffer) {
         const pool = activeSponsorOffer.slot === 'main' ? GameState.sponsors.offersMain : GameState.sponsors.offersBoards;
         const offer = pool.find(o => o.id === activeSponsorOffer.offerId);
         if (offer) {
@@ -1195,9 +3177,9 @@ function renderSponsorsView(viewport) {
 
         return `
             <div class="bmh-box">
-                <h3 style="font-size:0.84rem; margin-bottom:6px;">${title} (3 Angebote)</h3>
+                <h3 style="font-size:0.84rem; margin-bottom:6px;">${title} ${isPreseason ? '(3 Angebote)' : '(Unbesetzt)'}</h3>
                 ${offersList.map(o => `
-                    <div class="sponsor-card">
+                    <div class="sponsor-card" style="${!isPreseason ? 'opacity:0.72;' : ''}">
                         <div class="sponsor-card-header">
                             <strong>${o.name}</strong>
                             <span class="sponsor-tag">${o.style.toUpperCase()}</span>
@@ -1206,8 +3188,12 @@ function renderSponsorsView(viewport) {
                         <p style="font-size:0.73rem; margin-top:4px;">
                             Antritt: <strong style="color:#184d25;">+${formatMoneyShort(o.signOnBonus)}</strong> | Fix: <strong>${formatMoneyShort(o.perMatch)}/${unitLabel}</strong> | Sieg: <strong>+${formatMoneyShort(o.winBonus)}</strong>
                         </p>
-                        <button class="bmh-btn primary small-btn btn-open-sponsor" data-slot="${slotKey}" data-oid="${o.id}" style="width:100%; margin-top:6px;">
-                            ✍️ VERHANDELN & LAUFZEIT WÄHLEN
+                        <button class="bmh-btn ${isPreseason ? 'primary' : ''} small-btn btn-open-sponsor"
+                                data-slot="${slotKey}"
+                                data-oid="${o.id}"
+                                style="width:100%; margin-top:6px;"
+                                ${!isPreseason ? 'disabled' : ''}>
+                            ${isPreseason ? '✍️ VERHANDELN & LAUFZEIT WÄHLEN' : '🔒 NUR IN SAISONVORBEREITUNG MÖGLICH'}
                         </button>
                     </div>
                 `).join('')}
@@ -1218,12 +3204,13 @@ function renderSponsorsView(viewport) {
     viewport.innerHTML = `
         <h2 class="section-title">💼 SPONSOREN & WERBEPARTNER</h2>
 
+        ${windowBannerHtml}
         ${negotiationHtml}
 
         ${renderSlotSection('main', '👕 TRIKOT- & HAUPTSPONSOR', 'ST', mainDeal, GameState.sponsors.offersMain)}
         ${renderSlotSection('boards', '📺 BANDENWERBUNG & PARTNER', 'HS', boardsDeal, GameState.sponsors.offersBoards)}
 
-        ${(!mainDeal || !boardsDeal) ? `
+        ${(isPreseason && (!mainDeal || !boardsDeal)) ? `
             <div class="bmh-box">
                 <button id="btn-refresh-sponsors" class="bmh-btn" style="width:100%; background:#e5b822;">
                     🔄 NEUE SPONSOREN-ANGEBOTE EINHOLEN (100k €)
@@ -1232,8 +3219,11 @@ function renderSponsorsView(viewport) {
         ` : ''}
     `;
 
+    if (!isPreseason) return;
+
     document.querySelectorAll('.btn-open-sponsor').forEach(btn => {
         btn.addEventListener('click', (e) => {
+            if (GameState.meta.phase !== 'preseason') return;
             activeSponsorOffer = {
                 slot: e.currentTarget.dataset.slot,
                 offerId: e.currentTarget.dataset.oid
@@ -1254,6 +3244,10 @@ function renderSponsorsView(viewport) {
     const signSpBtn = document.getElementById('btn-sign-sponsor');
     if (signSpBtn) {
         signSpBtn.addEventListener('click', () => {
+            if (GameState.meta.phase !== 'preseason') {
+                alert("Sponsorenverträge können nur in der Saisonvorbereitung abgeschlossen werden!");
+                return;
+            }
             if (!club || !activeSponsorOffer) return;
             const pool = activeSponsorOffer.slot === 'main' ? GameState.sponsors.offersMain : GameState.sponsors.offersBoards;
             const offer = pool.find(o => o.id === activeSponsorOffer.offerId);
@@ -1287,6 +3281,7 @@ function renderSponsorsView(viewport) {
     const refreshSpBtn = document.getElementById('btn-refresh-sponsors');
     if (refreshSpBtn) {
         refreshSpBtn.addEventListener('click', () => {
+            if (GameState.meta.phase !== 'preseason') return;
             if (!club) return;
             if (club.budget < 100000) {
                 alert("Nicht genügend Budget für die Agentur-Gebühr (100k €)!");
@@ -1324,7 +3319,7 @@ function renderStadiumView(viewport) {
                 <div class="progress-bar-wrap">
                     <div class="progress-bar-fill" style="width:${pct}%;"></div>
                 </div>
-                <p style="font-size:0.72rem;">Fertigstellung in <strong>${proj.remainingMatchdays} Spieltag(en)</strong> (Klick auf WEITER ▶ baut weiter).</p>
+                <p style="font-size:0.72rem;">Fertigstellung in <strong>${proj.remainingMatchdays} Liga-Spieltag(en)</strong>.</p>
             </div>
         `;
     }
@@ -1496,6 +3491,7 @@ function renderStadiumView(viewport) {
 // MODUL: KADER, SORTIERUNG, TRANSFERMARKT & JUGEND
 // ==========================================
 function renderSquadAndMarketView(viewport) {
+    ensurePlayerStatsInitialized();
     ensureFreeAgentsInitialized();
     ensureYouthPool(false);
     ensureValidSquadAssignment();
@@ -1547,7 +3543,6 @@ function renderSquadAndMarketView(viewport) {
     }
 }
 
-// --- TAB 1: MEIN KADER INKL. SORTIERUNG & VERKAUF ---
 function buildRosterTabHtml(mySquad) {
     const activeIds = new Set(GameState.tactics.lineup.filter(Boolean));
     const benchIds = new Set(GameState.tactics.bench.filter(Boolean));
@@ -1603,7 +3598,7 @@ function buildRosterTabHtml(mySquad) {
                 <button class="sort-btn ${rosterSortBy === 'contract' ? 'active' : ''}" data-sort="contract">VERTRAG${arrow('contract')}</button>
             </div>
 
-            <div style="display:flex; gap:6px; margin-bottom:6px; font-size:0.66rem; flex-wrap:wrap;">
+            <div style="display:flex; gap:6px; margin-bottom:6px; font-size:0.64rem; flex-wrap:wrap;">
                 <span><span class="zone-badge xi">11</span> Startelf (${activeIds.size})</span>
                 <span><span class="zone-badge bench">BK</span> Bank (${benchIds.size})</span>
                 <span><span class="zone-badge stands">TR</span> Tribüne (${Math.max(0, mySquad.length - activeIds.size - benchIds.size)})</span>
@@ -1613,12 +3608,12 @@ function buildRosterTabHtml(mySquad) {
             <table class="bmh-table">
                 <thead>
                     <tr>
-                        <th style="width:10%;">ST.</th>
-                        <th style="width:11%;">POS</th>
-                        <th style="width:31%;">NAME</th>
-                        <th style="width:11%;">STÄ</th>
+                        <th style="width:9%;">ST.</th>
+                        <th style="width:10%;">POS</th>
+                        <th style="width:33%;">NAME / FORM</th>
+                        <th style="width:10%;">STÄ</th>
                         <th style="width:15%;">GEH.</th>
-                        <th style="width:10%;">BIS</th>
+                        <th style="width:11%;">SP/⚽</th>
                         <th style="width:12%;">AKT.</th>
                     </tr>
                 </thead>
@@ -1634,14 +3629,18 @@ function buildRosterTabHtml(mySquad) {
                             rowStyle = "background:#f5efd6;";
                         }
                         const youthIcon = p.isYouthProduct ? "🌱" : "";
+                        const mot = p.motivation || 78;
                         return `
                         <tr style="${rowStyle}">
                             <td>${statusBadge}</td>
                             <td><strong>${p.pos}</strong></td>
-                            <td title="${p.name}">${youthIcon}${p.name}</td>
+                            <td title="${p.name} (${p.age} J. | Mot: ${mot}%)">
+                                <strong>${youthIcon}${p.name}</strong><br>
+                                <span style="font-size:0.60rem; color:#444;">${p.age}J • ${getMotivationIcon(mot)}${mot}% • '${String(p.contractUntil).slice(-2)}</span>
+                            </td>
                             <td><strong>${p.rating.toFixed(1)}</strong></td>
                             <td>${formatMoneyShort(p.salary)}</td>
-                            <td>'${String(p.contractUntil).slice(-2)}</td>
+                            <td style="font-size:0.66rem;">${p.seasonApps || 0}/${p.seasonGoals || 0}</td>
                             <td><button class="mini-action-btn sell btn-sell-player" data-pid="${p.id}">VK</button></td>
                         </tr>
                     `}).join('')}
@@ -1710,7 +3709,6 @@ function bindRosterTabEvents(viewport) {
     }
 }
 
-// --- TAB 2: TRANSFERMARKT ---
 function matchesPosGroup(pos, filter) {
     if (filter === 'ALL') return true;
     if (filter === 'TW') return pos === 'TW';
@@ -1802,7 +3800,7 @@ function buildTransferMarketTabHtml() {
                 <button class="sort-btn ${marketSortBy === 'age' ? 'active' : ''}" data-msort="age" style="flex:1;">JÜNGSTE</button>
             </div>
 
-            ${filtered.length === 0 ? '<p style="font-size:0.76rem;">Keine Spieler auf dem Markt gefunden. Lade im Adminbereich weitere Ligen!</p>' : `
+            ${filtered.length === 0 ? '<p style="font-size:0.76rem;">Keine Spieler auf dem Markt gefunden.</p>' : `
             <table class="bmh-table">
                 <thead>
                     <tr>
@@ -1895,6 +3893,12 @@ function bindTransferMarketEvents(viewport) {
             target.clubId = GameState.activeClubId;
             target.salary = offeredSalary;
             target.contractUntil = getCurrentSeasonEndYear() + years;
+            target.seasonApps = 0;
+            target.seasonMinutes = 0;
+            target.seasonGoals = 0;
+            target.seasonCleanSheets = 0;
+            target.motivation = 85;
+            target.talent = computeDefaultTalent(target);
 
             activeTransferTargetId = null;
             saveGame();
@@ -1906,7 +3910,6 @@ function bindTransferMarketEvents(viewport) {
     }
 }
 
-// --- TAB 3: JUGENDCAMP (NACHWUCHSLEISTUNGSZENTRUM) ---
 function buildYouthCampTabHtml() {
     const youths = GameState.youthAcademy.players || [];
 
@@ -1950,7 +3953,7 @@ function buildYouthCampTabHtml() {
                     `).join('')}
                 </tbody>
             </table>`}
-            <p style="font-size:0.66rem; color:#444; margin-top:6px;">Hinweis: Jugendspieler erhalten einen Profivertrag bis 2030 mit niedrigem Einstiegsgehalt.</p>
+            <p style="font-size:0.66rem; color:#444; margin-top:6px;">Hinweis: Jugendspieler erhalten einen Profivertrag mit niedrigem Einstiegsgehalt und hohem Entwicklungspotenzial (5★).</p>
         </div>
     `;
 }
@@ -1996,7 +3999,14 @@ function bindYouthCampEvents(viewport) {
                 rating: talent.rating,
                 salary: talent.salary,
                 contractUntil: getCurrentSeasonEndYear() + 3,
-                isYouthProduct: true
+                isYouthProduct: true,
+                seasonApps: 0,
+                seasonMinutes: 0,
+                seasonGoals: 0,
+                seasonCleanSheets: 0,
+                motivation: 90,
+                talent: 5,
+                campDevBonus: 0
             });
 
             GameState.youthAcademy.players.splice(yIndex, 1);
@@ -2380,6 +4390,7 @@ function renderAdminView(viewport) {
             GameState.tactics.bench = [];
             GameState.sponsors = { clubId: selectedId, main: null, boards: null, offersMain: [], offersBoards: [] };
             GameState.stadiumProject = null;
+            selectedLeagueViewId = GameState.clubs[selectedId]?.leagueId || null;
             ensureValidSquadAssignment();
             ensureYouthPool(true);
             ensureSponsorOffersInitialized(true);

@@ -116,12 +116,12 @@ html, body {
 }
 
 .stat-box .label {
-    font-size: 0.58rem;
+    font-size: 0.56rem;
     color: #99b8a1;
 }
 
 .stat-box .value {
-    font-size: 0.78rem;
+    font-size: 0.76rem;
     font-weight: bold;
     white-space: nowrap;
 }
@@ -145,7 +145,7 @@ html, body {
     background-color: var(--pitch-green);
     color: var(--text-light);
     padding: 6px 8px;
-    font-size: 0.9rem;
+    font-size: 0.88rem;
     margin-bottom: 10px;
     border-left: 4px solid var(--accent-gold);
 }
@@ -166,7 +166,7 @@ html, body {
     width: 100%;
     table-layout: fixed;
     border-collapse: collapse;
-    font-size: 0.75rem;
+    font-size: 0.73rem;
     background: #e9ecea;
 }
 
@@ -200,14 +200,19 @@ html, body {
     border-right-color: var(--panel-shadow);
     border-bottom-color: var(--panel-shadow);
     font-weight: bold;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     cursor: pointer;
     max-width: 100%;
 }
 
+.bmh-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
 .bmh-btn.small-btn {
-    padding: 5px 10px;
-    font-size: 0.75rem;
+    padding: 5px 8px;
+    font-size: 0.72rem;
     white-space: nowrap;
 }
 
@@ -221,6 +226,11 @@ html, body {
     color: var(--text-light);
 }
 
+.bmh-btn.gold-btn {
+    background-color: var(--accent-gold);
+    color: #111111;
+}
+
 .bmh-select, .bmh-input {
     width: 100%;
     max-width: 100%;
@@ -228,7 +238,7 @@ html, body {
     border: 2px solid var(--panel-shadow);
     background: #fff;
     font-weight: bold;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     margin-bottom: 6px;
 }
 
@@ -266,7 +276,6 @@ html, body {
     user-select: none;
 }
 
-/* Spielfeld-Linien */
 .pitch-halfline {
     position: absolute;
     top: 50%;
@@ -311,7 +320,6 @@ html, body {
     pointer-events: none;
 }
 
-/* Spieler-Karte auf dem Spielfeld */
 .pitch-node {
     position: absolute;
     transform: translate(-50%, -50%);
@@ -479,7 +487,7 @@ html, body {
     flex-shrink: 0;
 }
 
-/* Fixierter unterer Bereich (Dock + 8 Kacheln nebeneinander) */
+/* Fixierter unterer Bereich (Dock + 9 Kacheln nebeneinander) */
 .bmh-bottom-dock {
     flex-shrink: 0;
     width: 100%;
@@ -506,12 +514,12 @@ html, body {
     flex: 1;
 }
 
-/* Alle 8 Kacheln nebeneinander in einer festen Reihe */
+/* Alle 9 Kacheln nebeneinander in einer festen Reihe */
 .bmh-nav {
     display: grid;
-    grid-template-columns: repeat(8, 1fr);
+    grid-template-columns: repeat(9, 1fr);
     gap: 2px;
-    padding: 3px;
+    padding: 3px 2px;
     width: 100%;
 }
 
@@ -520,13 +528,13 @@ html, body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 5px 1px;
+    padding: 5px 0px;
     background-color: var(--panel-bg);
     border: 2px solid var(--panel-light);
     border-right-color: var(--panel-shadow);
     border-bottom-color: var(--panel-shadow);
     font-weight: bold;
-    font-size: 0.56rem;
+    font-size: 0.50rem;
     line-height: 1.1;
     cursor: pointer;
     color: var(--text-dark);
@@ -535,7 +543,7 @@ html, body {
 }
 
 .nav-icon {
-    font-size: 0.95rem;
+    font-size: 0.90rem;
     margin-bottom: 2px;
 }
 
@@ -566,6 +574,10 @@ html, body {
     margin-bottom: 10px;
 }
 
+.sub-tab-bar.two-tabs {
+    grid-template-columns: repeat(2, 1fr);
+}
+
 .sub-tab-btn {
     padding: 7px 4px;
     background-color: var(--panel-bg);
@@ -573,7 +585,7 @@ html, body {
     border-right-color: var(--panel-shadow);
     border-bottom-color: var(--panel-shadow);
     font-weight: bold;
-    font-size: 0.72rem;
+    font-size: 0.70rem;
     cursor: pointer;
     text-align: center;
     color: var(--text-dark);
@@ -601,7 +613,7 @@ html, body {
     padding: 5px 2px;
     background-color: #e2e5e3;
     border: 1px solid var(--panel-shadow);
-    font-size: 0.66rem;
+    font-size: 0.65rem;
     font-weight: bold;
     cursor: pointer;
     text-align: center;
@@ -682,7 +694,7 @@ html, body {
 }
 
 /* ==========================================
-   VERTRÄGE, SPONSOREN & STADION (v0.7)
+   VERTRÄGE, SPONSOREN & STADION
    ========================================== */
 .kpi-grid {
     display: grid;
@@ -706,7 +718,7 @@ html, body {
 }
 
 .kpi-value {
-    font-size: 0.84rem;
+    font-size: 0.82rem;
     font-weight: bold;
     color: var(--pitch-dark);
 }
@@ -742,6 +754,24 @@ html, body {
     font-weight: bold;
     background-color: var(--pitch-dark);
     color: var(--accent-gold);
+}
+
+.locked-banner {
+    background-color: #ffe3e3;
+    border: 2px solid #a82424;
+    color: #5e1111;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    font-size: 0.75rem;
+}
+
+.open-window-banner {
+    background-color: #d3f9d8;
+    border: 2px solid #246b35;
+    color: #0e2e16;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    font-size: 0.75rem;
 }
 
 .progress-bar-wrap {
@@ -791,4 +821,208 @@ html, body {
     background-color: #d3f9d8;
     color: #184d25;
     border: 1px solid #246b35;
+}
+
+/* ==========================================
+   TABELLE, SPIELTAG & MATCH-REPORT
+   ========================================== */
+.match-report-card {
+    background-color: #122918;
+    color: #f4f4f4;
+    border: 2px solid var(--accent-gold);
+    padding: 10px;
+    margin-bottom: 10px;
+    font-size: 0.76rem;
+}
+
+.match-report-score {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #0b1c10;
+    border: 1px solid var(--pitch-green);
+    padding: 8px;
+    margin: 6px 0;
+    font-weight: bold;
+}
+
+.match-report-team {
+    flex: 1;
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.match-report-team.away {
+    text-align: right;
+}
+
+.match-report-result {
+    padding: 2px 10px;
+    font-size: 1.05rem;
+    color: var(--accent-gold);
+    flex-shrink: 0;
+}
+
+.match-events-list {
+    font-size: 0.7rem;
+    color: #d3f9d8;
+    margin: 6px 0;
+    padding-left: 4px;
+    border-left: 2px solid var(--accent-gold);
+}
+
+.finance-recap {
+    background-color: #0e2e16;
+    border: 1px solid #246b35;
+    padding: 6px 8px;
+    margin-top: 6px;
+    font-size: 0.7rem;
+}
+
+.table-row-user {
+    background-color: #cfe8d5 !important;
+    font-weight: bold;
+}
+
+.rank-badge {
+    display: inline-block;
+    width: 18px;
+    text-align: center;
+    font-weight: bold;
+    font-size: 0.68rem;
+    padding: 1px 0;
+    border-radius: 2px;
+}
+
+.rank-badge.cl {
+    background-color: #246b35;
+    color: #fff;
+}
+
+.rank-badge.el {
+    background-color: #2b6cb0;
+    color: #fff;
+}
+
+.rank-badge.rel {
+    background-color: #e5b822;
+    color: #111;
+}
+
+.rank-badge.down {
+    background-color: #a82424;
+    color: #fff;
+}
+
+.fixture-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 4px;
+    border-bottom: 1px solid #b5bab7;
+    font-size: 0.74rem;
+    gap: 4px;
+}
+
+.fixture-row.user-match {
+    background-color: #d7eadc;
+    font-weight: bold;
+}
+
+.fixture-team {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.fixture-team.away {
+    text-align: right;
+}
+
+.fixture-score {
+    min-width: 46px;
+    text-align: center;
+    font-weight: bold;
+    background-color: #184d25;
+    color: var(--accent-gold);
+    padding: 2px 4px;
+    border: 1px solid #0e2e16;
+    flex-shrink: 0;
+}
+
+.fixture-score.unplayed {
+    background-color: #8c918e;
+    color: #111;
+}
+
+/* ==========================================
+   KALENDER, SAISONVORBEREITUNG & ENTWICKLUNG (v0.9)
+   ========================================== */
+.calendar-week-card {
+    background-color: #e9ecea;
+    border: 2px solid var(--panel-shadow);
+    padding: 8px;
+    margin-bottom: 8px;
+    font-size: 0.75rem;
+}
+
+.calendar-week-card.current-week {
+    border-color: var(--accent-gold);
+    background-color: #fff9db;
+}
+
+.calendar-week-card.booked-week {
+    border-color: var(--pitch-green);
+    background-color: #d7eadc;
+}
+
+.calendar-week-card.done-week {
+    background-color: #cfd4d1;
+    opacity: 0.9;
+}
+
+.cal-badge {
+    display: inline-block;
+    padding: 2px 5px;
+    font-size: 0.6rem;
+    font-weight: bold;
+    border: 1px solid #111;
+}
+
+.cal-badge.friendly {
+    background-color: #246b35;
+    color: #fff;
+}
+
+.cal-badge.camp {
+    background-color: #2b6cb0;
+    color: #fff;
+}
+
+.cal-badge.event {
+    background-color: #e5b822;
+    color: #111;
+}
+
+.cal-badge.open {
+    background-color: #8c918e;
+    color: #111;
+}
+
+.dev-delta-pos {
+    color: #184d25;
+    font-weight: bold;
+}
+
+.dev-delta-neg {
+    color: #a82424;
+    font-weight: bold;
+}
+
+.dev-delta-zero {
+    color: #555555;
+    font-weight: bold;
 }

@@ -6,8 +6,10 @@ const STORAGE_KEY = 'fcm_savegame_v1';
 
 let GameState = {
     meta: {
-        coreVersion: "0.3.0",
+        coreVersion: "0.9.0",
         season: "2026/27",
+        phase: "preseason",
+        preseasonWeek: 1,
         matchday: 1,
         installedUpdates: [],
         managerName: "",
@@ -22,11 +24,15 @@ let GameState = {
         formation: "4-4-2",
         mentality: "normal",
         aggression: "normal",
-        lineup: []
+        lineup: [],
+        bench: []
     },
     sponsors: {
+        clubId: null,
         main: null,
-        boards: null
+        boards: null,
+        offersMain: [],
+        offersBoards: []
     },
     stadiumProject: null
 };
@@ -108,8 +114,8 @@ function renderSetup() {
             <div class="bmh-box" style="font-size: 0.78rem;">
                 <p><strong>Ablauf beim Neustart:</strong></p>
                 <p>1. Manager-Namen eingeben</p>
-                <p>2. Land auswählen</p>
-                <p>3. Verein übernehmen & loslegen</p>
+                <p>2. Land & Verein übernehmen</p>
+                <p>3. Saisonvorbereitung (Testspiele, Camps, Sponsoren)</p>
             </div>
         `;
 
@@ -254,9 +260,25 @@ function renderSetup() {
             btn.addEventListener('click', (e) => {
                 const clubId = e.currentTarget.dataset.club;
                 GameState.activeClubId = clubId;
+                GameState.meta.season = "2026/27";
+                GameState.meta.phase = "preseason";
+                GameState.meta.preseasonWeek = 1;
                 GameState.meta.matchday = 1;
+                GameState.schedule = {};
+                GameState.preseason = null;
+                GameState.lastMatchReport = null;
+                GameState.lastSeasonDevelopmentReport = null;
+                GameState.tactics.lineup = [];
+                GameState.tactics.bench = [];
+                GameState.sponsors = {
+                    clubId: clubId,
+                    main: null,
+                    boards: null,
+                    offersMain: [],
+                    offersBoards: []
+                };
+                GameState.stadiumProject = null;
                 saveGameState();
-                // Weiterleitung ins Hauptspiel!
                 window.location.href = 'index.html';
             });
         });
