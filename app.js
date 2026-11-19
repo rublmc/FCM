@@ -290,12 +290,14 @@ let selectedFixtureMatchday = null;
 
 // Temporärer UI-State für Kalender & Saisonvorbereitung (v0.9)
 let calendarSubTab = 'preseason'; // 'preseason' | 'season_cal'
+let preseasonCollapsedInSeason = true;
 let bookingDialogState = null;    // { week: 1..4, category: 'friendly'|'camp'|'event' }
 
 // Temporärer Live-Ticker & Spieltags-State (v1.0)
 let liveMatchState = null;
 let liveTickerTimer = null;
 let liveSelectedPitchSlot = null;
+let liveTacticsDisplayMode = 'pitch'; // 'pitch' | 'list' 
 
 document.addEventListener('DOMContentLoaded', () => {
     loadGame();
@@ -419,6 +421,8 @@ function ensurePlayerStatsInitialized() {
         if (typeof p.motivation !== 'number') p.motivation = 78;
         if (typeof p.talent !== 'number') p.talent = computeDefaultTalent(p);
         if (typeof p.campDevBonus !== 'number') p.campDevBonus = 0;
+        if (typeof p.suspendedMatches !== 'number') p.suspendedMatches = 0;
+        if (typeof p.suspensionReason !== 'string') p.suspensionReason = "";
     });
 }
 
@@ -763,6 +767,8 @@ function advancePreseasonWeek() {
         GameState.meta.phase = "season";
         GameState.meta.preseasonWeek = 4;
         GameState.meta.matchday = 1;
+        calendarSubTab = 'season_cal';
+        preseasonCollapsedInSeason = true;
         seasonStartedMsg = "🚨 SAISONSTART! Die Saisonvorbereitung ist beendet – Sponsorenverhandlungen sind ab sofort geschlossen. Als Nächstes folgt Spieltag 1!";
     } else {
         GameState.meta.preseasonWeek = nextWeek;
@@ -993,9 +999,14 @@ function calculateClubMatchStrength(clubId, isHome) {
 function pickScorerForClub(clubId) {
     let candidates = [];
     if (clubId === GameState.activeClubId) {
-        const onPitchIds = new Set(GameState.tactics.lineup.filter(Boolean));
+        const benchSet = new Set(GameState.tactics.bench.filter(Boolean));
+        const onPitchIds = new Set(
+            GameState.tactics.lineup.filter(id => id && !benchSet.has(id))
+        );
         candidates = getClubPlayers(clubId).filter(p => {
             if (!onPitchIds.has(p.id)) return false;
+            if (benchSet.has(p.id)) return false;
+            if ((p.suspendedMatches || 0) > 0) return false;
             if (liveMatchState) {
                 if (liveMatchState.sentOffIds.includes(p.id)) return false;
                 if (liveMatchState.injuredIds.includes(p.id)) return false;
@@ -1003,8 +1014,8 @@ function pickScorerForClub(clubId) {
             }
             return true;
         });
-    }
-    if (candidates.length === 0) {
+        if (candidates.length === 0) return null;
+    } else {
         candidates = [...getClubPlayers(clubId)].sort((a, b) => b.rating - a.rating).slice(0, 11);
     }
     if (candidates.length === 0) return null;
@@ -1240,10 +1251,11 @@ function toggleLivePause() {
     }
     liveMatchState.isPaused = !liveMatchState.isPaused;
     liveMatchState.pauseReason = liveMatchState.isPaused ? "⏸ MANUELLE PAUSE" : "";
-    if (liveMatchState.isPaused) {
-        stopLiveTickerTimer();
-    } else {
+    if (!liveMatchState.isPaused) {
+        liveMatchState.inAppAlert = null;
         startLiveTickerTimer();
+    } else {
+        stopLiveTickerTimer();
     }
     renderHeader();
     renderView('liveticker');
@@ -1282,6 +1294,7 @@ function startSecondHalf() {
     liveMatchState.stoppageElapsed = 0;
     liveMatchState.isPaused = false;
     liveMatchState.pauseReason = "";
+    liveMatchState.inAppAlert = null;
     liveSelectedPitchSlot = null;
 
     if (liveMatchState.teamTalkTitle) {
@@ -1372,6 +1385,10 @@ function startLiveMatchday() {
         }
     });
 
+    const initialFormationSnapshot = GameState.tactics.formation || "4-4-2";
+    const initialLineupSnapshot = Array.isArray(GameState.tactics.lineup) ? [...GameState.tactics.lineup] : new Array(11).fill(null);
+    const initialBenchSnapshot = Array.isArray(GameState.tactics.bench) ? [...GameState.tactics.bench] : new Array(MAX_BENCH_SIZE).fill(null);
+
     const minutesPlayedMap = {};
     GameState.tactics.lineup.filter(Boolean).forEach(pid => {
         minutesPlayedMap[pid] = 0;
@@ -1407,11 +1424,16 @@ function startLiveMatchday() {
         prevMotDelta: 0,
         subsUsed: 0,
         maxSubs: 5,
+        initialFormation: initialFormationSnapshot,
+        initialLineup: initialLineupSnapshot,
+        initialBench: initialBenchSnapshot,
         sentOffIds: [],
         lockedRedSlots: [],
         injuredIds: [],
         subbedOutIds: [],
         yellowCardIds: [],
+        pendingSuspensions: [],
+        inAppAlert: null,
         minutesPlayedMap,
         stats: {
             homeShots: 0,
@@ -1447,6 +1469,52 @@ function addLiveTickerEntry(minLabel, side, type, text) {
         type,
         text
     });
+}
+
+function showLiveInAppAlert(alertObj) {
+    if (!liveMatchState) return;
+    liveMatchState.inAppAlert = {
+        ...alertObj,
+        createdAt: Date.now()
+    };
+}
+
+function dismissLiveInAppAlert() {
+    if (!liveMatchState) return;
+    liveMatchState.inAppAlert = null;
+}
+
+function determineRedCardBan(isSecondYellow) {
+    if (isSecondYellow) {
+        return {
+            matches: 1,
+            reason: "Gelb-Rote Karte",
+            severityLabel: "Wiederholtes Foulspiel"
+        };
+    }
+    const roll = Math.random();
+    if (roll < 0.35) {
+        const m = Math.random() < 0.55 ? 1 : 2;
+        return {
+            matches: m,
+            reason: "Notbremse",
+            severityLabel: "Notbremse (Verhinderung einer klaren Torchance)"
+        };
+    } else if (roll < 0.80) {
+        const m = Math.random() < 0.55 ? 2 : 3;
+        return {
+            matches: m,
+            reason: "Grobes Foulspiel",
+            severityLabel: "Grobes Foulspiel"
+        };
+    } else {
+        const m = Math.random() < 0.65 ? 4 : 5;
+        return {
+            matches: m,
+            reason: "Tätlichkeit",
+            severityLabel: "Tätlichkeit / Brutales Einsteigen"
+        };
+    }
 }
 
 function triggerLiveInterruption(reasonText, forcePause = false) {
@@ -1792,24 +1860,51 @@ function tickLiveMatchday(silentRender = false) {
         if (!highlightOccurred && activeSlots.length > 0 && Math.random() < (0.0020 * injuryMult)) {
             const victimObj = activeSlots[Math.floor(Math.random() * activeSlots.length)];
             const reason = INJURY_REASONS[Math.floor(Math.random() * INJURY_REASONS.length)];
-            const subRes = performAutomaticInjurySub(victimObj.slotIdx, victimObj.player);
 
-            if (subRes && subRes.success) {
+            if (silentRender && !liveMatchState.autoPause) {
+                // Nur wenn Auto-Stopp explizit deaktiviert ist, beim Skippen automatisch wechseln
+                const subRes = performAutomaticInjurySub(victimObj.slotIdx, victimObj.player);
+                if (subRes && subRes.success) {
+                    addLiveTickerEntry(
+                        minLabel,
+                        "user",
+                        "injury",
+                        `🚑 VERLETZUNG! ${victimObj.player.name} (${reason}) muss raus → 🔄 AUTO-WECHSEL: ${subRes.subIn.name} (${subRes.subIn.pos}) kommt aufs Feld! (Wechsel ${subRes.subsUsed}/5)`
+                    );
+                } else {
+                    addLiveTickerEntry(
+                        minLabel,
+                        "user",
+                        "card-red",
+                        `🚑 VERLETZUNG! ${victimObj.player.name} (${reason}) muss vom Platz – ${subRes ? subRes.reason : 'kein Wechsel möglich!'}`
+                    );
+                }
+            } else {
+                // Im Live-Modus: Verletzten Spieler vom Platz nehmen, KEIN heimlicher Bank-Wechsel -> Manager entscheidet per In-App-Benachrichtigung!
+                liveMatchState.injuredIds.push(victimObj.player.id);
+                adjustPlayerMotivation(victimObj.player, -2);
+                GameState.tactics.lineup[victimObj.slotIdx] = null;
+
+                const canSub = liveMatchState.subsUsed < liveMatchState.maxSubs && GameState.tactics.bench.some(Boolean);
+                const subHint = canSub
+                    ? `Position ist frei – wechsle jetzt einen Ersatzspieler ein (${liveMatchState.subsUsed}/${liveMatchState.maxSubs} Wechsel genutzt).`
+                    : `Kein Wechsel mehr möglich – Team spielt in Unterzahl weiter!`;
+
                 addLiveTickerEntry(
                     minLabel,
                     "user",
                     "injury",
-                    `🚑 VERLETZUNG! ${victimObj.player.name} (${reason}) muss raus → 🔄 AUTO-WECHSEL: ${subRes.subIn.name} (${subRes.subIn.pos}) kommt aufs Feld! (Wechsel ${subRes.subsUsed}/5)`
+                    `🚑 VERLETZUNG! ${victimObj.player.name} (${victimObj.player.pos} • ${reason}) muss verletzt vom Platz! ${subHint}`
                 );
-                triggerLiveInterruption(`🚑 VERLETZUNG & AUTO-WECHSEL (${victimObj.player.name} ➔ ${subRes.subIn.name})`, false);
-            } else {
-                addLiveTickerEntry(
-                    minLabel,
-                    "user",
-                    "card-red",
-                    `🚑 VERLETZUNG! ${victimObj.player.name} (${reason}) muss vom Platz – ${subRes ? subRes.reason : 'kein Wechsel möglich!'}`
-                );
-                triggerLiveInterruption(`🚑 VERLETZUNG OHNE ERSATZ (${victimObj.player.name})!`, false);
+                showLiveInAppAlert({
+                    type: "injury",
+                    minute: minLabel,
+                    title: "🚑 SPIELER VERLETZT!",
+                    headline: `${victimObj.player.name} (${victimObj.player.pos}) muss verletzt raus`,
+                    detail: `Diagnose: ${reason}. ${subHint}`,
+                    slotIdx: canSub ? victimObj.slotIdx : null
+                });
+                triggerLiveInterruption(`🚑 VERLETZUNG: ${victimObj.player.name} (${reason})!`, false);
             }
             highlightOccurred = true;
         }
@@ -1824,9 +1919,18 @@ function tickLiveMatchday(silentRender = false) {
             const alreadyYellow = liveMatchState.yellowCardIds.includes(pl.id);
 
             if (alreadyYellow || Math.random() < directRedProb) {
-                // Platzverweis!
+                // Platzverweis + Sperre berechnen!
                 const cardLabel = alreadyYellow ? "GELB-ROTE KARTE" : "GLATTE ROTE KARTE";
+                const ban = determineRedCardBan(alreadyYellow);
+
                 liveMatchState.sentOffIds.push(pl.id);
+                liveMatchState.pendingSuspensions.push({
+                    playerId: pl.id,
+                    matches: ban.matches,
+                    reason: ban.reason,
+                    cardType: cardLabel
+                });
+
                 GameState.tactics.lineup[offenderObj.slotIdx] = null;
                 liveMatchState.lockedRedSlots.push(offenderObj.slotIdx);
                 if (userIsHome) liveMatchState.stats.homeReds++;
@@ -1840,13 +1944,22 @@ function tickLiveMatchday(silentRender = false) {
                     }
                 }
 
+                const banText = `${ban.matches} ${ban.matches === 1 ? 'Spiel' : 'Spiele'} Sperre (${ban.reason})`;
                 addLiveTickerEntry(
                     minLabel,
                     "user",
                     "card-red",
-                    `🟥 ${cardLabel}! ${pl.name} (${pl.pos}) fliegt vom Platz! Weiter in Unterzahl.${gkNote}`
+                    `🟥 ${cardLabel}! ${pl.name} (${pl.pos}) fliegt vom Platz! ⚖️ Sportgericht: ${banText}.${gkNote}`
                 );
-                triggerLiveInterruption(`🟥 PLATZVERWEIS: ${pl.name} (${cardLabel})!`, false);
+                showLiveInAppAlert({
+                    type: alreadyYellow ? "yellow-red" : "red",
+                    minute: minLabel,
+                    title: alreadyYellow ? "🟨🟥 GELB-ROTE KARTE!" : "🟥 GLATTE ROTE KARTE!",
+                    headline: `${pl.name} (${pl.pos}) fliegt vom Platz!`,
+                    detail: `Tatbestand: ${ban.severityLabel} • Sperre: ${banText}.${gkNote}`,
+                    slotIdx: null
+                });
+                triggerLiveInterruption(`🟥 PLATZVERWEIS: ${pl.name} (${cardLabel} • ${banText})!`, false);
                 highlightOccurred = true;
             } else {
                 liveMatchState.yellowCardIds.push(pl.id);
@@ -2120,11 +2233,63 @@ function finalizeLiveMatchday() {
         }
     }
 
-    // 4. Nach Verletzung/Platzverweis Startelf & Bank wieder sauber auffüllen
-    ensureValidSquadAssignment();
-    if (GameState.tactics.lineup.filter(Boolean).length < 11) {
-        autoPickBestLineup(false);
+    // 4. Bestehende Sperren um 1 Spiel abbauen & neue Sperren aus diesem Spieltag eintragen
+    const newBans = Array.isArray(liveMatchState.pendingSuspensions) ? liveMatchState.pendingSuspensions : [];
+    const newlyBannedIds = new Set(newBans.map(b => b.playerId));
+
+    squad.forEach(p => {
+        if (!newlyBannedIds.has(p.id) && (p.suspendedMatches || 0) > 0) {
+            p.suspendedMatches = Math.max(0, p.suspendedMatches - 1);
+            if (p.suspendedMatches === 0) {
+                p.suspensionReason = "";
+            }
+        }
+    });
+
+    newBans.forEach(ban => {
+        const pl = squad.find(p => p.id === ban.playerId);
+        if (pl) {
+            pl.suspendedMatches = ban.matches;
+            pl.suspensionReason = ban.reason;
+        }
+    });
+
+    // 5. Ausgangsformation & -aufstellung des Spiels wiederherstellen – gesperrte oder im Spiel verletzte Spieler bleiben leer (null)
+    if (liveMatchState.initialFormation && FORMATIONS[liveMatchState.initialFormation]) {
+        GameState.tactics.formation = liveMatchState.initialFormation;
     }
+    const injuredDuringMatchSet = new Set(Array.isArray(liveMatchState.injuredIds) ? liveMatchState.injuredIds : []);
+    const baseLineup = Array.isArray(liveMatchState.initialLineup) && liveMatchState.initialLineup.length === 11
+        ? [...liveMatchState.initialLineup]
+        : [...GameState.tactics.lineup];
+    const baseBench = Array.isArray(liveMatchState.initialBench) && liveMatchState.initialBench.length === MAX_BENCH_SIZE
+        ? [...liveMatchState.initialBench]
+        : [...GameState.tactics.bench];
+
+    const squadById = new Map(squad.map(p => [p.id, p]));
+    const restoredUsed = new Set();
+
+    GameState.tactics.lineup = baseLineup.map(pid => {
+        if (!pid) return null;
+        const pl = squadById.get(pid);
+        if (!pl || restoredUsed.has(pid) || isPlayerSuspended(pl) || injuredDuringMatchSet.has(pid)) {
+            return null;
+        }
+        restoredUsed.add(pid);
+        return pid;
+    });
+
+    GameState.tactics.bench = baseBench.map(pid => {
+        if (!pid) return null;
+        const pl = squadById.get(pid);
+        if (!pl || restoredUsed.has(pid) || isPlayerSuspended(pl) || injuredDuringMatchSet.has(pid)) {
+            return null;
+        }
+        restoredUsed.add(pid);
+        return pid;
+    });
+
+    ensureValidSquadAssignment();
 
     GameState.lastMatchReport = {
         matchday: currentMd,
@@ -2439,6 +2604,7 @@ function finishSeasonAndAdvance() {
     selectedLeagueViewId = club.leagueId;
     selectedFixtureMatchday = 1;
     calendarSubTab = 'preseason';
+    preseasonCollapsedInSeason = true;
 
     saveGame();
     renderHeader();
@@ -2753,9 +2919,41 @@ function getShortName(fullName) {
     return parts[parts.length - 1];
 }
 
+function isPlayerSuspended(player) {
+    return Boolean(player && (player.suspendedMatches || 0) > 0);
+}
+
+function fillEmptyLineupSlotsWithEligible(squad) {
+    const slots = FORMATIONS[GameState.tactics.formation] || FORMATIONS["4-4-2"];
+    const usedIds = new Set([
+        ...GameState.tactics.lineup.filter(Boolean),
+        ...GameState.tactics.bench.filter(Boolean)
+    ]);
+    const standsEligible = squad
+        .filter(p => !usedIds.has(p.id) && !isPlayerSuspended(p))
+        .sort((a, b) => b.rating - a.rating);
+
+    slots.forEach((slotPos, idx) => {
+        if (GameState.tactics.lineup[idx]) return;
+        let pickIdx = standsEligible.findIndex(p => p.pos === slotPos);
+        if (pickIdx === -1) {
+            const allowed = POS_GROUPS[slotPos] || [];
+            pickIdx = standsEligible.findIndex(p => allowed.includes(p.pos));
+        }
+        if (pickIdx === -1 && standsEligible.length > 0) {
+            pickIdx = 0;
+        }
+        if (pickIdx !== -1) {
+            const chosen = standsEligible.splice(pickIdx, 1)[0];
+            GameState.tactics.lineup[idx] = chosen.id;
+            usedIds.add(chosen.id);
+        }
+    });
+}
+
 function ensureValidSquadAssignment() {
     const squad = getClubPlayers();
-    const squadIds = new Set(squad.map(p => p.id));
+    const squadMap = new Map(squad.map(p => [p.id, p]));
 
     if (!Array.isArray(GameState.tactics.lineup) || GameState.tactics.lineup.length !== 11) {
         GameState.tactics.lineup = new Array(11).fill(null);
@@ -2767,7 +2965,8 @@ function ensureValidSquadAssignment() {
 
     const seen = new Set();
     GameState.tactics.lineup = GameState.tactics.lineup.map(id => {
-        if (id && squadIds.has(id) && !seen.has(id)) {
+        const p = id ? squadMap.get(id) : null;
+        if (p && !isPlayerSuspended(p) && !seen.has(id)) {
             seen.add(id);
             return id;
         }
@@ -2775,20 +2974,23 @@ function ensureValidSquadAssignment() {
     });
 
     GameState.tactics.bench = GameState.tactics.bench.map(id => {
-        if (id && squadIds.has(id) && !seen.has(id)) {
+        const p = id ? squadMap.get(id) : null;
+        if (p && !isPlayerSuspended(p) && !seen.has(id)) {
             seen.add(id);
             return id;
         }
         return null;
     });
 
-    if (GameState.tactics.lineup.filter(Boolean).length === 0 && squad.length > 0) {
+    if (GameState.tactics.lineup.filter(Boolean).length === 0 && GameState.tactics.bench.filter(Boolean).length === 0 && squad.some(p => !isPlayerSuspended(p))) {
         autoPickBestLineup(false);
     }
 }
 
 function autoPickBestLineup(notify = true) {
-    const squad = [...getClubPlayers()].sort((a, b) => b.rating - a.rating);
+    const squad = [...getClubPlayers()]
+        .filter(p => !isPlayerSuspended(p))
+        .sort((a, b) => b.rating - a.rating);
     const slots = FORMATIONS[GameState.tactics.formation] || FORMATIONS["4-4-2"];
     const usedIds = new Set();
     const newLineup = new Array(11).fill(null);
@@ -2858,6 +3060,18 @@ function performPlayerSwap(src, tgt) {
         return;
     }
 
+    const squadAll = getClubPlayers();
+    const srcPlayerObj = src.playerId ? squadAll.find(p => p.id === src.playerId) : null;
+    const tgtPlayerObj = tgt.playerId ? squadAll.find(p => p.id === tgt.playerId) : null;
+    if ((srcPlayerObj && isPlayerSuspended(srcPlayerObj) && tgt.zone !== 'stands') ||
+        (tgtPlayerObj && isPlayerSuspended(tgtPlayerObj) && src.zone !== 'stands')) {
+        const banP = isPlayerSuspended(srcPlayerObj) ? srcPlayerObj : tgtPlayerObj;
+        const gamesTxt = banP.suspendedMatches === 1 ? '1 Spiel' : `${banP.suspendedMatches} Spiele`;
+        selectedSwapSource = null;
+        alert(`🟥 ${banP.name} ist noch für ${gamesTxt} gesperrt (${banP.suspensionReason || 'Rote Karte'}) und darf nicht in den Spieltagskader!`);
+        return;
+    }
+
     // Während eines laufenden Spiels gelten Live-Wechsel- und Unterzahlregeln
     if (liveMatchState) {
         if (src.zone === 'stands' || tgt.zone === 'stands') {
@@ -2915,6 +3129,7 @@ function performPlayerSwap(src, tgt) {
         bench[src.index] = tgt.playerId;
     }
 
+    ensureValidSquadAssignment();
     selectedSwapSource = null;
     saveGame();
     setStatus("Spielerwechsel durchgeführt!");
@@ -3142,9 +3357,14 @@ function renderCalendarView(viewport) {
     const isPreseason = GameState.meta.phase === 'preseason';
     const curWeek = GameState.meta.preseasonWeek || 1;
 
-    // 1. Banner für letzte Vorbereitungs-Woche
+    // Falls Vorbereitung bereits abgeschlossen ist, im Kalender direkt Saison-Kalender anzeigen
+    if (!isPreseason && calendarSubTab === 'preseason') {
+        calendarSubTab = 'season_cal';
+    }
+
+    // 1. Banner für letzte Vorbereitungs-Woche (nur während Vorbereitung oder direkt vor ST 1)
     let weekReportHtml = "";
-    if (GameState.preseason && GameState.preseason.lastWeekReport) {
+    if (GameState.preseason && GameState.preseason.lastWeekReport && (isPreseason || GameState.meta.matchday <= 1)) {
         const rep = GameState.preseason.lastWeekReport;
         weekReportHtml = `
             <div class="match-report-card">
@@ -3323,23 +3543,35 @@ function renderCalendarView(viewport) {
             </div>
         `;
     } else {
-        // Kompletter Saison-Kalender (Vorbereitung + ST 1–34)
+        // Saison-Kalender (Vorbereitung eingeklappt/ausgeblendet sobald abgeschlossen + Liga ST 1–34)
         const userSched = GameState.schedule[club.leagueId];
         const mds = userSched ? userSched.matchdays : [];
 
+        const preseasonWeeksRows = GameState.preseason.weeks.map(w => `
+            <div class="fixture-row ${isPreseason && w.week === curWeek ? 'user-match' : ''}">
+                <span style="width:24%; font-weight:bold;">Woche ${w.week}</span>
+                <span style="flex:1;">${w.booking ? `${w.booking.icon} ${w.booking.title}` : '🏃 Standard-Training'}</span>
+                <span style="font-size:0.64rem; color:#184d25;">${w.completed ? '✅' : '⏳'}</span>
+            </div>
+        `).join('');
+
+        const preseasonSectionHtml = isPreseason ? `
+            <p style="font-size:0.68rem; color:#444; margin-bottom:6px;"><strong>JULI: SAISONVORBEREITUNG & SPONSORENFENSTER</strong></p>
+            ${preseasonWeeksRows}
+        ` : `
+            <div id="btn-toggle-preseason-collapse" style="display:flex; justify-content:space-between; align-items:center; background:#e9ecea; border:1px solid var(--panel-shadow); padding:5px 7px; margin-bottom:6px; cursor:pointer; font-size:0.68rem;">
+                <span><strong>${preseasonCollapsedInSeason ? '▸' : '▾'} 🗓️ Saisonvorbereitung abgeschlossen (4/4 Wochen)</strong></span>
+                <span style="color:#184d25; font-weight:bold;">${preseasonCollapsedInSeason ? 'Einblenden' : 'Einklappen'}</span>
+            </div>
+            ${preseasonCollapsedInSeason ? '' : `<div style="margin-bottom:8px;">${preseasonWeeksRows}</div>`}
+        `;
+
         tabBodyHtml = `
             <div class="bmh-box" style="padding:8px;">
-                <h3 style="font-size:0.84rem; color:#184d25; margin-bottom:6px;">📅 GESAMTER SAISONKALENDER (${GameState.meta.season})</h3>
-                <p style="font-size:0.68rem; color:#444; margin-bottom:6px;"><strong>JULI: SAISONVORBEREITUNG & SPONSORENFENSTER</strong></p>
-                ${GameState.preseason.weeks.map(w => `
-                    <div class="fixture-row ${isPreseason && w.week === curWeek ? 'user-match' : ''}">
-                        <span style="width:24%; font-weight:bold;">Woche ${w.week}</span>
-                        <span style="flex:1;">${w.booking ? `${w.booking.icon} ${w.booking.title}` : '🏃 Standard-Training'}</span>
-                        <span style="font-size:0.64rem; color:#184d25;">${w.completed ? '✅' : '⏳'}</span>
-                    </div>
-                `).join('')}
+                <h3 style="font-size:0.84rem; color:#184d25; margin-bottom:6px;">📅 SAISONKALENDER (${GameState.meta.season})</h3>
+                ${preseasonSectionHtml}
 
-                <p style="font-size:0.68rem; color:#444; margin:8px 0 4px 0;"><strong>AUGUST – MAI: LIGA-SPIELBETRIEB</strong></p>
+                <p style="font-size:0.68rem; color:#444; margin:4px 0 4px 0;"><strong>AUGUST – MAI: LIGA-SPIELBETRIEB</strong></p>
                 ${mds.map(md => {
                     const myMatch = md.matches.find(m => m.homeId === club.id || m.awayId === club.id);
                     if (!myMatch) return '';
@@ -3372,10 +3604,12 @@ function renderCalendarView(viewport) {
         ${weekReportHtml}
         ${bookingModalHtml}
 
-        <div class="sub-tab-bar two-tabs">
-            <button class="sub-tab-btn ${calendarSubTab === 'preseason' ? 'active' : ''}" data-calsub="preseason">🗓️ VORBEREITUNG (4 W.)</button>
-            <button class="sub-tab-btn ${calendarSubTab === 'season_cal' ? 'active' : ''}" data-calsub="season_cal">📅 SAISON-KALENDER</button>
-        </div>
+        ${isPreseason ? `
+            <div class="sub-tab-bar two-tabs">
+                <button class="sub-tab-btn ${calendarSubTab === 'preseason' ? 'active' : ''}" data-calsub="preseason">🗓️ VORBEREITUNG (4 W.)</button>
+                <button class="sub-tab-btn ${calendarSubTab === 'season_cal' ? 'active' : ''}" data-calsub="season_cal">📅 SAISON-KALENDER</button>
+            </div>
+        ` : ''}
 
         ${tabBodyHtml}
     `;
@@ -3403,6 +3637,14 @@ function renderCalendarView(viewport) {
     const autoPreBtn = document.getElementById('btn-auto-preseason');
     if (autoPreBtn) {
         autoPreBtn.addEventListener('click', () => autoPlanPreseason());
+    }
+
+    const togglePreCollapse = document.getElementById('btn-toggle-preseason-collapse');
+    if (togglePreCollapse) {
+        togglePreCollapse.addEventListener('click', () => {
+            preseasonCollapsedInSeason = !preseasonCollapsedInSeason;
+            renderCalendarView(viewport);
+        });
     }
 
     document.querySelectorAll('[data-calsub]').forEach(btn => {
@@ -3518,13 +3760,43 @@ function renderLiveTickerView(viewport) {
         </div>
     `;
 
-    // 2. Unterbrechungs-Banner (nur bei Verletzung, Roter Karte oder manueller Pause)
+    // 2. Prominente In-App-Benachrichtigung bei Roter / Gelb-Roter Karte oder Verletzung
+    let inAppAlertHtml = "";
+    if (st.inAppAlert && st.phase !== 'FULLTIME') {
+        const al = st.inAppAlert;
+        const isInjury = al.type === 'injury';
+        const cardStyle = isInjury
+            ? 'background:#3b2004; border:2px solid #f59f00; color:#fff;'
+            : 'background:#4a0d0d; border:2px solid #ff6b6b; color:#fff;';
+        const badgeStyle = isInjury
+            ? 'background:#f59f00; color:#111;'
+            : 'background:#e03131; color:#fff;';
+
+        inAppAlertHtml = `
+            <div id="live-inapp-toast" class="live-inapp-toast" style="${cardStyle}">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:4px;">
+                    <span style="${badgeStyle} font-weight:bold; font-size:0.68rem; padding:2px 6px;">${al.minute} • ${al.title}</span>
+                    <button id="btn-dismiss-inapp-alert" class="bmh-btn small-btn" style="padding:1px 6px; font-size:0.66rem; background:rgba(255,255,255,0.18); color:#fff; border-color:rgba(255,255,255,0.4);">✕</button>
+                </div>
+                <div style="font-weight:bold; font-size:0.80rem; color:#ffe066; margin-bottom:2px;">${al.headline}</div>
+                <div style="font-size:0.69rem; color:#f8f9fa; line-height:1.25; margin-bottom:6px;">${al.detail}</div>
+                <div style="display:flex; gap:6px;">
+                    ${al.slotIdx !== null && al.slotIdx !== undefined ? `
+                        <button id="btn-alert-sub-now" data-slot="${al.slotIdx}" class="bmh-btn gold-btn small-btn" style="flex:2;">🔄 ERSATZ EINWECHSELN</button>
+                    ` : ''}
+                    <button id="btn-alert-ack-resume" class="bmh-btn primary small-btn" style="flex:1;">
+                        ${st.isPaused ? `▶ WEITERSPIELEN (${st.speed}x)` : '✓ VERSTANDEN'}
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
+    // 2b. Kompaktes Unterbrechungs-Banner (nur bei manueller Pause ohne In-App-Alert)
     let interruptionHtml = "";
-    if (st.isPaused && st.phase !== 'HALFTIME' && st.phase !== 'FULLTIME') {
-        const isDanger = st.pauseReason.includes("VERLETZUNG") || st.pauseReason.includes("PLATZVERWEIS");
-        const alertCls = isDanger ? "danger-alert" : "";
+    if (!inAppAlertHtml && st.isPaused && st.phase !== 'HALFTIME' && st.phase !== 'FULLTIME') {
         interruptionHtml = `
-            <div class="live-pause-banner ${alertCls}" style="padding:7px 9px; margin-bottom:6px;">
+            <div class="live-pause-banner" style="padding:7px 9px; margin-bottom:6px;">
                 <div style="font-weight:bold; font-size:0.74rem; margin-bottom:4px;">${st.pauseReason || '⏸ PAUSE'}</div>
                 <div style="display:flex; gap:6px;">
                     <button id="btn-resume-from-banner" class="bmh-btn primary small-btn" style="flex:2;">▶ WEITER (${st.speed}x)</button>
@@ -3672,10 +3944,11 @@ function renderLiveTickerView(viewport) {
             </div>
         `;
     } else {
-        // LIVE-TAKTIK & AUSWECHSLUNGEN
+        // LIVE-TAKTIK & AUSWECHSLUNGEN (Standard: Spielfeld + Umschalter auf Liste)
         const squad = getClubPlayers();
         const formation = GameState.tactics.formation || "4-4-2";
         const slots = FORMATIONS[formation] || FORMATIONS["4-4-2"];
+        const coords = FORMATION_COORDS[formation] || FORMATION_COORDS["4-4-2"];
         const formationOptions = Object.keys(FORMATIONS).map(f =>
             `<option value="${f}" ${formation === f ? 'selected' : ''}>System ${f}</option>`
         ).join('');
@@ -3689,11 +3962,123 @@ function renderLiveTickerView(viewport) {
             }
         });
 
+        const currentOnPitch = GameState.tactics.lineup.filter(Boolean).length;
+        const maxAllowedOnPitch = Math.max(0, 11 - st.sentOffIds.length);
+        const selHasPlayer = liveSelectedPitchSlot !== null && Boolean(GameState.tactics.lineup[liveSelectedPitchSlot]);
+        const selIsRedLocked = liveSelectedPitchSlot !== null && st.lockedRedSlots.includes(liveSelectedPitchSlot);
+        const canSubOntoSelected = liveSelectedPitchSlot !== null && st.subsUsed < st.maxSubs && !selIsRedLocked && (selHasPlayer || currentOnPitch < maxAllowedOnPitch);
+
+        const selectedSlotPos = liveSelectedPitchSlot !== null ? slots[liveSelectedPitchSlot] : null;
+        const selectedSlotPlayer = liveSelectedPitchSlot !== null
+            ? squad.find(pl => pl.id === GameState.tactics.lineup[liveSelectedPitchSlot])
+            : null;
+
+        let selectionBarHtml = "";
+        if (liveSelectedPitchSlot !== null) {
+            const selLabel = selectedSlotPlayer
+                ? `${selectedSlotPos} • ${selectedSlotPlayer.name}`
+                : (selIsRedLocked ? `${selectedSlotPos} • 🟥 Unterzahl` : `${selectedSlotPos} • Freier Platz`);
+            selectionBarHtml = `
+                <div class="swap-banner" style="margin-bottom:6px; padding:5px 8px;">
+                    <span style="font-size:0.69rem;">🎯 <strong>${selLabel}</strong> gewählt – anderes Feld antippen (Tausch) oder Bankspieler einwechseln!</span>
+                    <button id="btn-clear-live-slot" class="bmh-btn danger small-btn" style="padding:2px 6px;">✕</button>
+                </div>
+            `;
+        }
+
+        const redHintHtml = selIsRedLocked ? `
+            <p style="font-size:0.65rem; color:#a82424; background:#ffe3e3; border:1px solid #a82424; padding:4px 6px; margin:4px 0;">
+                ℹ️ Unterzahl-Slot gewählt: Tippe auf einen Feldspieler, um ihn auf diese Position zu verschieben (kein Bank-Wechsel auf diesen Platz möglich).
+            </p>
+        ` : '';
+
+        let pitchOrListHtml = "";
+        if (liveTacticsDisplayMode === 'pitch') {
+            const livePitchNodesHtml = slots.map((slotPos, idx) => {
+                const isRedLocked = st.lockedRedSlots.includes(idx);
+                const pid = GameState.tactics.lineup[idx];
+                const player = squad.find(pl => pl.id === pid);
+                const posCoord = coords[idx] || { x: 50, y: 50 };
+                const effRating = player ? calculateSlotEffectiveRating(player, slotPos) : 0;
+                const isMismatch = player && player.pos !== slotPos;
+                const isSelected = liveSelectedPitchSlot === idx;
+                const hasYellow = player && st.yellowCardIds.includes(player.id);
+                const labelText = player
+                    ? `${getShortName(player.name)}${hasYellow ? ' 🟨' : ''}`
+                    : (isRedLocked ? '🟥 ROT' : '+ FREI');
+
+                return `
+                    <div class="pitch-node btn-pick-live-pitch ${!player ? 'empty-slot' : ''} ${isMismatch ? 'mismatch' : ''} ${isSelected ? 'selected-swap' : ''}"
+                         style="left:${posCoord.x}%; top:${posCoord.y}%; ${isRedLocked && !player ? 'border-color:#ff6b6b; background:rgba(168,36,36,0.88); color:#fff;' : ''}"
+                         data-slot="${idx}">
+                        <div class="pitch-node-top">
+                            <span class="pitch-node-pos">${slotPos}</span>
+                            <span class="pitch-node-rating">${player ? effRating.toFixed(1) : '--'}</span>
+                        </div>
+                        <div class="pitch-node-name">${labelText}</div>
+                    </div>
+                `;
+            }).join('');
+
+            pitchOrListHtml = `
+                <div class="pitch-board live-pitch-board">
+                    <div class="pitch-halfline"></div>
+                    <div class="pitch-circle"></div>
+                    <div class="pitch-box-top"></div>
+                    <div class="pitch-box-bottom"></div>
+                    ${livePitchNodesHtml}
+                </div>
+                ${redHintHtml}
+            `;
+        } else {
+            const slotRowsHtml = slots.map((slotPos, idx) => {
+                const isRedLocked = st.lockedRedSlots.includes(idx);
+                const pid = GameState.tactics.lineup[idx];
+                const p = squad.find(pl => pl.id === pid);
+                const isSel = liveSelectedPitchSlot === idx;
+                const hasYellow = p && st.yellowCardIds.includes(p.id);
+
+                return `
+                    <div class="live-sub-row ${(!p && isRedLocked) ? 'sent-off' : ''}" style="${isSel ? 'border:2px solid #e5b822; background:#fff3bf;' : ''}">
+                        <span style="width:14%; font-weight:bold; color:#184d25;">${slotPos}</span>
+                        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                            ${p ? `<strong>${p.name}</strong> ${hasYellow ? '🟨' : ''} (${calculateSlotEffectiveRating(p, slotPos).toFixed(1)})` : (isRedLocked ? '🟥 UNTERZAHL (Position frei)' : '— Freier Platz —')}
+                        </span>
+                        <button class="mini-action-btn btn-pick-live-pitch" data-slot="${idx}" style="width:auto; padding:3px 7px;">
+                            ${isSel ? '✓ GEWÄHLT' : 'WÄHLEN'}
+                        </button>
+                    </div>
+                `;
+            }).join('');
+
+            pitchOrListHtml = `${slotRowsHtml}${redHintHtml}`;
+        }
+
+        const benchHtml = availBench.length === 0
+            ? '<p style="font-size:0.70rem; color:#444;">Keine Wechselspieler mehr auf der Bank.</p>'
+            : availBench.map(item => `
+                <div class="live-sub-row">
+                    <span style="width:14%; font-weight:bold;">${item.player.pos}</span>
+                    <span style="flex:1;"><strong>${item.player.name}</strong> (Stä. ${item.player.rating.toFixed(1)})</span>
+                    <button class="mini-action-btn youth btn-exec-live-sub" data-bidx="${item.benchIdx}"
+                            style="width:auto; padding:3px 7px;"
+                            ${!canSubOntoSelected ? 'disabled' : ''}>
+                        🔄 EINWECHSELN
+                    </button>
+                </div>
+            `).join('');
+
         subContentHtml = `
             <div class="bmh-box" style="padding:8px;">
-                <h3 style="font-size:0.82rem; color:#184d25; margin-bottom:6px;">📋 LIVE-TAKTIK & WECHSEL (${st.subsUsed}/${st.maxSubs})</h3>
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:6px;">
+                    <h3 style="font-size:0.82rem; color:#184d25; margin:0;">📋 LIVE-TAKTIK & WECHSEL (${st.subsUsed}/${st.maxSubs})</h3>
+                    <div style="display:flex; gap:4px;">
+                        <button type="button" class="sort-btn btn-live-tac-mode ${liveTacticsDisplayMode === 'pitch' ? 'active' : ''}" data-mode="pitch" style="padding:2px 7px; font-size:0.64rem;">⚽ SPIELFELD</button>
+                        <button type="button" class="sort-btn btn-live-tac-mode ${liveTacticsDisplayMode === 'list' ? 'active' : ''}" data-mode="list" style="padding:2px 7px; font-size:0.64rem;">☰ LISTE</button>
+                    </div>
+                </div>
 
-                <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:4px; margin-bottom:8px;">
+                <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:4px; margin-bottom:6px;">
                     <select id="live-formation" class="bmh-select" style="margin-bottom:0; font-size:0.68rem; padding:4px;">
                         ${formationOptions}
                     </select>
@@ -3711,64 +4096,17 @@ function renderLiveTickerView(viewport) {
                     </select>
                 </div>
 
-                <p style="font-size:0.68rem; color:#333; margin-bottom:6px;">
-                    1. Wähle einen Spieler auf dem Platz aus, um ihn auszuwechseln oder intern zu verschieben:
-                </p>
+                ${selectionBarHtml}
+                ${pitchOrListHtml}
 
-                ${(() => {
-                    const currentOnPitch = GameState.tactics.lineup.filter(Boolean).length;
-                    const maxAllowedOnPitch = Math.max(0, 11 - st.sentOffIds.length);
-                    const selHasPlayer = liveSelectedPitchSlot !== null && Boolean(GameState.tactics.lineup[liveSelectedPitchSlot]);
-                    const selIsRedLocked = liveSelectedPitchSlot !== null && st.lockedRedSlots.includes(liveSelectedPitchSlot);
-                    const canSubOntoSelected = liveSelectedPitchSlot !== null && st.subsUsed < st.maxSubs && !selIsRedLocked && (selHasPlayer || currentOnPitch < maxAllowedOnPitch);
-
-                    const slotRowsHtml = slots.map((slotPos, idx) => {
-                        const isRedLocked = st.lockedRedSlots.includes(idx);
-                        const pid = GameState.tactics.lineup[idx];
-                        const p = squad.find(pl => pl.id === pid);
-                        const isSel = liveSelectedPitchSlot === idx;
-                        const hasYellow = p && st.yellowCardIds.includes(p.id);
-
-                        return `
-                            <div class="live-sub-row ${(!p && isRedLocked) ? 'sent-off' : ''}" style="${isSel ? 'border:2px solid #e5b822; background:#fff3bf;' : ''}">
-                                <span style="width:14%; font-weight:bold; color:#184d25;">${slotPos}</span>
-                                <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                                    ${p ? `<strong>${p.name}</strong> ${hasYellow ? '🟨' : ''} (${calculateSlotEffectiveRating(p, slotPos).toFixed(1)})` : (isRedLocked ? '🟥 UNTERZAHL (Position frei)' : '— Freier Platz —')}
-                                </span>
-                                <button class="mini-action-btn btn-pick-live-pitch" data-slot="${idx}" style="width:auto; padding:3px 7px;">
-                                    ${isSel ? '✓ GEWÄHLT' : 'WÄHLEN'}
-                                </button>
-                            </div>
-                        `;
-                    }).join('');
-
-                    const redHintHtml = selIsRedLocked ? `
-                        <p style="font-size:0.66rem; color:#a82424; background:#ffe3e3; border:1px solid #a82424; padding:4px 6px; margin:6px 0 4px 0;">
-                            ℹ️ Unterzahl-Slot gewählt: Tippe oben auf einen Feldspieler, um ihn auf diese Position zu verschieben (kein Bank-Wechsel auf diesen Platz möglich).
-                        </p>
-                    ` : '';
-
-                    const benchHtml = availBench.length === 0
-                        ? '<p style="font-size:0.70rem; color:#444;">Keine Wechselspieler mehr auf der Bank.</p>'
-                        : availBench.map(item => `
-                            <div class="live-sub-row">
-                                <span style="width:14%; font-weight:bold;">${item.player.pos}</span>
-                                <span style="flex:1;"><strong>${item.player.name}</strong> (Stä. ${item.player.rating.toFixed(1)})</span>
-                                <button class="mini-action-btn youth btn-exec-live-sub" data-bidx="${item.benchIdx}"
-                                        style="width:auto; padding:3px 7px;"
-                                        ${!canSubOntoSelected ? 'disabled' : ''}>
-                                    🔄 EINWECHSELN
-                                </button>
-                            </div>
-                        `).join('');
-
-                    return `${slotRowsHtml}${redHintHtml}<h4 style="font-size:0.78rem; color:#184d25; margin:8px 0 4px 0;">🪑 ERSATZBANK (${availBench.length} verfügbar)</h4>${benchHtml}`;
-                })()}
+                <h4 style="font-size:0.78rem; color:#184d25; margin:8px 0 4px 0;">🪑 ERSATZBANK (${availBench.length} verfügbar)</h4>
+                ${benchHtml}
             </div>
         `;
     }
 
     viewport.innerHTML = `
+        ${inAppAlertHtml}
         ${scoreboardHtml}
         ${interruptionHtml}
         ${halftimeHtml}
@@ -3803,6 +4141,39 @@ function renderLiveTickerView(viewport) {
         autoPauseBtn.addEventListener('click', () => {
             st.autoPause = !st.autoPause;
             renderLiveTickerView(viewport);
+        });
+    }
+
+    const dismissAlertBtn = document.getElementById('btn-dismiss-inapp-alert');
+    if (dismissAlertBtn) {
+        dismissAlertBtn.addEventListener('click', () => {
+            dismissLiveInAppAlert();
+            renderLiveTickerView(viewport);
+        });
+    }
+
+    const alertSubNowBtn = document.getElementById('btn-alert-sub-now');
+    if (alertSubNowBtn) {
+        alertSubNowBtn.addEventListener('click', (e) => {
+            const targetSlot = parseInt(e.currentTarget.dataset.slot, 10);
+            if (!Number.isNaN(targetSlot)) {
+                liveSelectedPitchSlot = targetSlot;
+            }
+            dismissLiveInAppAlert();
+            st.activeSubTab = 'livetactics';
+            renderLiveTickerView(viewport);
+        });
+    }
+
+    const alertAckBtn = document.getElementById('btn-alert-ack-resume');
+    if (alertAckBtn) {
+        alertAckBtn.addEventListener('click', () => {
+            dismissLiveInAppAlert();
+            if (st.isPaused) {
+                toggleLivePause();
+            } else {
+                renderLiveTickerView(viewport);
+            }
         });
     }
 
@@ -3870,7 +4241,25 @@ function renderLiveTickerView(viewport) {
         });
     });
 
-    // Live-Taktik & Wechsel
+    // Live-Taktik & Wechsel (Spielfeld / Liste Umschalter)
+    document.querySelectorAll('.btn-live-tac-mode').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const m = e.currentTarget.dataset.mode;
+            if (m === 'pitch' || m === 'list') {
+                liveTacticsDisplayMode = m;
+                renderLiveTickerView(viewport);
+            }
+        });
+    });
+
+    const clearLiveSlotBtn = document.getElementById('btn-clear-live-slot');
+    if (clearLiveSlotBtn) {
+        clearLiveSlotBtn.addEventListener('click', () => {
+            liveSelectedPitchSlot = null;
+            renderLiveTickerView(viewport);
+        });
+    }
+
     const liveForm = document.getElementById('live-formation');
     if (liveForm) {
         liveForm.addEventListener('change', (e) => {
@@ -5080,7 +5469,11 @@ function buildRosterTabHtml(mySquad) {
                     ${sortedSquad.map(p => {
                         let statusBadge = `<span class="zone-badge stands">TR</span>`;
                         let rowStyle = "";
-                        if (activeIds.has(p.id)) {
+                        const suspCount = p.suspendedMatches || 0;
+                        if (suspCount > 0) {
+                            statusBadge = `<span class="zone-badge" style="background:#a82424; color:#fff;">🟥${suspCount}</span>`;
+                            rowStyle = "background:#ffe3e3;";
+                        } else if (activeIds.has(p.id)) {
                             statusBadge = `<span class="zone-badge xi">11</span>`;
                             rowStyle = "background:#d7eadc;";
                         } else if (benchIds.has(p.id)) {
@@ -5089,13 +5482,16 @@ function buildRosterTabHtml(mySquad) {
                         }
                         const youthIcon = p.isYouthProduct ? "🌱" : "";
                         const mot = p.motivation || 78;
+                        const suspNote = suspCount > 0
+                            ? ` • <strong style="color:#a82424;">Gesperrt: ${suspCount} Sp. (${p.suspensionReason || 'Rot'})</strong>`
+                            : '';
                         return `
                         <tr style="${rowStyle}">
                             <td>${statusBadge}</td>
                             <td><strong>${p.pos}</strong></td>
                             <td title="${p.name} (${p.age} J. | Mot: ${mot}%)">
                                 <strong>${youthIcon}${p.name}</strong><br>
-                                <span style="font-size:0.60rem; color:#444;">${p.age}J • ${getMotivationIcon(mot)}${mot}% • '${String(p.contractUntil).slice(-2)}</span>
+                                <span style="font-size:0.60rem; color:#444;">${p.age}J • ${getMotivationIcon(mot)}${mot}% • '${String(p.contractUntil).slice(-2)}${suspNote}</span>
                             </td>
                             <td><strong>${p.rating.toFixed(1)}</strong></td>
                             <td>${formatMoneyShort(p.salary)}</td>
@@ -5567,13 +5963,17 @@ function renderTacticsView(viewport) {
         : `<div class="bench-grid">
             ${standsPlayers.map(player => {
                 const isSelected = selectedSwapSource && selectedSwapSource.zone === 'stands' && selectedSwapSource.playerId === player.id;
+                const suspCount = player.suspendedMatches || 0;
+                const suspStyle = suspCount > 0 ? 'background:#ffe3e3; border-color:#a82424; opacity:0.88;' : '';
                 return `
                     <div class="player-chip stands-chip swap-slot ${isSelected ? 'selected-swap' : ''}"
-                         draggable="true"
+                         style="${suspStyle}"
+                         draggable="${suspCount === 0}"
                          data-zone="stands"
                          data-index=""
-                         data-playerid="${player.id}">
-                        <span class="chip-pos">${player.pos}</span>
+                         data-playerid="${player.id}"
+                         title="${suspCount > 0 ? `Gesperrt für ${suspCount} Spiel(e) (${player.suspensionReason || 'Rote Karte'})` : player.name}">
+                        <span class="chip-pos" style="${suspCount > 0 ? 'background:#a82424; color:#fff;' : ''}">${suspCount > 0 ? '🟥' + suspCount : player.pos}</span>
                         <span class="chip-name">${getShortName(player.name)}</span>
                         <span class="chip-rating">${player.rating.toFixed(1)}</span>
                     </div>
