@@ -1,0 +1,175 @@
+{
+ "format": 1,
+ "packs": [
+  {
+   "id": "srv_de",
+   "file": "de.json",
+   "country": "DE",
+   "name": "Deutschland – 1. & 2. Bundesliga",
+   "top": true,
+   "rev": 3,
+   "clubs": 36,
+   "kb": 103
+  },
+  {
+   "id": "srv_es",
+   "file": "es.json",
+   "country": "ES",
+   "name": "Spanien – LaLiga & LaLiga 2",
+   "top": true,
+   "rev": 2,
+   "clubs": 42,
+   "kb": 146
+  },
+  {
+   "id": "srv_it",
+   "file": "it.json",
+   "country": "IT",
+   "name": "Italien – Serie A & Serie B",
+   "top": true,
+   "rev": 2,
+   "clubs": 40,
+   "kb": 139
+  },
+  {
+   "id": "srv_en",
+   "file": "en.json",
+   "country": "EN",
+   "name": "England – Premier League & Championship",
+   "top": true,
+   "rev": 2,
+   "clubs": 44,
+   "kb": 157
+  },
+  {
+   "id": "srv_fr",
+   "file": "fr.json",
+   "country": "FR",
+   "name": "Frankreich – Ligue 1 & Ligue 2",
+   "top": true,
+   "rev": 2,
+   "clubs": 36,
+   "kb": 126
+  },
+  {
+   "id": "srv_pt",
+   "file": "pt.json",
+   "country": "PT",
+   "name": "Portugal – Liga Portugal & Liga Portugal 2",
+   "top": false,
+   "rev": 2,
+   "clubs": 36,
+   "kb": 126
+  },
+  {
+   "id": "srv_at",
+   "file": "at.json",
+   "country": "AT",
+   "name": "Österreich – Admiral Bundesliga",
+   "top": false,
+   "rev": 2,
+   "clubs": 12,
+   "kb": 41
+  },
+  {
+   "id": "srv_ch",
+   "file": "ch.json",
+   "country": "CH",
+   "name": "Schweiz – Super League",
+   "top": false,
+   "rev": 2,
+   "clubs": 12,
+   "kb": 41
+  },
+  {
+   "id": "srv_nl",
+   "file": "nl.json",
+   "country": "NL",
+   "name": "Niederlande – Eredivisie",
+   "top": false,
+   "rev": 2,
+   "clubs": 18,
+   "kb": 61
+  },
+  {
+   "id": "srv_be",
+   "file": "be.json",
+   "country": "BE",
+   "name": "Belgien – Jupiler Pro League",
+   "top": false,
+   "rev": 2,
+   "clubs": 16,
+   "kb": 57
+  },
+  {
+   "id": "srv_tr",
+   "file": "tr.json",
+   "country": "TR",
+   "name": "Türkei – Süper Lig",
+   "top": false,
+   "rev": 2,
+   "clubs": 18,
+   "kb": 62
+  },
+  {
+   "id": "srv_gr",
+   "file": "gr.json",
+   "country": "GR",
+   "name": "Griechenland – Super League",
+   "top": false,
+   "rev": 2,
+   "clubs": 14,
+   "kb": 49
+  },
+  {
+   "id": "srv_no",
+   "file": "no.json",
+   "country": "NO",
+   "name": "Norwegen – Eliteserien",
+   "top": false,
+   "rev": 2,
+   "clubs": 16,
+   "kb": 56
+  },
+  {
+   "id": "srv_cz",
+   "file": "cz.json",
+   "country": "CZ",
+   "name": "Tschechien – Chance Liga",
+   "top": false,
+   "rev": 2,
+   "clubs": 16,
+   "kb": 57
+  },
+  {
+   "id": "srv_sk",
+   "file": "sk.json",
+   "country": "SK",
+   "name": "Slowakei – Niké Liga",
+   "top": false,
+   "rev": 2,
+   "clubs": 12,
+   "kb": 44
+  },
+  {
+   "id": "srv_ua",
+   "file": "ua.json",
+   "country": "UA",
+   "name": "Ukraine – Premier Liha",
+   "top": false,
+   "rev": 2,
+   "clubs": 16,
+   "kb": 59
+  },
+  {
+   "id": "srv_ru",
+   "file": "ru.json",
+   "country": "RU",
+   "name": "Russland – Premjer-Liga",
+   "top": false,
+   "rev": 2,
+   "clubs": 16,
+   "kb": 58
+  }
+ ]
+}

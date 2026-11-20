@@ -1,0 +1,11 @@
+FC MANAGER 27 – ORDNER "data" (Länderpakete)
+
+Diesen kompletten Ordner "data" auf GitHub ins Hauptverzeichnis (neben index.html) hochladen.
+Das Spiel lädt die Länder dann auf jedem Gerät automatisch – ohne manuellen Import.
+
+DEUTSCHLAND (de.json) ist enthalten. Bei einem neuen Bundesliga-Paket:
+Deine eigene Datei "update_bl1_bl2_komplett.json" in "de.json" umbenennen
+und ebenfalls in diesen Ordner legen. Sonst fehlt Deutschland.
+
+packs.json = Inhaltsverzeichnis. Wird ein Paket geändert, dort "rev" erhöhen –
+dann laden alle Geräte das Paket beim nächsten Start neu.
