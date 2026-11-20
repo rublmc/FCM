@@ -2,10 +2,10 @@
 // FC MANAGER 27 - MODUL: DATA & KONSTANTEN
 // ==========================================
 window.FCM_APP_STARTED = true;
-const GAME_VERSION = "1.7.0";
+const GAME_VERSION = "1.9.0";
 const GAME_BUILD_DATE = "20.11.2026";
 
-const STORAGE_KEY = 'fcm_savegame_v1';
+const STORAGE_KEY = 'fcm_savegame_v1'; // nur noch für die Migration alter Spielstände
 
 const FORMATIONS = {
     "4-4-2":   ["TW", "LV", "IV", "IV", "RV", "LM", "ZM", "ZM", "RM", "ST", "ST"],
@@ -105,6 +105,15 @@ const SPONSOR_BRANDS_MAIN = [
     { name: "NordStar Airlines", sector: "Luftfahrt", style: "Ausgewogen" }
 ];
 
+const SPONSOR_BRANDS_KIT = [
+    { name: "Strikeline Sportswear", sector: "Ausrüster & Fanartikel", style: "Sicher" },
+    { name: "Kickwerk Athletics", sector: "Ausrüster & Fanartikel", style: "Ausgewogen" },
+    { name: "NordFlex Teamwear", sector: "Ausrüster & Fanartikel", style: "Erfolg" },
+    { name: "Eleven Gear", sector: "Ausrüster & Fanartikel", style: "Ausgewogen" },
+    { name: "Vantaro Sport", sector: "Ausrüster & Fanartikel", style: "Sicher" },
+    { name: "Tribuna Wear", sector: "Ausrüster & Fanartikel", style: "Erfolg" }
+];
+
 const SPONSOR_BRANDS_BOARDS = [
     { name: "KronoBau Süd GmbH", sector: "Bauwesen", style: "Sicher" },
     { name: "BlitzLogistik 24", sector: "Spedition", style: "Ausgewogen" },
@@ -178,7 +187,8 @@ const CLUB_EVENTS = [
         category: "event",
         icon: "🌭",
         title: "Mannschafts- & Fan-Grillfest",
-        desc: "Lockere Stimmung am Trainingsgelände: +16% Motivation & +3% Fan-Zuspruch.",
+        desc: "Lockere Stimmung am Trainingsgelände: +16% Motivation, +3% Fan-Zuspruch & +4 Fan-Stimmung.",
+        fanMood: 4,
         cost: 40000,
         revenue: 0,
         motivationDelta: 16,
@@ -191,7 +201,8 @@ const CLUB_EVENTS = [
         category: "event",
         icon: "🚪",
         title: "Tag der offenen Tür & Stadionfest",
-        desc: "Stadionführungen & Autogramme: +7% Stadion-Auslastung & +150k € Fanartikel.",
+        desc: "Stadionführungen: +7% Stadion-Auslastung, +6 Fan-Stimmung & +150k € Fanartikel.",
+        fanMood: 6,
         cost: 90000,
         revenue: 150000,
         motivationDelta: 8,
@@ -216,20 +227,67 @@ const CLUB_EVENTS = [
         id: "ev_youthday",
         category: "event",
         icon: "🏆",
-        title: "Autogrammstunde & Jugend-Turnier",
-        desc: "+10% Motivation, +4% Fans & Entdeckung eines Top-Jugendtalents!",
+        title: "Jugend-Turnier & Talentsichtung",
+        desc: "+10% Motivation, +4% Fans, +3 Fan-Stimmung & Entdeckung eines Top-Jugendtalents!",
+        fanMood: 3,
         cost: 55000,
         revenue: 0,
         motivationDelta: 10,
         fanBonus: 0.04,
         sponsorMultAdd: 0,
         youthScout: true
+    },
+    {
+        id: "ev_autograph", category: "event", icon: "✍️",
+        title: "Große Autogrammstunde im Fanshop",
+        desc: "Alle Profis schreiben Autogramme: +8 Fan-Stimmung, +6% Motivation & +80k € Fanartikel.",
+        cost: 30000, revenue: 80000, motivationDelta: 6, fanBonus: 0.02, fanMood: 8, sponsorMultAdd: 0, youthScout: false
+    },
+    {
+        id: "ev_raffle", category: "event", icon: "🎟️",
+        title: "Fan-Gewinnspiel: Ein Tag mit den Profis",
+        desc: "Fans gewinnen einen Trainingstag mit der Mannschaft: +7 Fan-Stimmung & +4% Sponsoren-Deals.",
+        cost: 20000, revenue: 0, motivationDelta: 3, fanBonus: 0.02, fanMood: 7, sponsorMultAdd: 0.04, youthScout: false
+    },
+    {
+        id: "ev_kickoff", category: "event", icon: "🎉",
+        title: "Saisoneröffnung mit Fan-Fest & Teampräsentation",
+        desc: "Großes Stadionfest mit Mannschaftsvorstellung: +12 Fan-Stimmung, +5% Auslastung & +200k € Erlös.",
+        cost: 180000, revenue: 200000, motivationDelta: 8, fanBonus: 0.05, fanMood: 12, sponsorMultAdd: 0, youthScout: false
+    },
+    {
+        id: "ev_kidscamp", category: "event", icon: "⚽",
+        title: "Kinder-Fußballcamp mit den Profis",
+        desc: "Profis trainieren mit 300 Kindern: +7 Fan-Stimmung, +5% Motivation.",
+        cost: 40000, revenue: 30000, motivationDelta: 5, fanBonus: 0.02, fanMood: 7, sponsorMultAdd: 0, youthScout: false
+    }
+];
+
+// Veranstaltungen in der Winterpause
+const WINTER_EVENTS = [
+    {
+        id: "wev_indoor", category: "event", icon: "🏟️",
+        title: "Hallen-Fanturnier",
+        desc: "Profis gegen Fanclub-Teams in der Halle: +6 Fan-Stimmung & +5% Motivation.",
+        cost: 35000, revenue: 50000, motivationDelta: 5, fanBonus: 0, fanMood: 6, sponsorMultAdd: 0, youthScout: false
+    },
+    {
+        id: "wev_market", category: "event", icon: "🎄",
+        title: "Weihnachtsmarkt-Besuch mit Autogrammen",
+        desc: "Die Mannschaft verteilt Glühwein & Autogramme: +7 Fan-Stimmung.",
+        cost: 20000, revenue: 40000, motivationDelta: 4, fanBonus: 0, fanMood: 7, sponsorMultAdd: 0, youthScout: false
+    },
+    {
+        id: "wev_newyear", category: "event", icon: "🥂",
+        title: "Neujahrsempfang für Fans & Sponsoren",
+        desc: "+4 Fan-Stimmung, +6% Sponsoren-Deals & +120k € VIP-Erlös.",
+        cost: 80000, revenue: 120000, motivationDelta: 3, fanBonus: 0, fanMood: 4, sponsorMultAdd: 0.06, youthScout: false
     }
 ];
 
 let GameState = {
     meta: {
-        coreVersion: "1.7.0",
+        coreVersion: "1.9.0",
         season: "2026/27",
         phase: "preseason", // 'preseason' | 'season' | 'winter'
         preseasonWeek: 1,   // 1..4
@@ -258,6 +316,9 @@ let GameState = {
     matchReports: [],      // Spielberichte aller eigenen Pflichtspiele der laufenden Saison
     transferOffers: [],    // Angebote anderer Vereine für Spieler auf der Transferliste
     transferNews: [],      // Transfer-Ticker (alle Wechsel)
+    transferRecords: null, // Ablöse-Rekord je Liga (für Zeitungsmeldungen)
+    fans: null,            // Fan-Stimmung
+    seasonEvents: null,    // gebuchte Fan-Termine während der Saison
     preseason: null,
     winterBreak: null,
     lastBreakReport: null,
@@ -305,6 +366,9 @@ function resetCareerFields(clubId) {
     GameState.matchReports = [];
     GameState.transferOffers = [];
     GameState.transferNews = [];
+    GameState.transferRecords = null;
+    GameState.fans = null;
+    GameState.seasonEvents = null;
     GameState.preseason = null;
     GameState.winterBreak = null;
     GameState.lastBreakReport = null;
@@ -318,7 +382,7 @@ function resetCareerFields(clubId) {
     GameState.tactics.lineup = [];
     GameState.tactics.bench = [];
     GameState.youthAcademy = { clubId: null, players: [] };
-    GameState.sponsors = { clubId, main: null, boards: null, offersMain: [], offersBoards: [] };
+    GameState.sponsors = { clubId, main: null, boards: null, kit: null, offersMain: [], offersBoards: [], offersKit: [] };
     GameState.stadiumProject = null;
 }
 
@@ -388,7 +452,7 @@ const SNAP_FIELDS = ['id', 'clubId', 'pos', 'name', 'age', 'rating', 'salary', '
 
 function loadDatabaseSnapshot() {
     try {
-        const raw = localStorage.getItem(DB_STORAGE_KEY);
+        const raw = storeGet(DB_STORAGE_KEY);
         if (!raw) return null;
         const db = JSON.parse(raw);
         if (Array.isArray(db.players) && db.players.length > 0 && Array.isArray(db.players[0])) {
@@ -403,7 +467,7 @@ function loadDatabaseSnapshot() {
 function saveDatabaseSnapshot(db) {
     try {
         const compact = { ...db, players: (db.players || []).map(p => SNAP_FIELDS.map(k => p[k])) };
-        localStorage.setItem(DB_STORAGE_KEY, JSON.stringify(compact));
+        storeSet(DB_STORAGE_KEY, JSON.stringify(compact));
         return true;
     } catch (e) {
         alert("Speicher voll: Die Original-Datenbank konnte nicht gesichert werden. Tipp: Weniger Länderpakete gleichzeitig laden.");
@@ -483,11 +547,15 @@ const WINTER_CAMPS = [
 // TRAINERSTAB
 // ==========================================
 const STAFF_ROLES = {
-    co:      { title: "Co-Trainer",        icon: "🧑‍🏫", baseSalary: 420000, desc: "Taktik-Coaching: +Teamstärke in Pflichtspielen" },
-    fitness: { title: "Konditionstrainer", icon: "🏃",   baseSalary: 260000, desc: "Weniger Verletzungen & bessere Saisonentwicklung" },
-    gk:      { title: "Torwarttrainer",    icon: "🧤",   baseSalary: 220000, desc: "Bessere Entwicklung der Torhüter" },
-    physio:  { title: "Physio / Teamarzt", icon: "🩺",   baseSalary: 240000, desc: "Kürzere Verletzungspausen" },
-    youth:   { title: "Jugendtrainer",     icon: "🌱",   baseSalary: 180000, desc: "Stärkere Talente im Nachwuchs-Camp" }
+    co:      { group: 'coach', title: "Co-Trainer",        icon: "🧑‍🏫", baseSalary: 420000, desc: "Taktik-Coaching: +Teamstärke in Pflichtspielen" },
+    fitness: { group: 'coach', title: "Konditionstrainer", icon: "🏃",   baseSalary: 260000, desc: "Weniger Verletzungen & bessere Saisonentwicklung" },
+    gk:      { group: 'coach', title: "Torwarttrainer",    icon: "🧤",   baseSalary: 220000, desc: "Bessere Entwicklung der Torhüter" },
+    physio:  { group: 'coach', title: "Physio / Teamarzt", icon: "🩺",   baseSalary: 240000, desc: "Kürzere Verletzungspausen" },
+    youth:   { group: 'coach', title: "Jugendtrainer",     icon: "🌱",   baseSalary: 180000, desc: "Stärkere Talente im Nachwuchs-Camp" },
+    cook:    { group: 'emp', title: "Mannschaftskoch",     icon: "👨‍🍳", baseSalary: 90000,  desc: "Gutes Essen hebt die Stimmung – ein schlechter Koch sorgt auch mal für Magenprobleme" },
+    kitman:  { group: 'emp', title: "Zeugwart",            icon: "👕",   baseSalary: 70000,  desc: "Sorgt für reibungslose Abläufe – oder vergisst die Trikots" },
+    fanrep:  { group: 'emp', title: "Fan-Beauftragter",    icon: "📣",   baseSalary: 80000,  desc: "Verbessert jede Woche die Fan-Stimmung und organisiert Aktionen" },
+    psych:   { group: 'emp', title: "Sportpsychologe",     icon: "🧠",   baseSalary: 150000, desc: "Baut unzufriedene Spieler wieder auf" }
 };
 const STAFF_FIRST_NAMES = ["Markus", "Thomas", "Andreas", "Stefan", "Michael", "Frank", "Peter", "Jürgen", "Christian", "Daniel", "Sven", "Uwe", "Rainer", "Holger", "Dirk", "Carlos", "Marco", "Luca", "Pierre", "Jan"];
 const STAFF_LAST_NAMES = ["Hoffmann", "Brandt", "Vogt", "Kessler", "Lorenz", "Pfeiffer", "Seidel", "Winkler", "Busch", "Haas", "Graf", "Ziegler", "Kuhn", "Engel", "Arnold", "Ruiz", "Bianchi", "Dubois", "de Vries", "Novak"];

@@ -608,8 +608,8 @@ function calculateLiveClubStrength(clubId, isHome) {
             str += (liveMatchState.teamTalkStrengthBonus || 0);
         }
         str += getStaffQuality('co') * 0.04;
-
-        if (isHome && !(liveMatchState && liveMatchState.userMatch && liveMatchState.userMatch.neutral)) str += 0.35;
+        str += getLeaderStrengthBonus();
+        if (isHome && !(liveMatchState && liveMatchState.userMatch && liveMatchState.userMatch.neutral)) str += 0.35 + getFanHomeBonus();
         return Math.max(1.0, str);
     }
 
@@ -907,9 +907,11 @@ function tickLiveMatchday(silentRender = false) {
             }
         });
 
+        const fragileCount = activeSlots.filter(s => hasTrait(s.player, 'fragile')).length;
+        const hotCount = activeSlots.filter(s => hasTrait(s.player, 'hothead')).length;
         // Verletzungs-Check (ca. 16% Chance pro Spiel insgesamt)
-        if (!highlightOccurred && activeSlots.length > 0 && Math.random() < (0.0020 * injuryMult)) {
-            const victimObj = activeSlots[Math.floor(Math.random() * activeSlots.length)];
+        if (!highlightOccurred && activeSlots.length > 0 && Math.random() < (0.0020 * injuryMult * (1 + 0.1 * fragileCount))) {
+            const victimObj = pickWeighted(activeSlots, s => (hasTrait(s.player, 'fragile') ? 2 : 1));
             const reasonObj = INJURY_REASONS[Math.floor(Math.random() * INJURY_REASONS.length)];
             const injMatches = registerLiveInjury(victimObj.player, reasonObj);
             const reason = `${reasonObj.label}, ca. ${injMatches} ${injMatches === 1 ? 'Spiel' : 'Spiele'} Pause`;
@@ -961,12 +963,12 @@ function tickLiveMatchday(silentRender = false) {
         }
 
         // Gelbe / Gelb-Rote / Rote Karte beim eigenen Team
-        if (!highlightOccurred && activeSlots.length > 0 && Math.random() < (0.015 * cardMult)) {
-            const offenderObj = activeSlots[Math.floor(Math.random() * activeSlots.length)];
+        if (!highlightOccurred && activeSlots.length > 0 && Math.random() < (0.015 * cardMult * (1 + 0.12 * hotCount))) {
+            const offenderObj = pickWeighted(activeSlots, s => (hasTrait(s.player, 'hothead') ? 2.5 : 1));
             const pl = offenderObj.player;
 
             // Kleine Chance auf glatte Rote Karte (bei hartem Einsatz etwas höher)
-            const directRedProb = aggr === "hard" ? 0.09 : 0.04;
+            const directRedProb = (aggr === "hard" ? 0.09 : 0.04) * (hasTrait(pl, 'hothead') ? 2 : 1);
             const alreadyYellow = liveMatchState.yellowCardIds.includes(pl.id);
 
             if (alreadyYellow || Math.random() < directRedProb) {
@@ -1288,11 +1290,14 @@ function finalizeLiveMatchdayInner() {
                 if (cleanSheet && mins >= 60 && ["TW", "IV", "LV", "RV", "DM"].includes(p.pos)) p.seasonCleanSheets = (p.seasonCleanSheets || 0) + 1;
                 adjustPlayerMotivation(p, won ? 3 : (draw ? 1 : -1));
             } else if (benchAllSet.has(p.id)) {
-                adjustPlayerMotivation(p, -1);
+                adjustPlayerMotivation(p, hasTrait(p, 'diva') ? -3 : -1);
             } else {
-                adjustPlayerMotivation(p, -2);
+                adjustPlayerMotivation(p, hasTrait(p, 'diva') ? -5 : -2);
             }
         });
+        // Leistungsträger reißen die Mitspieler mit
+        const leaders = squad.filter(p => (minMap[p.id] || 0) >= 45 && hasTrait(p, 'leader')).length;
+        if (leaders > 0) squad.forEach(p => { if ((minMap[p.id] || 0) > 0) adjustPlayerMotivation(p, Math.min(2, leaders)); });
         // Zuschauereinnahmen nur bei echten Heimspielen (nicht im Endspiel auf neutralem Platz)
         if (isHome && !um.neutral) {
             const forecast = calculateStadiumForecast(club, um.weather, mode === 'cup' ? st.cupCtx.compId : null);
@@ -1309,6 +1314,10 @@ function finalizeLiveMatchdayInner() {
             if (isHome && GameState.sponsors.boards) {
                 sponsorIncome += GameState.sponsors.boards.perMatch || 0;
                 if (won) sponsorIncome += GameState.sponsors.boards.winBonus || 0;
+            }
+            if (GameState.sponsors.kit) {
+                sponsorIncome += GameState.sponsors.kit.perMatch || 0;
+                if (won) sponsorIncome += GameState.sponsors.kit.winBonus || 0;
             }
             bookMoney('sponsors', sponsorIncome);
         } else {
@@ -1488,6 +1497,8 @@ function finalizeLiveMatchdayInner() {
     liveMatchState = null;
     liveSelectedPitchSlot = null;
 
+    if (um) updateFansAfterMatch(st, um, mode);
+    if (mode === 'league') runSeasonFanEvents('md');
     generateRoutineEvents();
     processTransferListOffers();
     if (mode === 'league' && currentMd === getFirstHalfLastMatchday(club.leagueId)) {
@@ -1498,13 +1509,13 @@ function finalizeLiveMatchdayInner() {
 }
 
 function finalizeLiveMatchdayUi(st, um, currentMd) {
-    saveGame();
+    autosaveAfterRound(st.mode === 'league' ? `Spieltag ${currentMd}` : (st.shortLabel || 'Spiel'));
     renderHeader();
     switchToView('office');
     if (um) {
-        setStatus(`${st.shortLabel}: ${um.homeName} ${um.homeGoals}:${um.awayGoals} ${um.awayName}${um.pens ? ' i.E. ' + um.pens : (um.et ? ' n.V.' : '')}`);
+        setStatus(`${st.shortLabel}: ${um.homeName} ${um.homeGoals}:${um.awayGoals} ${um.awayName}${um.pens ? ' i.E. ' + um.pens : (um.et ? ' n.V.' : '')} • 💾 gespeichert`);
     } else {
-        setStatus(`Spieltag ${currentMd} beendet.`);
+        setStatus(`Spieltag ${currentMd} beendet • 💾 gespeichert`);
     }
     const ls = getLineupStatus();
     if (!ls.ok && GameState.meta.phase === 'season') {

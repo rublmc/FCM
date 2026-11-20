@@ -1486,3 +1486,49 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
 .transfer-news summary { list-style: none; }
 .transfer-news summary::-webkit-details-marker { display: none; }
 .transfer-news[open] summary { margin-bottom: 4px; }
+
+/* ==========================================
+   v1.8: ZEITUNG, FAN-TERMINE, SPIELER-CHARAKTER
+   ========================================== */
+.newspaper {
+    background: #f6f1e3; color: #1a1a1a; border: 2px solid #1a1a1a;
+    padding: 8px 10px; margin-top: 6px;
+    font-family: Georgia, 'Times New Roman', serif;
+    box-shadow: 2px 2px 0 #8c7f5e;
+}
+.newspaper * { font-family: Georgia, 'Times New Roman', serif; }
+.np-masthead {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 6px;
+    border-bottom: 3px double #1a1a1a; padding-bottom: 3px; margin-bottom: 5px;
+}
+.np-name { font-size: 1.05rem; font-weight: bold; letter-spacing: 1px; text-align: center; flex: 1; }
+.np-date, .np-price { font-size: 0.56rem; color: #555; flex-shrink: 0; }
+.np-kicker { background: #a82424; color: #fff; display: inline-block; font-size: 0.64rem; font-weight: bold; padding: 1px 6px; letter-spacing: 0.5px; }
+.np-headline { font-size: 1.0rem; font-weight: bold; line-height: 1.2; margin: 4px 0; }
+.np-body { font-size: 0.72rem; line-height: 1.35; text-align: justify; }
+.np-quote { font-size: 0.70rem; font-style: italic; border-left: 3px solid #a82424; padding-left: 6px; margin-top: 5px; color: #333; }
+.np-office { margin-bottom: 10px; }
+.fanev-row {
+    display: flex; justify-content: space-between; align-items: center; gap: 6px;
+    background: #e9ecea; border: 1px solid var(--panel-shadow); padding: 5px 6px; margin-bottom: 4px; font-size: 0.70rem;
+}
+.fanev-row.booked { background: #d3f9d8; border-color: #246b35; }
+.pc-trait { background: #e9ecea; border: 1px solid var(--panel-shadow); padding: 4px 6px; margin-bottom: 6px; font-size: 0.66rem; }
+.pc-trait span { color: #444; }
+
+/* ==========================================
+   v1.9: SPIELSTÄNDE & BACKUP
+   ========================================== */
+.slot-card { background: #e9ecea; border: 2px solid var(--panel-shadow); padding: 8px; margin-bottom: 8px; font-size: 0.72rem; }
+.slot-card.active { border-color: var(--pitch-green); background: #d7eadc; }
+.slot-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 0.82rem; }
+.slot-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.slot-info { color: #333; line-height: 1.4; margin-bottom: 6px; }
+.slot-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.slot-actions .bmh-btn { white-space: normal; line-height: 1.15; }
+.backup-banner {
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    background: #fff3bf; border: 2px solid #b58900; padding: 7px 9px; margin-bottom: 10px; font-size: 0.70rem;
+}
+.backup-banner span { color: #444; }
+.backup-banner .bmh-btn { flex-shrink: 0; }

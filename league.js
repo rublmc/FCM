@@ -192,7 +192,8 @@ function calculateClubMatchStrength(clubId, isHome) {
             str += (avgMot - 75) * 0.008;
         }
         str += getStaffQuality('co') * 0.04;
-        if (isHome) str += 0.35;
+        str += getLeaderStrengthBonus();
+        if (isHome) str += 0.35 + getFanHomeBonus();
         return Math.max(1.0, str);
     }
     const squad = [...getClubPlayers(clubId)].sort((a, b) => b.rating - a.rating);
@@ -238,7 +239,7 @@ function pickScorerForClub(clubId) {
         else if (["ZM", "LM", "RM"].includes(p.pos)) w = 5;
         else if (["DM", "IV", "LV", "RV"].includes(p.pos)) w = 2;
         else if (p.pos === "TW") w = 0;
-
+        if (w > 0 && hasTrait(p, 'clutch')) w = Math.round(w * 1.7);
         for (let i = 0; i < w; i++) weighted.push(p);
     });
 
@@ -471,6 +472,15 @@ function evaluatePlayerSeasonDevelopment(player, teamSuccessDelta, isUserClub) {
         }
     }
 
+    // 6. Charakter-Eigenschaft
+    if (hasTrait(player, 'pro')) {
+        score += 0.08;
+        reasons.push('Musterprofi: +0.08');
+    } else if (hasTrait(player, 'lazy')) {
+        score -= 0.10;
+        reasons.push('Fauler Hund: -0.10');
+    }
+
     // Kleiner Zufallsfaktor (-0.04 bis +0.04) für Natürlichkeit
     score += (Math.random() * 0.08 - 0.04);
 
@@ -527,6 +537,15 @@ function finishSeasonAndAdvance() {
     const isTopTier = !league || (league.tier || 1) === 1;
     // TV-Geld wird ratierlich je Spieltag gezahlt – hier nur die Saisonsumme für den Bericht
     const tvPrize = (ensureFinanceLedger().items.tv || 0);
+
+    // Saisonabschluss-/Meisterfeier (falls gebucht)
+    const titles = [];
+    if (myRank === 1) titles.push(`Meister der ${league ? league.name : 'Liga'}`);
+    if (natCup && natCup.winner === club.id) titles.push(`${natCup.name}-Sieger`);
+    if (GameState.cups) Object.values(GameState.cups.comps).forEach(c => { if (c.type === 'euro' && c.winner === club.id) titles.push(`${c.name}-Sieger`); });
+    if (!isTopTier && myRank <= getPromoCount(club.leagueId)) titles.push('Aufsteiger');
+    runSeasonFanEvents('end', { title: titles.join(' & ') });
+    if (titles.length > 0) changeFanMood(12, `Titel: ${titles.join(' & ')}`);
 
     // 2. Auf- und Abstieg zwischen 1. und 2. Liga je Land
     let promoRelMsg = "";
@@ -622,6 +641,9 @@ function finishSeasonAndAdvance() {
     if (GameState.sponsors.boards && GameState.sponsors.boards.untilYear <= seasonEnd) {
         GameState.sponsors.boards = null;
     }
+    if (GameState.sponsors.kit && GameState.sponsors.kit.untilYear <= seasonEnd) {
+        GameState.sponsors.kit = null;
+    }
     processStaffContractsAtSeasonEnd(seasonEnd);
     maintainAiSquadsAtSeasonEnd(seasonEnd);
     replenishAiBudgets();
@@ -639,6 +661,7 @@ function finishSeasonAndAdvance() {
     GameState.lastMatchReport = null;
     GameState.matchReports = [];
     GameState.transferOffers = [];
+    GameState.seasonEvents = null;
     GameState.players.forEach(p => { p.seasonYellows = 0; });
     GameState.meta.tick = (GameState.meta.tick || 0) + 1;
     GameState.meta.harshWinter = Math.random() < 0.2;
@@ -664,8 +687,7 @@ function finishSeasonAndAdvance() {
     selectedFixtureMatchday = 1;
     calendarSubTab = 'preseason';
     preseasonCollapsedInSeason = true;
-
-    saveGame();
+    autosaveAfterRound(`Saisonwechsel ${nextSeasonLabel}`);
     renderHeader();
     setStatus(`Saisonübergang ${nextSeasonLabel}: Stärkeentwicklung berechnet & Vorbereitung gestartet!`);
     switchToView('calendar');

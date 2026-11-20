@@ -28,7 +28,7 @@ function getActiveBreak() {
             data: GameState.winterBreak,
             curWeek: GameState.winterBreak.currentWeek || 1,
             total: GameState.winterBreak.totalWeeks || GameState.winterBreak.weeks.length,
-            allowedCats: ['friendly', 'camp']
+            allowedCats: ['friendly', 'camp', 'event']
         };
     }
     ensurePreseasonInitialized(false);
@@ -47,6 +47,7 @@ function startWinterBreakIfNeeded() {
     const lid = club.leagueId;
     const realWeeks = getWinterBreakWeeks(lid);
     const country = getLeagueCountry(lid);
+    runSeasonFanEvents('winter');
     if (realWeeks <= 0) {
         // Ohne Winterpause: Winter-Transferfenster in einem Schritt
 runAiTransferRound('winter', 0.4);
@@ -259,7 +260,9 @@ function advanceBreakWeek() {
             weekObj.summary = `✅ ${b.title} (+${b.motivationDelta}% Mot.)`;
         } else if (b.category === 'event') {
             squad.forEach(p => adjustPlayerMotivation(p, b.motivationDelta || 8));
-            if (b.fanBonus) {
+            if (b.fanMood) changeFanMood(b.fanMood, b.title);
+            markFanEventHeld();
+            if (b.fanBonus && GameState.preseason) {
                 GameState.preseason.fanBonus = Math.min(0.18, (GameState.preseason.fanBonus || 0) + b.fanBonus);
             }
             if (b.sponsorMultAdd) {
@@ -281,6 +284,7 @@ function advanceBreakWeek() {
             reportTitle = `${b.icon} ${b.title.toUpperCase()}`;
             details.push(`Kader-Motivation um +${b.motivationDelta}% gesteigert!`);
             if (b.fanBonus) details.push(`Stadion-Auslastung dauerhaft um +${Math.round(b.fanBonus * 100)}% gestiegen.`);
+            if (b.fanMood) details.push(`Fan-Stimmung +${b.fanMood} (jetzt ${Math.round(getFanMood())}%).`);
             if (b.sponsorMultAdd) details.push(`Alle Sponsoren-Angebote um +${Math.round(b.sponsorMultAdd * 100)}% aufgewertet!`);
             if (b.revenue > 0) details.push(`Event-Einnahmen verbucht: +${formatMoneyShort(b.revenue)}`);
             if (b.youthScout) details.push(`🌱 Neue Top-Jugendtalente im Nachwuchs-Camp entdeckt!`);
@@ -342,12 +346,12 @@ runAiTransferRound(brk.key === 'winter' ? 'winter' : 'summer', brk.key === 'wint
         showUntilMd: GameState.meta.matchday
     };
     syncGameClock();
-    saveGame();
+    autosaveAfterRound(`${breakName === 'WINTERPAUSE' ? 'Winterpause' : 'Vorbereitung'} Woche ${curWeekNum}`);
     renderHeader();
     if (GameState.meta.phase === 'season') {
         setStatus(seasonStartedMsg ? seasonStartedMsg.replace('🚨 ', '').split('!')[0] + '!' : 'Weiter geht es!');
     } else {
-        setStatus(`${breakName}: Woche ${curWeekNum} beendet – jetzt Woche ${nextWeek}/${brk.total}.`);
+        setStatus(`${breakName}: Woche ${curWeekNum} beendet – jetzt Woche ${nextWeek}/${brk.total} • 💾 gespeichert`);
     }
     switchToView('calendar');
 }
@@ -641,8 +645,8 @@ function renderCalendarView(viewport) {
             options = isWinter ? WINTER_CAMPS : TRAINING_CAMPS;
             dialogTitle = `${isWinter ? '🌴 WINTER-' : '🏔️ '}TRAININGSLAGER BUCHEN (WOCHE ${week})`;
         } else {
-            options = CLUB_EVENTS;
-            dialogTitle = `🎪 VEREINS-VERANSTALTUNG BUCHEN (WOCHE ${week})`;
+            options = isWinter ? WINTER_EVENTS : CLUB_EVENTS;
+            dialogTitle = `🎪 ${isWinter ? 'WINTER-' : 'VEREINS-'}VERANSTALTUNG BUCHEN (WOCHE ${week})`;
         }
         bookingModalHtml = `
             <div class="negotiation-box">
@@ -694,7 +698,7 @@ function renderCalendarView(viewport) {
         phaseBannerHtml = buildNextEventBannerHtml(true);
     }
 
-    const tabBodyHtml = (isBreak && calendarSubTab === 'preseason') ? buildBreakWeeksHtml(brk, true) : buildSeasonCalendarHtml(club, isPreseason);
+    const tabBodyHtml = (isBreak && calendarSubTab === 'preseason') ? buildBreakWeeksHtml(brk, true) : (buildSeasonFanEventsHtml() + buildSeasonCalendarHtml(club, isPreseason));
 
     viewport.innerHTML = `
         <h2 class="section-title">📅 KALENDER • ${formatGameDate(GameState.meta.currentDate || getCurrentGameDate(), true).toUpperCase()}</h2>
@@ -712,6 +716,7 @@ function renderCalendarView(viewport) {
     `;
 
     bindNextEventBanner();
+    bindSeasonFanEvents(() => renderCalendarView(viewport));
     const hideDevBtn = document.getElementById('btn-hide-dev-report');
     if (hideDevBtn) hideDevBtn.addEventListener('click', () => { GameState.lastSeasonDevelopmentReport = null; saveGame(); renderCalendarView(viewport); });
     const simPreBtn = document.getElementById('btn-sim-preseason-week');

@@ -2,6 +2,14 @@
 // FC MANAGER 27 - MODUL: CORE ENGINE & NAVIGATION
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
+    storeInit().then(() => startGameAfterStorage());
+});
+
+function startGameAfterStorage() {
+    if (!getActiveSlotId()) {
+        window.location.href = 'start.html';
+        return;
+    }
     loadGame();
     if (!GameState.activeClubId || !GameState.meta.managerName) {
         window.location.href = 'start.html';
@@ -15,7 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         switchToView('office');
     }
-});
+}
 
 // Alle Initialisierungen (auch für alte Spielstände)
 function initGameWorld() {
@@ -31,6 +39,7 @@ function initGameWorld() {
     ensurePreseasonInitialized();
     ensureStaffOffersInitialized();
     ensureCompetitionsInitialized();
+    ensureLifeInitialized();
     syncGameClock();
     if (GameState.inbox.filter(m => m.cat === 'board').length === 0) {
         const club = GameState.clubs[GameState.activeClubId];
@@ -71,8 +80,11 @@ function serializeGameState() {
 
 let saveWarnedFull = false;
 function saveGame() {
+    const id = getActiveSlotId();
+    if (!id) return;
     try {
-        localStorage.setItem(STORAGE_KEY, serializeGameState());
+        storeSet(slotKey(id), serializeGameState());
+        updateSlotMeta(id, GameState);
         setStatus("Spielstand gespeichert.");
     } catch (e) {
         setStatus("⚠️ Speichern fehlgeschlagen – Speicher voll!");
@@ -84,18 +96,61 @@ function saveGame() {
 }
 
 function getStorageUsageKB() {
-    let total = 0;
-    try {
-        for (let i = 0; i < localStorage.length; i++) {
-            const k = localStorage.key(i);
-            total += (k.length + (localStorage.getItem(k) || '').length);
-        }
-    } catch (e) { /* ignorieren */ }
-    return Math.round(total / 1024);
+    return storeUsageKB();
+}
+
+// ==========================================
+// AUTOSAVE NACH JEDEM SPIELTAG / JEDER PAUSENWOCHE
+// ==========================================
+const BACKUP_REMINDER_EVERY = 5;   // nach so vielen Spielen/Wochen ohne Datei-Backup wird erinnert
+
+function autosaveAfterRound(label) {
+    GameState.meta.roundsSinceBackup = (GameState.meta.roundsSinceBackup || 0) + 1;
+    GameState.meta.lastAutosave = new Date().toISOString();
+    GameState.meta.lastAutosaveLabel = label;
+    saveGame();
+    const t = new Date();
+    setStatus(`💾 Autosave (${label}) • ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')} Uhr`);
+}
+
+function needsBackupReminder() {
+    return (GameState.meta.roundsSinceBackup || 0) >= BACKUP_REMINDER_EVERY;
+}
+
+// Datei-Backup des aktuellen Spielstands (aus dem Spiel heraus)
+function exportCurrentBackup() {
+    const id = getActiveSlotId();
+    if (!id) return;
+    GameState.meta.roundsSinceBackup = 0;
+    GameState.meta.lastFileBackup = new Date().toISOString();
+    saveGame();
+    if (exportSlotBackup(id)) setStatus('💾 Backup-Datei erstellt – bitte in „Dateien“ / iCloud aufbewahren.');
+}
+
+function buildBackupReminderHtml() {
+    if (!needsBackupReminder()) return '';
+    return `
+        <div class="backup-banner">
+            <div><strong>💾 SPIELSTAND EXTERN SICHERN</strong><br>
+            <span>Seit ${GameState.meta.roundsSinceBackup} Spielen/Wochen kein Datei-Backup. Gespeichert wird automatisch – löscht Safari aber die Website-Daten, ist der Spielstand nur mit einer Backup-Datei zu retten.</span></div>
+            <button id="btn-backup-now" type="button" class="bmh-btn gold-btn small-btn">💾 BACKUP</button>
+        </div>`;
+}
+
+function bindBackupReminder(rerender) {
+    const b = document.getElementById('btn-backup-now');
+    if (b) b.addEventListener('click', () => { exportCurrentBackup(); if (rerender) rerender(); });
+}
+
+// Speichern & dann zu einer anderen Seite wechseln (wartet auf IndexedDB)
+function saveAndNavigate(url) {
+    saveGame();
+    storeFlush().then(() => { window.location.href = url; });
 }
 
 function loadGame() {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const id = getActiveSlotId();
+    const saved = id ? storeGet(slotKey(id)) : null;
     if (!saved) return;
     try {
         const parsed = expandSavedState(JSON.parse(saved));
@@ -112,7 +167,7 @@ function loadGame() {
         GameState.lastSeasonDevelopmentReport = parsed.lastSeasonDevelopmentReport || null;
         GameState.tactics = { formation: "4-4-2", mentality: "normal", aggression: "normal", lineup: [], bench: [], ...(parsed.tactics || {}) };
         GameState.youthAcademy = { clubId: null, players: [], ...(parsed.youthAcademy || {}) };
-        GameState.sponsors = { clubId: null, main: null, boards: null, offersMain: [], offersBoards: [], ...(parsed.sponsors || {}) };
+        GameState.sponsors = { clubId: null, main: null, boards: null, kit: null, offersMain: [], offersBoards: [], offersKit: [], ...(parsed.sponsors || {}) };
         GameState.stadiumProject = parsed.stadiumProject || null;
         GameState.inbox = Array.isArray(parsed.inbox) ? parsed.inbox : [];
         GameState.catchUps = Array.isArray(parsed.catchUps) ? parsed.catchUps : [];
@@ -135,10 +190,12 @@ function loadGame() {
 }
 
 function resetGame() {
-    if (confirm("Wirklich kompletten Spielstand und alle eingespielten Updates löschen?")) {
-        localStorage.removeItem(STORAGE_KEY);
-        localStorage.removeItem(DB_STORAGE_KEY);
-        window.location.href = 'start.html';
+    if (confirm("Wirklich ALLE Spielstände und alle eingespielten Länderpakete löschen?\n\nTipp: Einzelne Spielstände kannst du im Startmenü unter „Spielstände“ löschen.")) {
+        getSlotIndex().forEach(s => storeRemove(slotKey(s.id)));
+        storeRemove(SLOT_INDEX_KEY);
+        storeRemove(ACTIVE_SLOT_KEY);
+        storeRemove(DB_STORAGE_KEY);
+        storeFlush().then(() => { window.location.href = 'start.html'; });
     }
 }
 

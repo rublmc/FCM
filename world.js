@@ -469,11 +469,27 @@ function generateRoutineEvents() {
         addInbox('😒', `${p.name} wirkt unmotiviert`, `${p.name} (${p.pos}, Motivation ${p.motivation}%) ${reason}. Mehr Einsatzzeit, ein Testspiel/Event oder eine Vertragsverlängerung könnten helfen.`, 'mood');
     }
 
+    // Eigenschaften im Trainingsalltag
+    const lazy = squad.filter(p => hasTrait(p, 'lazy') && !isPlayerUnavailable(p));
+    if (lazy.length > 0 && Math.random() < 0.18) {
+        const p = pick(lazy);
+        p.campDevBonus = Math.max(0, (p.campDevBonus || 0) - 0.03);
+        addInbox('🦥', `${p.name} schwänzt Extraschicht`, `${p.name} (${p.pos}, Fauler Hund) hat sich vor der Zusatzeinheit gedrückt und war als Erster in der Kabine. (-0,03 Entwicklungsbonus)`, 'training');
+    }
+    const hot = squad.filter(p => hasTrait(p, 'hothead'));
+    if (hot.length > 0 && Math.random() < 0.12) {
+        const p = pick(hot);
+        const other = pick(squad.filter(x => x.id !== p.id)) || p;
+        adjustPlayerMotivation(p, -3);
+        adjustPlayerMotivation(other, -3);
+        addInbox('😡', `Zoff im Training: ${p.name}`, `Hitzkopf ${p.name} ist im Training mit ${other.name} aneinandergeraten. Beide mussten vorzeitig duschen gehen (je -3% Motivation).`, 'mood');
+    }
+
     const fit = getStaffQuality('fitness');
     if (Math.random() < 0.05 * (1 - 0.1 * fit)) {
         const pool = squad.filter(p => !isPlayerUnavailable(p));
         if (pool.length > 0) {
-            const p = pick(pool);
+            const p = pickWeighted(pool, x => (hasTrait(x, 'fragile') ? 2 : 1));
             const n = Math.max(1, 1 + Math.floor(Math.random() * 3) - Math.floor(getStaffQuality('physio') / 2));
             p.injuredMatches = n;
             p.injuryReason = "Trainingsverletzung";
@@ -481,6 +497,10 @@ function generateRoutineEvents() {
             addInbox('🚑', `Trainingsverletzung: ${p.name}`, `${p.name} (${p.pos}) hat sich im Training verletzt und fällt voraussichtlich ${n} ${n === 1 ? 'Spiel' : 'Spiele'} aus.${wasIn ? ' Er wurde aus der Startelf genommen – bitte stelle einen Ersatz auf!' : ''}`, 'injury');
         }
     }
+
+    generatePrivateLifeEvent();
+    processEmployeeEvents();
+    updateFansWeekly();
 }
 
 // ==========================================
@@ -517,7 +537,15 @@ function generateStaffCandidate(role, quality) {
 }
 
 function ensureStaffOffersInitialized(force = false) {
-    if (!force && GameState.staffOffersSeason === GameState.meta.season && GameState.staffOffers.length > 0) return;
+    if (!force && GameState.staffOffersSeason === GameState.meta.season && GameState.staffOffers.length > 0) {
+        // Spielstände aus älteren Versionen: Angebote für neue Rollen (Mitarbeiter) ergänzen
+        Object.keys(STAFF_ROLES).forEach(role => {
+            if (GameState.staff[role] || GameState.staffOffers.some(o => o.role === role)) return;
+            [1 + Math.floor(Math.random() * 2), 2 + Math.floor(Math.random() * 2), 3 + Math.floor(Math.random() * 3)]
+                .forEach(q => GameState.staffOffers.push(generateStaffCandidate(role, Math.min(5, q))));
+        });
+        return;
+    }
     const offers = [];
     Object.keys(STAFF_ROLES).forEach(role => {
         const qs = [1 + Math.floor(Math.random() * 2), 2 + Math.floor(Math.random() * 2), 3 + Math.floor(Math.random() * 3)];
@@ -707,7 +735,13 @@ function getAnnualMerchMoney(clubId) {
     const tier = GameState.leagues[club?.leagueId]?.tier || 1;
     const avg = getClubAverageRating(clubId);
     const base = tier === 1 ? 12000000 : (tier === 2 ? 2500000 : 800000);
-    return base * Math.pow(avg / 7.0, 9);
+    let v = base * Math.pow(avg / 7.0, 9);
+    if (clubId === GameState.activeClubId) {
+        v *= getFanMerchMult();
+        const kit = GameState.sponsors && GameState.sponsors.kit;
+        if (kit && typeof kit.share === 'number') v *= (1 + kit.share * 2);   // Fanartikel-Beteiligung des Ausrüsters
+    }
+    return v;
 }
 
 // Wird nach jedem eigenen Liga-Spieltag gebucht
@@ -811,9 +845,11 @@ function completePlayerSale(player, buyerId, fee) {
     GameState.tactics.lineup = GameState.tactics.lineup.map(id => (id === player.id ? null : id));
     GameState.tactics.bench = GameState.tactics.bench.map(id => (id === player.id ? null : id));
     const seasonEnd = getCurrentSeasonEndYear();
+    const fromId = player.clubId;
     movePlayerToClub(player, buyerId);
     player.contractUntil = Math.max(player.contractUntil || seasonEnd, seasonEnd + 2);
     player.salary = calculateExpectedSalary(player);
+    if (fee > 0) recordTransferNews(player, fromId, buyerId, fee);
     GameState.transferOffers.forEach(o => {
         if (o.playerId === player.id && o.status === 'open') o.status = 'closed';
     });
@@ -827,14 +863,16 @@ const GROUP_STARTERS = { TW: 1, DEF: 4, MID: 4, FWD: 2 };
 
 function recordTransferNews(p, fromId, toId, fee) {
     if (!Array.isArray(GameState.transferNews)) GameState.transferNews = [];
-    GameState.transferNews.unshift({
+    const entry = {
         name: p.name, pos: p.pos, rating: p.rating, age: p.age,
         from: fromId === 'free' ? 'vereinslos' : getAnyClubName(fromId),
         fromId, to: getAnyClubName(toId), toId, fee,
         date: GameState.meta.currentDate || getCurrentGameDate(),
         season: GameState.meta.season
-    });
+    };
+    GameState.transferNews.unshift(entry);
     if (GameState.transferNews.length > 80) GameState.transferNews.length = 80;
+    checkNewspaperTransfer(entry);
 }
 
 function isInTransferWindow() {

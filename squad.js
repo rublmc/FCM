@@ -186,11 +186,13 @@ function computePlayerReservation(player, kind) {
         if (player.isYouthProduct) r -= 0.03;
         // Wer aktuell mehr verdient als marktüblich, will keine großen Einbußen
         if ((player.salary || 0) > ref) r += Math.min(0.15, ((player.salary / ref) - 1) * 0.5);
+        if (hasTrait(player, 'loyal')) r -= 0.06;
     } else {
         const myAvg = getClubAverageRating(GameState.activeClubId);
         if (player.rating > myAvg + 0.8) r += 0.06;
         if (player.clubId === 'free') r -= 0.03;
     }
+    if (hasTrait(player, 'diva')) r += 0.05;
     return r;
 }
 
@@ -319,14 +321,14 @@ function renderContractsView(viewport) {
     }
 
     viewport.innerHTML = `
-        <h2 class="section-title">✍️ VERTRÄGE & TRAINERSTAB</h2>
+        <h2 class="section-title">✍️ VERTRÄGE, STAB & MITARBEITER</h2>
         <div class="kpi-grid">
             <div class="kpi-card"><span class="kpi-label">GEHÄLTER SPIELER / STAB</span><span class="kpi-value">${formatMoneyShort(totalAnnualSalary)} / ${formatMoneyShort(staffCost)}</span></div>
             <div class="kpi-card"><span class="kpi-label">KOSTEN PRO LIGA-SPIELTAG</span><span class="kpi-value">${formatMoneyShort(perMatchSalary)}</span></div>
         </div>
         <div class="sub-tab-bar two-tabs">
             <button type="button" class="sub-tab-btn ${contractsSubTab === 'players' ? 'active' : ''}" data-ctab="players">👥 SPIELER</button>
-            <button type="button" class="sub-tab-btn ${contractsSubTab === 'staff' ? 'active' : ''}" data-ctab="staff">🧑‍🏫 TRAINERSTAB</button>
+            <button type="button" class="sub-tab-btn ${contractsSubTab === 'staff' ? 'active' : ''}" data-ctab="staff">🧑‍🏫 STAB & MITARBEITER</button>
         </div>
         ${bodyHtml}
     `;
@@ -433,7 +435,7 @@ function buildStaffTabHtml() {
         }
     }
 
-    const roleCards = Object.keys(STAFF_ROLES).map(roleKey => {
+    const roleCard = (roleKey) => {
         const role = STAFF_ROLES[roleKey];
         const cur = GameState.staff[roleKey];
         const offers = GameState.staffOffers.filter(o => o.role === roleKey);
@@ -456,7 +458,15 @@ function buildStaffTabHtml() {
                 }).join('') : `<p style="font-size:0.66rem; color:#a82424; margin-top:4px;">🔒 Neueinstellungen nur in der Saisonvorbereitung möglich.</p>`)}
             </div>
         `;
-    }).join('');
+    };
+    const coachKeys = Object.keys(STAFF_ROLES).filter(k => STAFF_ROLES[k].group !== 'emp');
+    const empKeys = Object.keys(STAFF_ROLES).filter(k => STAFF_ROLES[k].group === 'emp');
+    const roleCards = `
+        <h3 style="font-size:0.80rem; color:#184d25; margin-bottom:6px;">🧑‍🏫 TRAINERSTAB</h3>
+        ${coachKeys.map(roleCard).join('')}
+        <h3 style="font-size:0.80rem; color:#184d25; margin:10px 0 6px 0;">🏢 MITARBEITER</h3>
+        <p style="font-size:0.64rem; color:#444; margin-bottom:6px;">Gute Mitarbeiter (viele ★) sorgen öfter für positive Ereignisse, schlechte auch mal für Ärger.</p>
+        ${empKeys.map(roleCard).join('')}`;
 
     return `
         ${isPreseason ? `
@@ -671,7 +681,7 @@ function buildRosterTabHtml(mySquad) {
                             <td>${statusBadge}</td>
                             <td><strong>${p.pos}</strong></td>
                             <td title="${p.name} (${p.age} J. | Mot: ${mot}%)">
-                                <strong>${youthIcon}${p.name}</strong><br>
+                                <strong>${youthIcon}${p.name}</strong> ${traitBadgeHtml(p)}${p.lifeEvent && (GameState.meta.tick || 0) - p.lifeEvent.tick <= 6 ? `<span title="Privat: ${p.lifeEvent.title}">${p.lifeEvent.icon}</span>` : ''}<br>
                                 <span style="font-size:0.60rem; color:#444;">${p.age}J • ${getMotivationIcon(mot)}${mot}% • '${String(p.contractUntil).slice(-2)}${suspNote}</span>
                             </td>
                             <td><strong>${p.rating.toFixed(1)}</strong></td>
@@ -1184,6 +1194,8 @@ function buildPlayerCardHtml(p) {
                 <button id="btn-close-card" type="button" class="bmh-btn danger small-btn" style="padding:2px 7px; align-self:flex-start;">✕</button>
             </div>
             <div class="pc-status"><span class="contract-pill ${statusCls}">${status}</span> <span style="font-size:0.66rem;">• ${role} • ${getMotivationIcon(p.motivation)} Motivation ${p.motivation || 78}%</span></div>
+            <div class="pc-trait"><strong>${PLAYER_TRAITS[getPlayerTrait(p)].icon || '🙂'} Charakter: ${PLAYER_TRAITS[getPlayerTrait(p)].label}</strong><br><span>${PLAYER_TRAITS[getPlayerTrait(p)].desc}</span></div>
+            ${p.lifeEvent ? `<div class="pc-trait" style="background:${p.lifeEvent.mot >= 0 ? '#d3f9d8' : '#ffe3e3'};"><strong>${p.lifeEvent.icon} Privat:</strong> ${p.name} ${p.lifeEvent.title}${p.lifeEvent.date ? ` (${formatGameDate(p.lifeEvent.date)})` : ''} • Motivation ${p.lifeEvent.mot > 0 ? '+' : ''}${p.lifeEvent.mot}%</div>` : ''}
             <div class="pc-grid">
                 <div class="pc-cell"><span>SPIELE SAISON</span><strong>${p.seasonApps || 0}</strong><em>${p.seasonMinutes || 0} Min.</em></div>
                 <div class="pc-cell"><span>TORE SAISON</span><strong>${p.seasonGoals || 0}</strong><em>+ ${p.cupGoals || 0} im Pokal</em></div>

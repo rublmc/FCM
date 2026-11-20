@@ -3,7 +3,8 @@
 // ==========================================
 
 // GameState, STORAGE_KEY & Datenbank-Funktionen kommen aus data.js (wird in start.html vorher geladen)
-let setupStep = 0; // 0 = Titelbildschirm, 1 = Managername, 2 = Land, 3 = Verein, 99 = Daten-Import
+let setupStep = 0; // 0 = Titelbildschirm, 1 = Managername, 2 = Land, 3 = Verein, 50 = Spielstände, 99 = Daten-Import
+let setupNewGame = false; // true, solange ein neues Spiel eingerichtet wird (alter Spielstand wird nicht überschrieben)
 
 const COUNTRY_NAMES = {
     "DE": "🇩🇪 Deutschland",
@@ -26,6 +27,10 @@ const COUNTRY_NAMES = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
+    storeInit().then(() => startSetupAfterStorage());
+});
+
+function startSetupAfterStorage() {
     loadGameState();
     // Alte Installationen: Original-Datenbank einmalig sichern, solange noch keine Karriere läuft
     if (!loadDatabaseSnapshot() && GameState.players.length > 0 && !GameState.activeClubId) {
@@ -36,26 +41,38 @@ document.addEventListener('DOMContentLoaded', () => {
         renderSetup();
     });
     renderSetup();
-});
+}
+
+const SETUP_EMPTY_STATE = JSON.stringify(GameState);
 
 function loadGameState() {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    GameState = JSON.parse(SETUP_EMPTY_STATE);
+    const id = getActiveSlotId();
+    const saved = id ? storeGet(slotKey(id)) : null;
     if (saved) {
         try {
             const parsed = expandSavedState(JSON.parse(saved));
             GameState = { ...GameState, ...parsed };
             GameState.meta = { ...GameState.meta, ...(parsed.meta || {}) };
+            return;
         } catch (e) {
             console.error(e);
         }
     }
+    // Kein aktiver Spielstand: Ligen & Vereine aus der Original-Datenbank anzeigen
+    restoreDatabaseFromSnapshot();
 }
 
 function saveGameState() {
+    const id = getActiveSlotId();
+    if (setupNewGame || !id || !GameState.activeClubId) return Promise.resolve();
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(GameState));
+        const p = storeSet(slotKey(id), JSON.stringify(GameState));
+        updateSlotMeta(id, GameState);
+        return p;
     } catch (e) {
-        alert("⚠️ Browser-Speicher voll! Bitte weniger Länderpakete laden.");
+        alert("⚠️ Browser-Speicher voll! Dein Browser unterstützt kein IndexedDB – bitte weniger Länderpakete laden.");
+        return Promise.resolve();
     }
 }
 
@@ -65,7 +82,10 @@ function setSetupStatus(msg) {
 
 function renderSetup() {
     const viewport = document.getElementById('setup-viewport');
-    const hasSavegame = Boolean(GameState.activeClubId && GameState.meta.managerName);
+    const slots = getSlotIndex();
+    const activeId = getActiveSlotId();
+    const activeMeta = slots.find(s => s.id === activeId) || null;
+    const hasSavegame = Boolean(activeMeta);
     const hasLeagues = Object.keys(GameState.leagues).length > 0;
 
     // SCHRITT 0: RETRO TITELBILDSCHIRM
@@ -82,9 +102,13 @@ function renderSetup() {
                 ${hasSavegame ? `
                     <button id="btn-continue-game" class="bmh-btn primary" style="width:100%; margin-bottom:8px; padding: 12px; font-size: 0.9rem;">
                         ▶ SPIELSTAND FORTSETZEN<br>
-                        <span style="font-size:0.72rem; font-weight:normal;">Manager: ${GameState.meta.managerName} | ${GameState.clubs[GameState.activeClubId]?.name || ''}</span>
+                        <span style="font-size:0.72rem; font-weight:normal;">${activeMeta.manager} | ${activeMeta.club} | ${describeSlotProgress(activeMeta)}</span>
                     </button>
                 ` : ''}
+
+                <button id="btn-goto-slots" class="bmh-btn" style="width:100%; margin-bottom:8px; padding: 10px;">
+                    💾 SPIELSTÄNDE VERWALTEN (${slots.length})
+                </button>
 
                 <button id="btn-new-game" class="bmh-btn ${hasSavegame ? '' : 'primary'}" style="width:100%; margin-bottom:8px; padding: 12px; font-size: 0.9rem;">
                     🆕 NEUES SPIEL STARTEN
@@ -104,20 +128,34 @@ function renderSetup() {
         `;
 
         if (hasSavegame) {
-            document.getElementById('btn-continue-game').addEventListener('click', () => {
-                window.location.href = 'index.html';
+        document.getElementById('btn-continue-game').addEventListener('click', () => {
+                storeFlush().then(() => { window.location.href = 'index.html'; });
             });
         }
 
+        document.getElementById('btn-goto-slots').addEventListener('click', () => {
+            setupStep = 50;
+            renderSetup();
+        });
+
         document.getElementById('btn-new-game').addEventListener('click', () => {
-            if (!hasLeagues) {
+            setupNewGame = true;
+            if (!hasLeagues && !loadDatabaseSnapshot()) {
+                setupNewGame = false;
                 alert("Es sind noch keine Ligen/Vereine geladen! Bitte lade zuerst dein Bundesliga-JSON-Paket im Daten-Import.");
                 setupStep = 99;
                 renderSetup();
                 return;
             }
-            // Neues Spiel: Datenbank auf den Original-Stand zurücksetzen (nur im Speicher, gespeichert wird bei der Vereinswahl)
+            // Neues Spiel: frischer Spielstand + Datenbank im Original-Zustand (gespeichert wird erst bei der Vereinswahl)
+            const prev = GameState;
+            GameState = JSON.parse(SETUP_EMPTY_STATE);
+            GameState.meta.managerName = prev.meta.managerName || '';
+            GameState.meta.installedUpdates = prev.meta.installedUpdates || [];
             if (!restoreDatabaseFromSnapshot()) {
+                GameState.leagues = prev.leagues;
+                GameState.clubs = prev.clubs;
+                GameState.players = prev.players;
                 alert("Hinweis: Es ist noch keine Original-Datenbank gesichert. Bitte spiele dein Datenpaket einmal über „Ligen-Update einlesen“ neu ein – danach wird die Datenbank bei jedem neuen Spiel automatisch zurückgesetzt.");
             }
             setupStep = 1;
@@ -149,6 +187,8 @@ function renderSetup() {
         inputEl.focus();
 
         document.getElementById('btn-step1-back').addEventListener('click', () => {
+            setupNewGame = false;
+            loadGameState();
             setupStep = 0;
             renderSetup();
         });
@@ -248,8 +288,13 @@ function renderSetup() {
             btn.addEventListener('click', (e) => {
                 const clubId = e.currentTarget.dataset.club;
                 resetCareerFields(clubId);
-                saveGameState();
-                window.location.href = 'index.html';
+                // Neues Spiel = neuer Spielstand (alte Spielstände bleiben erhalten)
+                const newId = createSlotId();
+                storeSet(slotKey(newId), JSON.stringify(GameState));
+                updateSlotMeta(newId, GameState);
+                setActiveSlotId(newId);
+                setupNewGame = false;
+                storeFlush().then(() => { window.location.href = 'index.html'; });
             });
         });
 
@@ -257,6 +302,12 @@ function renderSetup() {
             setupStep = 2;
             renderSetup();
         });
+        return;
+    }
+
+    // SCHRITT 50: SPIELSTÄNDE VERWALTEN
+    if (setupStep === 50) {
+        renderSlotsPage(viewport);
         return;
     }
 
@@ -368,4 +419,98 @@ function formatMoneyShort(amount) {
     }
     if (Math.abs(amount) >= 1000) return Math.round(amount / 1000) + 'k €';
     return Math.round(amount) + ' €';
+}
+
+// ==========================================
+// SPIELSTÄNDE VERWALTEN (Laden, Löschen, Backup, Backup laden)
+// ==========================================
+function describeSlotProgress(s) {
+    if (!s) return '';
+    const ph = s.phase === 'preseason' ? `Vorbereitung W${s.preseasonWeek}` : (s.phase === 'winter' ? 'Winterpause' : `Spieltag ${s.matchday}`);
+    return `Saison ${s.season} • ${ph}`;
+}
+
+function renderSlotsPage(viewport) {
+    const slots = [...getSlotIndex()].sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
+    const activeId = getActiveSlotId();
+    const sizeKB = (id) => Math.round(((storeGet(slotKey(id)) || '').length) / 1024);
+    viewport.innerHTML = `
+        <h2 class="section-title">💾 SPIELSTÄNDE (${slots.length})</h2>
+        <div class="bmh-box" style="font-size:0.70rem;">
+            Jedes neue Spiel bekommt einen eigenen Spielstand. Gespeichert wird automatisch nach jedem Spieltag und jeder Woche.
+            <strong>Zum Schutz vor dem Löschen durch Safari</strong> sichere wichtige Spielstände zusätzlich als <strong>Backup-Datei</strong> (z. B. in „Dateien“ oder iCloud).
+        </div>
+        ${slots.length === 0 ? '<div class="bmh-box"><p style="font-size:0.78rem;">Noch keine Spielstände vorhanden.</p></div>' : slots.map(s => `
+            <div class="slot-card ${s.id === activeId ? 'active' : ''}">
+                <div class="slot-head">
+                    <strong>${s.club}</strong>
+                    ${s.id === activeId ? '<span class="sponsor-tag">ZULETZT GESPIELT</span>' : ''}
+                </div>
+                <div class="slot-info">
+                    👤 ${s.manager} • ${s.league || ''}<br>
+                    📅 ${describeSlotProgress(s)}${s.budget ? ` • 💶 ${formatMoneyShort(s.budget)}` : ''}<br>
+                    💾 Gespeichert: ${s.savedAt ? new Date(s.savedAt).toLocaleString('de-DE') : '–'} • ${sizeKB(s.id)} KB
+                </div>
+                <div class="slot-actions">
+                    <button type="button" class="bmh-btn primary small-btn btn-slot-load" data-id="${s.id}">▶ LADEN</button>
+                    <button type="button" class="bmh-btn gold-btn small-btn btn-slot-backup" data-id="${s.id}">💾 BACKUP</button>
+                    <button type="button" class="bmh-btn danger small-btn btn-slot-delete" data-id="${s.id}">🗑️ LÖSCHEN</button>
+                </div>
+            </div>`).join('')}
+        <div class="bmh-box">
+            <h3 style="margin-bottom:6px;">📂 BACKUP-DATEI LADEN</h3>
+            <p style="font-size:0.70rem; margin-bottom:6px;">Lädt einen gesicherten Spielstand (.json) als neuen Eintrag in die Liste – z. B. nachdem Safari die Daten gelöscht hat.</p>
+            <input type="file" id="slot-backup-upload" accept=".json,application/json" class="bmh-input">
+        </div>
+        ${slots.length > 1 ? `<button id="btn-slots-delete-old" type="button" class="bmh-btn danger" style="width:100%; margin-bottom:8px;">🗑️ ALLE AUSSER DEM ZULETZT GESPIELTEN LÖSCHEN</button>` : ''}
+        <button id="btn-slots-back" type="button" class="bmh-btn primary" style="width:100%;">◀ ZURÜCK ZUM HAUPTMENÜ</button>
+    `;
+
+    const back = () => { setupStep = 0; loadGameState(); renderSetup(); };
+    document.getElementById('btn-slots-back').addEventListener('click', back);
+
+    viewport.querySelectorAll('.btn-slot-load').forEach(btn => btn.addEventListener('click', (e) => {
+        setActiveSlotId(e.currentTarget.dataset.id);
+        storeFlush().then(() => { window.location.href = 'index.html'; });
+    }));
+    viewport.querySelectorAll('.btn-slot-backup').forEach(btn => btn.addEventListener('click', (e) => {
+        if (exportSlotBackup(e.currentTarget.dataset.id)) setSetupStatus('💾 Backup-Datei erstellt.');
+    }));
+    viewport.querySelectorAll('.btn-slot-delete').forEach(btn => btn.addEventListener('click', (e) => {
+        const id = e.currentTarget.dataset.id;
+        const s = getSlotIndex().find(x => x.id === id);
+        if (!s) return;
+        if (!confirm(`Spielstand wirklich löschen?\n\n${s.club} (${s.manager})\n${describeSlotProgress(s)}\n\nDas kann nicht rückgängig gemacht werden.`)) return;
+        deleteSlot(id);
+        storeFlush().then(() => {
+            loadGameState();
+            setSetupStatus(`🗑️ Spielstand ${s.club} gelöscht.`);
+            renderSlotsPage(viewport);
+        });
+    }));
+    const delOld = document.getElementById('btn-slots-delete-old');
+    if (delOld) delOld.addEventListener('click', () => {
+        const keep = getActiveSlotId() || slots[0].id;
+        const others = getSlotIndex().filter(s => s.id !== keep);
+        if (!confirm(`${others.length} Spielstände löschen? Nur der zuletzt gespielte bleibt erhalten.`)) return;
+        others.forEach(s => deleteSlot(s.id));
+        setActiveSlotId(keep);
+        storeFlush().then(() => { loadGameState(); setSetupStatus(`🗑️ ${others.length} Spielstände gelöscht.`); renderSlotsPage(viewport); });
+    });
+    document.getElementById('slot-backup-upload').addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const id = importSlotBackup(ev.target.result);
+            if (!id) return;
+            setActiveSlotId(id);
+            storeFlush().then(() => {
+                loadGameState();
+                setSetupStatus('📂 Backup geladen – der Spielstand steht oben in der Liste.');
+                renderSlotsPage(viewport);
+            });
+        };
+        reader.readAsText(file);
+    });
 }
