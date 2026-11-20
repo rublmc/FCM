@@ -2,9 +2,6 @@
 // FC MANAGER 27 - MODUL: DATA & KONSTANTEN
 // ==========================================
 window.FCM_APP_STARTED = true;
-// ==========================================
-// FC MANAGER - CORE ENGINE (v1.0 LIVE-TICKER, KONFERENZ & HALBZEIT)
-// ==========================================
 
 const STORAGE_KEY = 'fcm_savegame_v1';
 
@@ -168,7 +165,8 @@ const TRAINING_CAMPS = [
         revenue: 0,
         motivationDelta: 22,
         devBonus: 0.35,
-        trainingMinutes: 360
+        trainingMinutes: 360,
+        u26Boost: true
     }
 ];
 
@@ -229,14 +227,19 @@ const CLUB_EVENTS = [
 
 let GameState = {
     meta: {
-        coreVersion: "1.0.0",
+        coreVersion: "1.3.0",
         season: "2026/27",
-        phase: "preseason", // 'preseason' | 'season'
+        phase: "preseason", // 'preseason' | 'season' | 'winter'
         preseasonWeek: 1,   // 1..4
         matchday: 1,
         installedUpdates: [],
         managerName: "",
-        selectedCountry: ""
+        selectedCountry: "",
+        currentDate: null,  // ISO-Datum (YYYY-MM-DD) des aktuellen Spieltags/der aktuellen Woche
+        tick: 0,            // Zeit-Zähler (Woche / Spieltag) für Verhandlungssperren
+        harshWinter: false,
+        weatherSeason: null,
+        freeAgentsSeeded: false
     },
     activeClubId: null,
     leagues: {},
@@ -244,9 +247,17 @@ let GameState = {
     players: [],
     competitions: {},
     schedule: {},
+    catchUps: [],          // Nachholspiele nach wetterbedingten Absagen
     preseason: null,
+    winterBreak: null,
+    lastBreakReport: null,
     lastMatchReport: null,
     lastSeasonDevelopmentReport: null,
+    inbox: [],
+    staff: {},             // { co, fitness, gk, physio, youth }
+    staffOffers: [],
+    staffOffersSeason: null,
+    negoBlocks: {},
     tactics: {
         formation: "4-4-2",
         mentality: "normal",
@@ -267,6 +278,32 @@ let GameState = {
     },
     stadiumProject: null
 };
+
+// Setzt alle karrierebezogenen Felder für ein neues Spiel zurück (Ligen/Vereine/Spieler bleiben erhalten)
+function resetCareerFields(clubId) {
+    GameState.activeClubId = clubId;
+    Object.assign(GameState.meta, {
+        season: "2026/27", phase: "preseason", preseasonWeek: 1, matchday: 1,
+        currentDate: null, tick: 0, harshWinter: false, weatherSeason: null
+    });
+    GameState.schedule = {};
+    GameState.catchUps = [];
+    GameState.preseason = null;
+    GameState.winterBreak = null;
+    GameState.lastBreakReport = null;
+    GameState.lastMatchReport = null;
+    GameState.lastSeasonDevelopmentReport = null;
+    GameState.inbox = [];
+    GameState.staff = {};
+    GameState.staffOffers = [];
+    GameState.staffOffersSeason = null;
+    GameState.negoBlocks = {};
+    GameState.tactics.lineup = [];
+    GameState.tactics.bench = [];
+    GameState.youthAcademy = { clubId: null, players: [] };
+    GameState.sponsors = { clubId, main: null, boards: null, offersMain: [], offersBoards: [] };
+    GameState.stadiumProject = null;
+}
 
 // Temporärer UI-State für Klick- & Drag-Wechsel
 let selectedSwapSource = null;
@@ -292,7 +329,7 @@ let selectedLeagueViewId = null;
 let selectedFixtureMatchday = null;
 
 // Temporärer UI-State für Kalender & Saisonvorbereitung (v0.9)
-let calendarSubTab = 'preseason'; // 'preseason' | 'season_cal'
+let calendarSubTab = 'preseason'; // 'preseason' (aktuelle Pause) | 'season_cal'
 let preseasonCollapsedInSeason = true;
 let bookingDialogState = null;    // { week: 1..4, category: 'friendly'|'camp'|'event' }
 
@@ -302,3 +339,91 @@ let liveTickerTimer = null;
 let liveSelectedPitchSlot = null;
 let liveTacticsDisplayMode = 'pitch'; // 'pitch' | 'list' 
 
+
+// Temporärer UI-State für Verhandlungen, Postfach & Trainerstab (v1.3)
+let activeNegotiation = null;
+let contractsSubTab = 'players'; // 'players' | 'staff'
+let openInboxMsgId = null;
+let inboxShowAll = false;
+
+// ==========================================
+// WINTERPAUSE JE LAND (Wochen ohne Ligaspiel)
+// ==========================================
+const WINTER_BREAK_WEEKS = {
+    DE: 3,  // Bundesliga: ca. 3 Wochen
+    AT: 4,  // Österreich: lange Pause (im Spiel auf 4 Wochen begrenzt)
+    CH: 4,  // Schweiz: lange Pause (im Spiel auf 4 Wochen begrenzt)
+    FR: 2,
+    NL: 2,
+    IT: 1,
+    ES: 1,
+    EN: 0   // England: keine Winterpause (Boxing Day!)
+};
+const COUNTRY_LABELS = { DE: "Deutschland", AT: "Österreich", CH: "Schweiz", FR: "Frankreich", NL: "Niederlande", IT: "Italien", ES: "Spanien", EN: "England" };
+
+const WINTER_CAMPS = [
+    {
+        id: "wcamp_belek", category: "camp", icon: "🌴",
+        title: "Winter-Camp Belek (Türkei)",
+        desc: "Klassiker im Januar: milde 18°C, gute Plätze, solides Preis-Leistungs-Verhältnis.",
+        cost: 450000, revenue: 0, motivationDelta: 10, devBonus: 0.14, trainingMinutes: 240
+    },
+    {
+        id: "wcamp_marbella", category: "camp", icon: "☀️",
+        title: "Winter-Camp Marbella (Spanien)",
+        desc: "Top-Bedingungen an der Costa del Sol für den Rückrunden-Feinschliff.",
+        cost: 750000, revenue: 0, motivationDelta: 14, devBonus: 0.20, trainingMinutes: 300
+    },
+    {
+        id: "wcamp_dubai", category: "camp", icon: "🏜️",
+        title: "Premium-Camp Dubai (VAE)",
+        desc: "Luxus-Hotel, Sportmedizin auf Spitzenniveau & Extra-Schub für U26-Spieler.",
+        cost: 1300000, revenue: 0, motivationDelta: 18, devBonus: 0.28, trainingMinutes: 330, u26Boost: true
+    }
+];
+
+// ==========================================
+// TRAINERSTAB
+// ==========================================
+const STAFF_ROLES = {
+    co:      { title: "Co-Trainer",          icon: "🧑‍🏫", baseSalary: 420000, desc: "Taktik-Coaching: +Teamstärke in Pflichtspielen" },
+    fitness: { title: "Konditionstrainer",   icon: "🏃",   baseSalary: 260000, desc: "Weniger Verletzungen & bessere Saisonentwicklung" },
+    gk:      { title: "Torwarttrainer",      icon: "🧤",   baseSalary: 220000, desc: "Bessere Entwicklung der Torhüter" },
+    physio:  { title: "Physio / Teamarzt",   icon: "🩺",   baseSalary: 240000, desc: "Kürzere Verletzungspausen" },
+    youth:   { title: "Jugendtrainer",       icon: "🌱",   baseSalary: 180000, desc: "Stärkere Talente im Nachwuchs-Camp" }
+};
+const STAFF_FIRST_NAMES = ["Markus", "Thomas", "Andreas", "Stefan", "Michael", "Frank", "Peter", "Jürgen", "Christian", "Daniel", "Sven", "Uwe", "Rainer", "Holger", "Dirk", "Carlos", "Marco", "Luca", "Pierre", "Jan"];
+const STAFF_LAST_NAMES = ["Hoffmann", "Brandt", "Vogt", "Kessler", "Lorenz", "Pfeiffer", "Seidel", "Winkler", "Busch", "Haas", "Graf", "Ziegler", "Kuhn", "Engel", "Arnold", "Ruiz", "Bianchi", "Dubois", "de Vries", "Novak"];
+
+// ==========================================
+// WETTER
+// ==========================================
+const WEATHER_TYPES = {
+    sunny:     { icon: "☀️",  label: "Sonnig",             goalMult: 1.00, diffMult: 1.00, injuryMult: 1.00, cardMult: 1.00, crowd: 0.02 },
+    cloudy:    { icon: "⛅",  label: "Bewölkt",            goalMult: 1.00, diffMult: 1.00, injuryMult: 1.00, cardMult: 1.00, crowd: 0.00 },
+    heat:      { icon: "🥵",  label: "Hitze (über 30°C)",  goalMult: 0.94, diffMult: 0.95, injuryMult: 1.12, cardMult: 1.05, crowd: -0.03 },
+    rain:      { icon: "🌧️", label: "Regen",              goalMult: 0.97, diffMult: 0.95, injuryMult: 1.05, cardMult: 1.05, crowd: -0.05 },
+    heavyrain: { icon: "⛆",   label: "Starkregen",         goalMult: 0.90, diffMult: 0.82, injuryMult: 1.15, cardMult: 1.12, crowd: -0.10 },
+    fog:       { icon: "🌫️", label: "Nebel",              goalMult: 0.94, diffMult: 0.90, injuryMult: 1.00, cardMult: 1.00, crowd: -0.04 },
+    wind:      { icon: "💨",  label: "Sturmböen",          goalMult: 0.93, diffMult: 0.86, injuryMult: 1.03, cardMult: 1.03, crowd: -0.06 },
+    snow:      { icon: "🌨️", label: "Schneefall",         goalMult: 0.86, diffMult: 0.78, injuryMult: 1.22, cardMult: 1.08, crowd: -0.12 },
+    frost:     { icon: "🥶",  label: "Frost (-6°C)",       goalMult: 0.95, diffMult: 0.92, injuryMult: 1.30, cardMult: 1.00, crowd: -0.08 },
+    // Extremwetter – kann zur Spielabsage führen
+    blizzard:  { icon: "❄️",  label: "Schneechaos",        goalMult: 0.80, diffMult: 0.70, injuryMult: 1.35, cardMult: 1.10, crowd: -0.25, extreme: true, pitch: true },
+    icy:       { icon: "🧊",  label: "Gefrorener Platz",   goalMult: 0.88, diffMult: 0.80, injuryMult: 1.45, cardMult: 1.05, crowd: -0.15, extreme: true, pitch: true },
+    storm:     { icon: "🌪️", label: "Orkanwarnung",       goalMult: 0.85, diffMult: 0.75, injuryMult: 1.10, cardMult: 1.05, crowd: -0.20, extreme: true, pitch: false },
+    thunder:   { icon: "🌩️", label: "Schweres Unwetter",  goalMult: 0.88, diffMult: 0.80, injuryMult: 1.10, cardMult: 1.05, crowd: -0.15, extreme: true, pitch: false }
+};
+const WEATHER_COMMENTS = {
+    rain: ["Der Ball rutscht auf dem nassen Rasen gefährlich durch!", "Regen peitscht ins Stadion – beide Teams haben Probleme mit der Ballkontrolle."],
+    heavyrain: ["Wasserlachen auf dem Platz – Flachpässe bleiben einfach liegen!", "Der Starkregen macht ein geordnetes Aufbauspiel fast unmöglich."],
+    snow: ["Der Platzwart muss die Linien freischaufeln – kurze Unterbrechung.", "Im Schneetreiben ist der orangefarbene Winterball kaum zu sehen!"],
+    frost: ["Der gefrorene Boden ist hart – die Spieler gehen vorsichtig in die Zweikämpfe.", "Atemwolken überall – eisige Bedingungen im Stadion."],
+    fog: ["Dichter Nebel – die Zuschauer auf der Gegentribüne sehen kaum etwas!", "Der Schiedsrichter prüft kurz die Sichtverhältnisse, es geht weiter."],
+    wind: ["Eine Böe verzieht den Abstoß komplett!", "Der Wind macht hohe Bälle unberechenbar."],
+    heat: ["Trinkpause bei brütender Hitze!", "Die Hitze fordert ihren Tribut – das Tempo sinkt merklich."],
+    blizzard: ["Schneegestöber – kaum Sicht auf dem Platz!"],
+    icy: ["Spieler rutschen auf dem harten Untergrund weg!"],
+    storm: ["Werbebanden wackeln im Sturm!"],
+    thunder: ["Donnergrollen über dem Stadion!"]
+};

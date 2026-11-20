@@ -2,41 +2,7 @@
 // FC MANAGER - STARTBILDSCHIRM & SETUP-WIZARD
 // ==========================================
 
-const STORAGE_KEY = 'fcm_savegame_v1';
-
-let GameState = {
-    meta: {
-        coreVersion: "1.0.0",
-        season: "2026/27",
-        phase: "preseason",
-        preseasonWeek: 1,
-        matchday: 1,
-        installedUpdates: [],
-        managerName: "",
-        selectedCountry: ""
-    },
-    activeClubId: null,
-    leagues: {},
-    clubs: {},
-    players: [],
-    competitions: {},
-    tactics: {
-        formation: "4-4-2",
-        mentality: "normal",
-        aggression: "normal",
-        lineup: [],
-        bench: []
-    },
-    sponsors: {
-        clubId: null,
-        main: null,
-        boards: null,
-        offersMain: [],
-        offersBoards: []
-    },
-    stadiumProject: null
-};
-
+// GameState, STORAGE_KEY & resetCareerFields() kommen aus data.js (wird in start.html vorher geladen)
 let setupStep = 0; // 0 = Titelbildschirm, 1 = Managername, 2 = Land, 3 = Verein, 99 = Daten-Import
 
 const COUNTRY_NAMES = {
@@ -259,25 +225,7 @@ function renderSetup() {
         document.querySelectorAll('.club-pick-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const clubId = e.currentTarget.dataset.club;
-                GameState.activeClubId = clubId;
-                GameState.meta.season = "2026/27";
-                GameState.meta.phase = "preseason";
-                GameState.meta.preseasonWeek = 1;
-                GameState.meta.matchday = 1;
-                GameState.schedule = {};
-                GameState.preseason = null;
-                GameState.lastMatchReport = null;
-                GameState.lastSeasonDevelopmentReport = null;
-                GameState.tactics.lineup = [];
-                GameState.tactics.bench = [];
-                GameState.sponsors = {
-                    clubId: clubId,
-                    main: null,
-                    boards: null,
-                    offersMain: [],
-                    offersBoards: []
-                };
-                GameState.stadiumProject = null;
+                resetCareerFields(clubId);
                 saveGameState();
                 window.location.href = 'index.html';
             });

@@ -36,7 +36,7 @@ function renderLiveTickerView(viewport) {
     const scoreboardHtml = `
         <div class="live-scoreboard-card" style="padding:7px 9px; margin-bottom:6px;">
             <div class="live-clock-bar" style="margin-bottom:4px;">
-                <span style="color:#99b8a1; font-weight:bold; font-size:0.68rem;">${leagueName.toUpperCase()} • ST ${st.matchday}/${st.totalMds}</span>
+                <span style="color:#99b8a1; font-weight:bold; font-size:0.68rem;">${st.isCatchUp ? '📅 NACHHOLSPIEL • ' : ''}${leagueName.toUpperCase()} • ST ${st.matchday}/${st.totalMds}</span>
                 <span class="live-minute-pill ${pillClass}">${clockDisplay}</span>
             </div>
 
@@ -45,6 +45,16 @@ function renderLiveTickerView(viewport) {
                     <span class="live-team-name" title="${um.homeName}">${um.homeName}</span>
                     <span class="live-score-digits">${um.homeGoals} : ${um.awayGoals}</span>
                     <span class="live-team-name away" title="${um.awayName}">${um.awayName}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; font-size:0.62rem; color:#c3dec9; margin-top:3px;">
+                    <span>📅 ${formatGameDate(st.dateISO, true)}</span>
+                    <span>${getWeather(um.weather).icon} ${getWeather(um.weather).label}</span>
+                </div>
+            ` : ''}
+            ${st.userCancelled ? `
+                <div style="background:#4a0d0d; border:1px solid #ff6b6b; padding:6px; margin-top:4px; font-size:0.70rem;">
+                    <strong>${st.userCancelled.icon} DEIN SPIEL WURDE ABGESAGT (${st.userCancelled.label})</strong><br>
+                    ${st.userCancelled.line} • Nachholtermin: ${st.userCancelled.catchUpDate ? formatGameDate(st.userCancelled.catchUpDate, true) : 'offen'}
                 </div>
             ` : ''}
 
@@ -504,34 +514,6 @@ function renderLiveTickerView(viewport) {
         });
     });
 
-    const htForm = document.getElementById('ht-formation');
-    if (htForm) {
-        htForm.addEventListener('change', (e) => {
-            GameState.tactics.formation = e.currentTarget.value;
-            renderLiveTickerView(viewport);
-        });
-    }
-    const htMent = document.getElementById('ht-mentality');
-    if (htMent) {
-        htMent.addEventListener('change', (e) => {
-            GameState.tactics.mentality = e.currentTarget.value;
-            renderLiveTickerView(viewport);
-        });
-    }
-    const htAggr = document.getElementById('ht-aggression');
-    if (htAggr) {
-        htAggr.addEventListener('change', (e) => {
-            GameState.tactics.aggression = e.currentTarget.value;
-            renderLiveTickerView(viewport);
-        });
-    }
-    const htGotoSubs = document.getElementById('btn-ht-goto-subs');
-    if (htGotoSubs) {
-        htGotoSubs.addEventListener('click', () => {
-            st.activeSubTab = 'livetactics';
-            renderLiveTickerView(viewport);
-        });
-    }
     const start2ndBtn = document.getElementById('btn-start-second-half');
     if (start2ndBtn) {
         start2ndBtn.addEventListener('click', () => startSecondHalf());

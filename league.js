@@ -7,6 +7,7 @@
 function ensureAllSchedulesInitialized(forceRegenerate = false) {
     Object.keys(GameState.leagues).forEach(leagueId => {
         ensureLeagueSchedule(leagueId, forceRegenerate);
+        ensureScheduleDates(leagueId);
     });
 }
 
@@ -188,11 +189,10 @@ function calculateClubMatchStrength(clubId, isHome) {
             const avgMot = starters.reduce((s, p) => s + (p.motivation || 78), 0) / starters.length;
             str += (avgMot - 75) * 0.008;
         }
-
+        str += getStaffQuality('co') * 0.04;
         if (isHome) str += 0.35;
         return Math.max(1.0, str);
     }
-
     const squad = [...getClubPlayers(clubId)].sort((a, b) => b.rating - a.rating);
     const top11 = squad.slice(0, 11);
     let avg = top11.length > 0
@@ -213,7 +213,7 @@ function pickScorerForClub(clubId) {
         candidates = getClubPlayers(clubId).filter(p => {
             if (!onPitchIds.has(p.id)) return false;
             if (benchSet.has(p.id)) return false;
-            if ((p.suspendedMatches || 0) > 0) return false;
+            if (isPlayerUnavailable(p)) return false;
             if (liveMatchState) {
                 if (liveMatchState.sentOffIds.includes(p.id)) return false;
                 if (liveMatchState.injuredIds.includes(p.id)) return false;
@@ -248,15 +248,14 @@ function simulateSingleMatch(match, isOfficialLeagueMatch = true) {
     const awayStr = calculateClubMatchStrength(match.awayId, false);
     const diff = homeStr - awayStr;
 
-    let goalFactor = 1.0;
+    let goalFactor = match.weather ? getWeather(match.weather).goalMult : 1.0;
     if (match.homeId === GameState.activeClubId || match.awayId === GameState.activeClubId) {
         const ment = GameState.tactics.mentality || "normal";
-        if (ment === "all_out") goalFactor = 1.32;
-        else if (ment === "offensive") goalFactor = 1.15;
-        else if (ment === "defensive") goalFactor = 0.85;
-        else if (ment === "ultra_def") goalFactor = 0.72;
+        if (ment === "all_out") goalFactor *= 1.32;
+        else if (ment === "offensive") goalFactor *= 1.15;
+        else if (ment === "defensive") goalFactor *= 0.85;
+        else if (ment === "ultra_def") goalFactor *= 0.72;
     }
-
     const expectedHome = Math.max(0.25, Math.min(4.6, (1.42 + diff * 0.58) * goalFactor));
     const expectedAway = Math.max(0.20, Math.min(4.3, (1.15 - diff * 0.55) * goalFactor));
 
@@ -318,7 +317,7 @@ function simulateSingleMatch(match, isOfficialLeagueMatch = true) {
     // Einsatzminuten & Zu-Null-Spiele für KI-Vereine mitführen
     if (isOfficialLeagueMatch) {
         [match.homeId, match.awayId].forEach(cid => {
-            if (cid === GameState.activeClubId) return; // Eigener Kader wird detailliert in advanceMatchdayAndSimulate verbucht
+            if (cid === GameState.activeClubId) return; // Eigener Kader wird detailliert im Live-Ticker verbucht
             const conceded = cid === match.homeId ? awayGoals : homeGoals;
             const sq = [...getClubPlayers(cid)].sort((a, b) => b.rating - a.rating);
             sq.slice(0, 11).forEach(p => {
@@ -449,6 +448,16 @@ function evaluatePlayerSeasonDevelopment(player, teamSuccessDelta, isUserClub) {
             reasons.push(`Unzufrieden (${mot}% Mot.): -0.12`);
         }
 
+        const fitQ = getStaffQuality('fitness');
+        if (fitQ > 0) {
+            score += fitQ * 0.015;
+            reasons.push(`Konditionstrainer (${fitQ}★): +${(fitQ * 0.015).toFixed(2)}`);
+        }
+        const gkQ = getStaffQuality('gk');
+        if (gkQ > 0 && player.pos === "TW") {
+            score += gkQ * 0.04;
+            reasons.push(`Torwarttrainer (${gkQ}★): +${(gkQ * 0.04).toFixed(2)}`);
+        }
         if (campBonus >= 0.08) {
             const cGain = Math.min(0.16, parseFloat((campBonus * 0.45).toFixed(2)));
             score += cGain;
@@ -469,7 +478,7 @@ function evaluatePlayerSeasonDevelopment(player, teamSuccessDelta, isUserClub) {
         playerId: player.id,
         name: player.name,
         pos: player.pos,
-        ageAfter: age + 1,
+        ageAfter: age,
         oldRating,
         newRating,
         delta: actualDelta,
@@ -486,7 +495,7 @@ function finishSeasonAndAdvance() {
     if (!club) return;
 
     ensurePlayerStatsInitialized();
-
+    flushAllCatchUps();
     const seasonEnd = getCurrentSeasonEndYear();
     const finishedSeasonLabel = GameState.meta.season;
     const nextStart = seasonEnd;
@@ -550,7 +559,6 @@ function finishSeasonAndAdvance() {
                 userDevList.push(devResult);
             }
 
-            p.age = (p.age || 25) + 1;
             p.seasonApps = 0;
             p.seasonMinutes = 0;
             p.seasonGoals = 0;
@@ -560,8 +568,19 @@ function finishSeasonAndAdvance() {
             p.motivation = Math.round(((p.motivation || 78) + 75) / 2);
 
             if ((p.contractUntil || seasonEnd + 1) <= seasonEnd) {
-                if (isUserPlayer) leftPlayersCount++;
-                p.clubId = "free";
+                if (isUserPlayer) {
+                    leftPlayersCount++;
+                    addInbox('👋', `${p.name} verlässt den Verein`, `Der Vertrag von ${p.name} (${p.pos}, ${p.rating.toFixed(1)}) ist ausgelaufen. Er wechselt ablösefrei und steht jetzt auf dem Transfermarkt.`, 'squad');
+                    p.clubId = "free";
+                } else {
+                    // KI-Vereine verlängern einen Teil der auslaufenden Verträge
+                    const extendChance = (p.age || 25) <= 31 ? 0.7 : 0.4;
+                    if (Math.random() < extendChance) {
+                        p.contractUntil = seasonEnd + 1 + Math.floor(Math.random() * 3);
+                    } else {
+                        p.clubId = "free";
+                    }
+                }
             }
         } else {
             p.seasonApps = 0;
@@ -592,19 +611,29 @@ function finishSeasonAndAdvance() {
     if (GameState.sponsors.boards && GameState.sponsors.boards.untilYear <= seasonEnd) {
         GameState.sponsors.boards = null;
     }
-    ensureSponsorOffersInitialized(true);
-    ensureYouthPool(true);
-
+    processStaffContractsAtSeasonEnd(seasonEnd);
+    maintainAiSquadsAtSeasonEnd(seasonEnd);
     // 5. Neue Saison in der SAISONVORBEREITUNG (4 Wochen) starten!
     GameState.meta.season = nextSeasonLabel;
     GameState.meta.phase = "preseason";
     GameState.meta.preseasonWeek = 1;
     GameState.meta.matchday = 1;
     GameState.schedule = {};
+    GameState.catchUps = [];
+    GameState.winterBreak = null;
+    GameState.lastBreakReport = null;
     GameState.lastMatchReport = null;
+    GameState.meta.tick = (GameState.meta.tick || 0) + 1;
+    GameState.meta.harshWinter = Math.random() < 0.2;
+    GameState.meta.weatherSeason = nextSeasonLabel;
+    ensureSponsorOffersInitialized(true);
+    ensureYouthPool(true);
+    ensureStaffOffersInitialized(true);
     ensurePreseasonInitialized(true);
     ensureAllSchedulesInitialized(true);
     ensureValidSquadAssignment();
+    syncGameClock();
+    addInbox('🏆', `Saison ${finishedSeasonLabel} abgeschlossen`, `Abschlussplatz: ${myRank}. • TV-Prämie: +${formatMoneyShort(tvPrize)}.${promoRelMsg} ${leftPlayersCount > 0 ? leftPlayersCount + ' Spieler haben den Verein nach Vertragsende verlassen. ' : ''}Die Vorbereitung auf die Saison ${nextSeasonLabel} beginnt – die Stärkeentwicklung findest du im Kalender.`, 'board');
 
     selectedLeagueViewId = club.leagueId;
     selectedFixtureMatchday = 1;
@@ -642,7 +671,9 @@ function renderLeagueView(viewport) {
 
     const isPreseason = GameState.meta.phase === 'preseason';
     const userMaxMd = getLeagueTotalMatchdays(club.leagueId);
-    const isSeasonOver = !isPreseason && GameState.meta.matchday > userMaxMd;
+    const isBreak = GameState.meta.phase === 'winter';
+    const pendingUserLeagueCatchUps = (GameState.catchUps || []).filter(c => c.leagueId === club.leagueId).length;
+    const isSeasonOver = !isPreseason && !isBreak && GameState.meta.matchday > userMaxMd && pendingUserLeagueCatchUps === 0;
 
     let nextMatchBanner = "";
     if (isPreseason) {
@@ -654,6 +685,27 @@ function renderLeagueView(viewport) {
                         <span style="font-size:0.68rem;">Der 1. Liga-Spieltag beginnt nach Abschluss der 4 Vorbereitungswochen.</span>
                     </div>
                     <button id="btn-goto-preseason-cal" class="bmh-btn primary small-btn">📅 KALENDER</button>
+                </div>
+            </div>
+        `;
+    } else if (isBreak) {
+        nextMatchBanner = `
+            <div class="open-window-banner">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+                    <div>
+                        <strong>❄️ WINTERPAUSE (WOCHE ${GameState.winterBreak ? GameState.winterBreak.currentWeek : 1}/${GameState.winterBreak ? GameState.winterBreak.totalWeeks : 1})</strong><br>
+                        <span style="font-size:0.68rem;">Die Rückrunde startet am ${formatGameDate(getMatchdayDate(club.leagueId, GameState.meta.matchday), true)}.</span>
+                    </div>
+                    <button id="btn-goto-preseason-cal" class="bmh-btn primary small-btn">📅 KALENDER</button>
+                </div>
+            </div>
+        `;
+    } else if (GameState.meta.matchday > userMaxMd && pendingUserLeagueCatchUps > 0) {
+        nextMatchBanner = `
+            <div class="bmh-box" style="padding:8px; background:#fff3bf; border-color:#b58900;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+                    <div style="font-size:0.74rem;"><strong>📅 ${pendingUserLeagueCatchUps} NACHHOLSPIEL(E) AUSSTEHEND</strong><br>Erst danach ist die Saison abgeschlossen.</div>
+                    <button id="btn-sim-matchday-inline" class="bmh-btn primary small-btn">▶ NACHHOLEN</button>
                 </div>
             </div>
         `;
@@ -669,7 +721,7 @@ function renderLeagueView(viewport) {
                 <div class="bmh-box" style="padding:8px; background:#d7eadc; border-color:#246b35;">
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
                         <div style="font-size:0.75rem;">
-                            <span style="font-size:0.64rem; font-weight:bold; color:#184d25;">NÄCHSTES SPIEL (ST ${GameState.meta.matchday})</span><br>
+                            <span style="font-size:0.64rem; font-weight:bold; color:#184d25;">NÄCHSTES SPIEL (ST ${GameState.meta.matchday} • ${formatGameDate(getMatchdayDate(club.leagueId, GameState.meta.matchday))})</span><br>
                             <strong>${isHome ? '🏟️ HEIM' : '🚌 AUSWÄRTS'} vs. ${oppName}</strong>
                         </div>
                         <button id="btn-sim-matchday-inline" class="bmh-btn primary small-btn">⚽ SPIELEN</button>
@@ -725,7 +777,7 @@ function renderLeagueView(viewport) {
 
     const inlineSimBtn = document.getElementById('btn-sim-matchday-inline');
     if (inlineSimBtn) {
-        inlineSimBtn.addEventListener('click', () => advanceMatchdayAndSimulate());
+        inlineSimBtn.addEventListener('click', () => startLiveMatchday());
     }
 
     const finishSeasonBtn = document.getElementById('btn-finish-season');
@@ -864,14 +916,17 @@ function buildFixturesTabHtml(leagueId, mdNum, totalMds) {
         const homeName = GameState.clubs[m.homeId]?.name || m.homeId;
         const awayName = GameState.clubs[m.awayId]?.name || m.awayId;
         const isUserMatch = m.homeId === GameState.activeClubId || m.awayId === GameState.activeClubId;
-        const scoreText = (m.homeGoals !== null && m.awayGoals !== null)
+        let scoreText = (m.homeGoals !== null && m.awayGoals !== null)
             ? `${m.homeGoals} : ${m.awayGoals}`
             : 'vs.';
+        if (m.postponed) scoreText = `${getWeather(m.weather).icon} ABG.`;
+        const wIcon = (m.weather && !m.postponed) ? `<span style="font-size:0.62rem;" title="${getWeather(m.weather).label}">${getWeather(m.weather).icon}</span>` : '';
         return `
             <div class="fixture-row ${isUserMatch ? 'user-match' : ''}">
                 <span class="fixture-team" title="${homeName}">${homeName}</span>
-                <span class="fixture-score ${m.homeGoals === null ? 'unplayed' : ''}">${scoreText}</span>
+                <span class="fixture-score ${m.homeGoals === null ? 'unplayed' : ''}" title="${m.postponed ? 'Abgesagt: ' + getWeather(m.weather).label + ' – wird nachgeholt' : (m.wasPostponed ? 'Nachholspiel' : '')}">${scoreText}</span>
                 <span class="fixture-team away" title="${awayName}">${awayName}</span>
+                ${wIcon}
             </div>
         `;
     }).join('');
@@ -882,7 +937,7 @@ function buildFixturesTabHtml(leagueId, mdNum, totalMds) {
         <div class="bmh-box" style="padding:8px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                 <button id="btn-md-prev" class="bmh-btn small-btn" ${mdNum <= 1 ? 'disabled' : ''}>◀ VOR</button>
-                <strong style="font-size:0.84rem; color:#184d25;">SPIELTAG ${mdNum} / ${totalMds}</strong>
+                <strong style="font-size:0.80rem; color:#184d25; text-align:center;">SPIELTAG ${mdNum} / ${totalMds}<br><span style="font-size:0.64rem; font-weight:normal;">${mdObj && mdObj.date ? formatGameDate(mdObj.date, true) : ''}</span></strong>
                 <button id="btn-md-next" class="bmh-btn small-btn" ${mdNum >= totalMds ? 'disabled' : ''}>ZUR ▶</button>
             </div>
             ${matchesHtml}

@@ -19,32 +19,34 @@ function isPlayerSuspended(player) {
     return Boolean(player && (player.suspendedMatches || 0) > 0);
 }
 
-function fillEmptyLineupSlotsWithEligible(squad) {
-    const slots = FORMATIONS[GameState.tactics.formation] || FORMATIONS["4-4-2"];
-    const usedIds = new Set([
-        ...GameState.tactics.lineup.filter(Boolean),
-        ...GameState.tactics.bench.filter(Boolean)
-    ]);
-    const standsEligible = squad
-        .filter(p => !usedIds.has(p.id) && !isPlayerSuspended(p))
-        .sort((a, b) => b.rating - a.rating);
+function isPlayerInjured(player) {
+    return Boolean(player && (player.injuredMatches || 0) > 0);
+}
 
-    slots.forEach((slotPos, idx) => {
-        if (GameState.tactics.lineup[idx]) return;
-        let pickIdx = standsEligible.findIndex(p => p.pos === slotPos);
-        if (pickIdx === -1) {
-            const allowed = POS_GROUPS[slotPos] || [];
-            pickIdx = standsEligible.findIndex(p => allowed.includes(p.pos));
-        }
-        if (pickIdx === -1 && standsEligible.length > 0) {
-            pickIdx = 0;
-        }
-        if (pickIdx !== -1) {
-            const chosen = standsEligible.splice(pickIdx, 1)[0];
-            GameState.tactics.lineup[idx] = chosen.id;
-            usedIds.add(chosen.id);
-        }
-    });
+// Verletzt ODER gesperrt -> darf nicht in den Spieltagskader
+function isPlayerUnavailable(player) {
+    return isPlayerSuspended(player) || isPlayerInjured(player);
+}
+
+function getUnavailableLabel(player) {
+    if (isPlayerSuspended(player)) {
+        const n = player.suspendedMatches;
+        return `🟥 gesperrt (${n} ${n === 1 ? 'Spiel' : 'Spiele'}, ${player.suspensionReason || 'Rote Karte'})`;
+    }
+    if (isPlayerInjured(player)) {
+        const n = player.injuredMatches;
+        return `🚑 verletzt (${player.injuryReason || 'Verletzung'}, ca. ${n} ${n === 1 ? 'Spiel' : 'Spiele'})`;
+    }
+    return "";
+}
+
+// Prüft, ob genug Spieler aufgestellt sind (11 bzw. alle verfügbaren, falls weniger als 11 fit sind)
+function getLineupStatus() {
+    const squad = getClubPlayers();
+    const avail = squad.filter(p => !isPlayerUnavailable(p)).length;
+    const onPitch = GameState.tactics.lineup.filter(Boolean).length;
+    const required = Math.min(11, avail);
+    return { onPitch, required, avail, ok: onPitch >= required };
 }
 
 function ensureValidSquadAssignment() {
@@ -62,7 +64,7 @@ function ensureValidSquadAssignment() {
     const seen = new Set();
     GameState.tactics.lineup = GameState.tactics.lineup.map(id => {
         const p = id ? squadMap.get(id) : null;
-        if (p && !isPlayerSuspended(p) && !seen.has(id)) {
+        if (p && !isPlayerUnavailable(p) && !seen.has(id)) {
             seen.add(id);
             return id;
         }
@@ -71,21 +73,21 @@ function ensureValidSquadAssignment() {
 
     GameState.tactics.bench = GameState.tactics.bench.map(id => {
         const p = id ? squadMap.get(id) : null;
-        if (p && !isPlayerSuspended(p) && !seen.has(id)) {
+        if (p && !isPlayerUnavailable(p) && !seen.has(id)) {
             seen.add(id);
             return id;
         }
         return null;
     });
 
-    if (GameState.tactics.lineup.filter(Boolean).length === 0 && GameState.tactics.bench.filter(Boolean).length === 0 && squad.some(p => !isPlayerSuspended(p))) {
+    if (GameState.tactics.lineup.filter(Boolean).length === 0 && GameState.tactics.bench.filter(Boolean).length === 0 && squad.some(p => !isPlayerUnavailable(p))) {
         autoPickBestLineup(false);
     }
 }
 
 function autoPickBestLineup(notify = true) {
     const squad = [...getClubPlayers()]
-        .filter(p => !isPlayerSuspended(p))
+        .filter(p => !isPlayerUnavailable(p))
         .sort((a, b) => b.rating - a.rating);
     const slots = FORMATIONS[GameState.tactics.formation] || FORMATIONS["4-4-2"];
     const usedIds = new Set();
@@ -159,12 +161,11 @@ function performPlayerSwap(src, tgt) {
     const squadAll = getClubPlayers();
     const srcPlayerObj = src.playerId ? squadAll.find(p => p.id === src.playerId) : null;
     const tgtPlayerObj = tgt.playerId ? squadAll.find(p => p.id === tgt.playerId) : null;
-    if ((srcPlayerObj && isPlayerSuspended(srcPlayerObj) && tgt.zone !== 'stands') ||
-        (tgtPlayerObj && isPlayerSuspended(tgtPlayerObj) && src.zone !== 'stands')) {
-        const banP = isPlayerSuspended(srcPlayerObj) ? srcPlayerObj : tgtPlayerObj;
-        const gamesTxt = banP.suspendedMatches === 1 ? '1 Spiel' : `${banP.suspendedMatches} Spiele`;
+    if ((srcPlayerObj && isPlayerUnavailable(srcPlayerObj) && tgt.zone !== 'stands') ||
+        (tgtPlayerObj && isPlayerUnavailable(tgtPlayerObj) && src.zone !== 'stands')) {
+        const banP = isPlayerUnavailable(srcPlayerObj) ? srcPlayerObj : tgtPlayerObj;
         selectedSwapSource = null;
-        alert(`🟥 ${banP.name} ist noch für ${gamesTxt} gesperrt (${banP.suspensionReason || 'Rote Karte'}) und darf nicht in den Spieltagskader!`);
+        alert(`${banP.name} ist ${getUnavailableLabel(banP)} und darf nicht in den Spieltagskader!`);
         return;
     }
 
@@ -356,16 +357,19 @@ function renderTacticsView(viewport) {
             ${standsPlayers.map(player => {
                 const isSelected = selectedSwapSource && selectedSwapSource.zone === 'stands' && selectedSwapSource.playerId === player.id;
                 const suspCount = player.suspendedMatches || 0;
-                const suspStyle = suspCount > 0 ? 'background:#ffe3e3; border-color:#a82424; opacity:0.88;' : '';
+                const injCount = player.injuredMatches || 0;
+                const unavailable = suspCount > 0 || injCount > 0;
+                const suspStyle = unavailable ? 'background:#ffe3e3; border-color:#a82424; opacity:0.88;' : '';
+                const badgeTxt = suspCount > 0 ? '🟥' + suspCount : (injCount > 0 ? '🚑' + injCount : player.pos);
                 return `
                     <div class="player-chip stands-chip swap-slot ${isSelected ? 'selected-swap' : ''}"
                          style="${suspStyle}"
-                         draggable="${suspCount === 0}"
+                         draggable="${!unavailable}"
                          data-zone="stands"
                          data-index=""
                          data-playerid="${player.id}"
-                         title="${suspCount > 0 ? `Gesperrt für ${suspCount} Spiel(e) (${player.suspensionReason || 'Rote Karte'})` : player.name}">
-                        <span class="chip-pos" style="${suspCount > 0 ? 'background:#a82424; color:#fff;' : ''}">${suspCount > 0 ? '🟥' + suspCount : player.pos}</span>
+                         title="${unavailable ? `${player.name}: ${getUnavailableLabel(player)}` : player.name}">
+                        <span class="chip-pos" style="${unavailable ? 'background:#a82424; color:#fff; width:auto; padding:0 2px;' : ''}">${badgeTxt}</span>
                         <span class="chip-name">${getShortName(player.name)}</span>
                         <span class="chip-rating">${player.rating.toFixed(1)}</span>
                     </div>
@@ -373,8 +377,24 @@ function renderTacticsView(viewport) {
             }).join('')}
            </div>`;
 
+    const lineupStatus = getLineupStatus();
+    const unavailableList = squad.filter(p => isPlayerUnavailable(p));
+    const lineupWarningHtml = !lineupStatus.ok ? `
+        <div class="locked-banner">
+            <strong>⚠️ STARTELF UNVOLLSTÄNDIG (${lineupStatus.onPitch}/${lineupStatus.required})</strong>
+            <p style="font-size:0.7rem; margin-top:2px;">Der nächste Spieltag kann erst angepfiffen werden, wenn ${lineupStatus.required} Spieler auf dem Platz stehen. Ziehe Ersatzspieler von Bank oder Tribüne auf die freien Positionen.</p>
+        </div>
+    ` : '';
+    const unavailableHtml = unavailableList.length > 0 ? `
+        <div class="bmh-box" style="padding:6px 8px; font-size:0.68rem; background:#fff3bf; border-color:#b58900;">
+            <strong>🏥 NICHT EINSATZFÄHIG:</strong><br>
+            ${unavailableList.map(p => `• ${p.name} (${p.pos}): ${getUnavailableLabel(p)}`).join('<br>')}
+        </div>
+    ` : '';
+
     viewport.innerHTML = `
         <h2 class="section-title">📋 AUFSTELLUNG & TAKTIK (Ø ${teamStrength})</h2>
+        ${lineupWarningHtml}
 
         <div class="bmh-box" style="padding:8px;">
             <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px;">
@@ -407,7 +427,7 @@ function renderTacticsView(viewport) {
         </div>
 
         ${swapBannerHtml}
-
+        ${unavailableHtml}
         <div class="squad-zone-header">
             <span><span class="zone-badge xi">STARTELF</span> (${lineupSet.size}/11)</span>
             <span style="font-size:0.68rem; color:#333;">Tippen oder Ziehen zum Wechseln</span>

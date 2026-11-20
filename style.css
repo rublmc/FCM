@@ -1297,3 +1297,149 @@ html, body {
     height: 255px;
     margin-bottom: 6px;
 }
+
+/* ==========================================
+   v1.3: POSTFACH, VERHANDLUNGEN, NAV-BADGE, WECHSEL-TICKER
+   ========================================== */
+.nav-btn {
+    position: relative;
+}
+.nav-badge {
+    position: absolute;
+    top: 1px;
+    right: 2px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 7px;
+    background: var(--accent-red);
+    color: #fff;
+    font-size: 0.55rem;
+    line-height: 14px;
+    text-align: center;
+    font-weight: bold;
+}
+.inbox-unread-pill {
+    display: inline-block;
+    background: var(--accent-red);
+    color: #fff;
+    font-size: 0.6rem;
+    padding: 1px 5px;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+.inbox-item {
+    background: #e9ecea;
+    border: 1px solid var(--panel-shadow);
+    padding: 5px 6px;
+    margin-bottom: 4px;
+    cursor: pointer;
+    font-size: 0.72rem;
+}
+.inbox-item:focus-visible {
+    outline: 2px solid var(--accent-gold);
+}
+.inbox-item.unread {
+    background: #fff9db;
+    border-left: 4px solid var(--accent-gold);
+}
+.inbox-item.unread .inbox-title {
+    font-weight: bold;
+}
+.inbox-item.open {
+    background: #ffffff;
+}
+.inbox-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.inbox-icon {
+    flex-shrink: 0;
+    width: 18px;
+    text-align: center;
+}
+.inbox-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.inbox-date {
+    flex-shrink: 0;
+    font-size: 0.6rem;
+    color: #555;
+}
+.inbox-text {
+    margin-top: 5px;
+    padding-top: 5px;
+    border-top: 1px dashed #b5bab7;
+    line-height: 1.35;
+    white-space: normal;
+}
+.nego-dots {
+    display: flex;
+    gap: 2px;
+    font-size: 0.9rem;
+    flex-shrink: 0;
+}
+.nego-log-entry {
+    background: #0e2e16;
+    border: 1px solid #246b35;
+    border-left-width: 4px;
+    padding: 5px 7px;
+    margin-bottom: 5px;
+    animation: toastSlideIn 0.22s ease-out;
+}
+.nego-log-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.66rem;
+    color: #d3f9d8;
+}
+.nego-mood {
+    color: #fff;
+    font-weight: bold;
+    font-size: 0.62rem;
+    padding: 1px 5px;
+    flex-shrink: 0;
+}
+.nego-quote {
+    font-size: 0.74rem;
+    font-style: italic;
+    margin-top: 3px;
+    color: #fff;
+}
+.nego-hint {
+    font-size: 0.64rem;
+    color: #ffe066;
+    margin-top: 2px;
+}
+.nego-result {
+    padding: 7px;
+    font-weight: bold;
+    font-size: 0.76rem;
+    margin-top: 4px;
+}
+.nego-result.success {
+    background: #2b8a3e;
+    color: #fff;
+}
+.nego-result.fail {
+    background: #5c1a1a;
+    color: #fff;
+}
+.ticker-item.sub {
+    background-color: #e7f5ff;
+    border-left: 3px solid #1c7ed6;
+}
+.ticker-item.card-yellow {
+    background-color: #fff9db;
+}
+.bmh-btn:focus-visible, .nav-btn:focus-visible, .sort-btn:focus-visible, .mini-action-btn:focus-visible, .sub-tab-btn:focus-visible {
+    outline: 2px solid var(--accent-gold);
+    outline-offset: 1px;
+}

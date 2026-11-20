@@ -9,17 +9,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     ensurePlayerStatsInitialized();
     ensureFreeAgentsInitialized();
+    ensureWorldInitialized();
     ensureYouthPool();
     ensureSponsorOffersInitialized();
     ensureClubStadiumInitialized();
     ensureValidSquadAssignment();
     ensureAllSchedulesInitialized();
     ensurePreseasonInitialized();
+    ensureStaffOffersInitialized();
+    syncGameClock();
+    if (GameState.inbox.length === 0) {
+        const club = GameState.clubs[GameState.activeClubId];
+        addInbox('🤝', 'Willkommen beim Verein!', `Hallo ${GameState.meta.managerName}, der Vorstand von ${club ? club.name : 'deinem neuen Verein'} heißt dich herzlich willkommen! In der Saisonvorbereitung kannst du Testspiele, Trainingslager und Events buchen, Sponsoren verhandeln und deinen Trainerstab (✍️ VERTR. → TRAINERSTAB) zusammenstellen. Viel Erfolg!`, 'board');
+    }
+    saveGame();
     setupNavigation();
     renderHeader();
-
-    // Bei Saisonvorbereitung direkt in den Kalender starten
-    if (GameState.meta.phase === 'preseason') {
+    // Bei Vorbereitung / Winterpause direkt in den Kalender starten
+    if (GameState.meta.phase === 'preseason' || GameState.meta.phase === 'winter') {
         switchToView('calendar');
     } else {
         switchToView('office');
@@ -73,6 +80,13 @@ function loadGame() {
                 ...(parsed.sponsors || {})
             };
             GameState.stadiumProject = parsed.stadiumProject || null;
+            GameState.inbox = Array.isArray(parsed.inbox) ? parsed.inbox : [];
+            GameState.catchUps = Array.isArray(parsed.catchUps) ? parsed.catchUps : [];
+            GameState.staff = parsed.staff || {};
+            GameState.staffOffers = Array.isArray(parsed.staffOffers) ? parsed.staffOffers : [];
+            GameState.negoBlocks = parsed.negoBlocks || {};
+            GameState.winterBreak = parsed.winterBreak || null;
+            GameState.lastBreakReport = parsed.lastBreakReport || null;
             setStatus("Spielstand geladen.");
         } catch (e) {
             console.error("Fehler beim Laden:", e);
@@ -96,6 +110,7 @@ function switchToView(viewName) {
     activeSellTargetId = null;
     activeContractPlayerId = null;
     activeSponsorOffer = null;
+    activeNegotiation = null;
     document.getElementById('main-viewport').scrollTop = 0;
     renderView(viewName);
 }
@@ -125,6 +140,8 @@ function ensurePlayerStatsInitialized() {
         if (typeof p.campDevBonus !== 'number') p.campDevBonus = 0;
         if (typeof p.suspendedMatches !== 'number') p.suspendedMatches = 0;
         if (typeof p.suspensionReason !== 'string') p.suspensionReason = "";
+        if (typeof p.injuredMatches !== 'number') p.injuredMatches = 0;
+        if (typeof p.injuryReason !== 'string') p.injuryReason = "";
     });
 }
 
@@ -218,8 +235,8 @@ function setupNavigation() {
             }
             return;
         }
-        if (GameState.meta.phase === 'preseason') {
-            advancePreseasonWeek();
+        if (GameState.meta.phase === 'preseason' || GameState.meta.phase === 'winter') {
+            advanceBreakWeek();
         } else {
             startLiveMatchday();
         }
@@ -234,36 +251,55 @@ function renderHeader() {
     const dateEl = document.getElementById('header-date');
     const phaseLabelEl = document.getElementById('header-phase-label');
     const nextBtn = document.getElementById('btn-next-day');
-
-    const shortSeason = GameState.meta.season.replace("20", "");
-    const isPreseason = GameState.meta.phase === 'preseason';
-
+    const phase = GameState.meta.phase;
+    const dateISO = (liveMatchState && liveMatchState.dateISO) || GameState.meta.currentDate || getCurrentGameDate();
+    if (phaseLabelEl) phaseLabelEl.textContent = formatGameDate(dateISO).toUpperCase();
     if (liveMatchState) {
-        if (phaseLabelEl) phaseLabelEl.textContent = "LIVE-TICKER";
-        dateEl.textContent = `🔴 ST ${liveMatchState.matchday}`;
+        dateEl.textContent = liveMatchState.isCatchUp ? `🔴 NACHHOL.` : `🔴 ST ${liveMatchState.matchday}`;
         if (nextBtn) {
             if (liveMatchState.phase === 'FULLTIME') nextBtn.textContent = "🏢 INS BÜRO ▶";
             else if (liveMatchState.phase === 'HALFTIME') nextBtn.textContent = "▶ 2. HZ";
             else if (liveMatchState.isPaused) nextBtn.textContent = "▶ WEITER";
             else nextBtn.textContent = "⏸ PAUSE";
         }
-    } else if (isPreseason) {
-        if (phaseLabelEl) phaseLabelEl.textContent = "SAISON / VORB.";
-        dateEl.textContent = `${shortSeason} | W${GameState.meta.preseasonWeek}/4`;
+    } else if (phase === 'preseason') {
+        dateEl.textContent = `VORB. W${GameState.meta.preseasonWeek}/4`;
         if (nextBtn) nextBtn.textContent = `WOCHE ${GameState.meta.preseasonWeek} ▶`;
+    } else if (phase === 'winter' && GameState.winterBreak) {
+        dateEl.textContent = `❄️ WP W${GameState.winterBreak.currentWeek}/${GameState.winterBreak.totalWeeks}`;
+        if (nextBtn) nextBtn.textContent = `WOCHE ${GameState.winterBreak.currentWeek} ▶`;
     } else {
-        if (phaseLabelEl) phaseLabelEl.textContent = "SAISON / ST";
         const maxMd = club ? getLeagueTotalMatchdays(club.leagueId) : 34;
-        const mdDisplay = GameState.meta.matchday > maxMd ? "ENDE" : `ST ${GameState.meta.matchday}`;
-        dateEl.textContent = `${shortSeason} | ${mdDisplay}`;
-        if (nextBtn) nextBtn.textContent = "WEITER ▶";
+        const userCU = getDueUserCatchUp();
+        if (userCU) {
+            dateEl.textContent = `NACHHOLSPIEL`;
+            if (nextBtn) nextBtn.textContent = "NACHHOLSPIEL ▶";
+        } else {
+            dateEl.textContent = GameState.meta.matchday > maxMd ? "SAISONENDE" : `ST ${GameState.meta.matchday}/${maxMd}`;
+            if (nextBtn) nextBtn.textContent = "SPIELTAG ▶";
+        }
     }
-
     if (club) {
         const league = GameState.leagues[club.leagueId];
         clubNameEl.textContent = club.name.toUpperCase();
         leagueInfoEl.textContent = `${league ? league.name : ''} • Mgr: ${GameState.meta.managerName}`;
         budgetEl.textContent = formatMoneyShort(club.budget);
+    }
+    // Postfach-Badge am Büro-Button
+    const officeBtn = document.querySelector('.nav-btn[data-view="office"]');
+    if (officeBtn) {
+        let badge = officeBtn.querySelector('.nav-badge');
+        const unread = getUnreadInboxCount();
+        if (unread > 0) {
+            if (!badge) {
+                badge = document.createElement('span');
+                badge.className = 'nav-badge';
+                officeBtn.appendChild(badge);
+            }
+            badge.textContent = unread > 9 ? '9+' : String(unread);
+        } else if (badge) {
+            badge.remove();
+        }
     }
 }
 

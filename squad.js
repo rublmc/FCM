@@ -13,6 +13,8 @@ function getCurrentSeasonEndYear() {
 }
 
 function ensureFreeAgentsInitialized() {
+    if (GameState.meta.freeAgentsSeeded) return; // nur einmal pro Datenbank (sonst kehren Karriereenden zurück)
+    GameState.meta.freeAgentsSeeded = true;
     const existingIds = new Set(GameState.players.map(p => p.id));
     let added = false;
     FREE_AGENT_POOL.forEach(fa => {
@@ -108,7 +110,8 @@ function ensureYouthPool(forceRegenerate = false) {
         const age = 16 + Math.floor(Math.random() * 4);
         const minR = isTopTier ? 5.2 : 4.4;
         const maxR = isTopTier ? 6.8 : 5.9;
-        const rating = parseFloat((minR + Math.random() * (maxR - minR)).toFixed(1));
+        const youthCoachBonus = getStaffQuality('youth') * 0.12;
+        const rating = parseFloat(Math.min(9.0, minR + Math.random() * (maxR - minR) + youthCoachBonus).toFixed(1));
         const fee = Math.round(((rating - 4.0) * 220000 + 120000) / 25000) * 25000;
         const salary = Math.round(((rating - 4.0) * 90000 + 120000) / 10000) * 10000;
         const potential = rating >= (isTopTier ? 6.3 : 5.5) ? "Jahrhundert-Talent" : "Hohes Potenzial";
@@ -133,211 +136,373 @@ function ensureYouthPool(forceRegenerate = false) {
 }
 
 // ==========================================
-// MODUL: VERTRÄGE (SPIELERVERTRÄGE & GEHALT)
+// MODUL: VERTRÄGE (SPIELER & TRAINERSTAB) – VERHANDLUNG PER KLICK
 // ==========================================
+function computePlayerReservation(player, kind) {
+    let r = negoRandomReservation(0.92, 1.10);
+    const mot = player.motivation || 78;
+    if (kind === 'contract') {
+        if (mot >= 85) r -= 0.05;
+        else if (mot < 55) r += 0.08;
+        if (player.isYouthProduct) r -= 0.03;
+    } else {
+        const myAvg = getClubAverageRating(GameState.activeClubId);
+        if (player.rating > myAvg + 0.8) r += 0.06; // Star will mehr bei einem kleineren Verein
+        if (player.clubId === 'free') r -= 0.03;
+    }
+    return r;
+}
+
+function playerOfferScore(player, salaryMult, years, bonus) {
+    const expected = calculateExpectedSalary(player);
+    let score = salaryMult + (bonus / Math.max(1, expected * years)) * 0.9;
+    const age = player.age || 25;
+    if (age >= 30) score += 0.03 * (years - 2);   // Ältere wollen Sicherheit
+    if (age <= 22) score -= 0.01 * Math.max(0, years - 3);
+    return score;
+}
+
+function buildPlayerNegoOptions(player, kind) {
+    const n = activeNegotiation;
+    const seasonEnd = getCurrentSeasonEndYear();
+    const expected = calculateExpectedSalary(player);
+    const yearOpts = (kind === 'contract' ? [1, 2, 3, 4] : [2, 3, 4]).map(y => ({
+        value: y,
+        label: kind === 'contract' ? `+${y} J. (bis ${seasonEnd + y})` : `${y} Jahre (bis ${seasonEnd + y})`
+    }));
+    const salOpts = SALARY_STEPS.map(s => ({ value: s.value, label: `${formatMoneyShort(Math.round(expected * s.value))} (${s.label})` }));
+    const bonusOpts = [0, 250000, 750000, 1500000].map(b => ({ value: b, label: b === 0 ? 'Kein Handgeld' : `${formatMoneyShort(b)} Handgeld` }));
+    return `
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
+            ${negoSelectHtml('nego-years', 'LAUFZEIT', yearOpts, n.sel.years ?? (kind === 'contract' ? 2 : 3))}
+            ${negoSelectHtml('nego-salary', 'GEHALT / JAHR', salOpts, n.sel.salary ?? 1.0)}
+        </div>
+        <div style="margin-top:6px;">${negoSelectHtml('nego-bonus', 'HANDGELD (SOFORT FÄLLIG)', bonusOpts, n.sel.bonus ?? 0)}</div>
+    `;
+}
+
+function readPlayerNegoSelection() {
+    return {
+        years: parseInt(document.getElementById('nego-years').value, 10) || 2,
+        salary: parseFloat(document.getElementById('nego-salary').value) || 1.0,
+        bonus: parseInt(document.getElementById('nego-bonus').value, 10) || 0
+    };
+}
+
+function playerHintBuilder(player) {
+    const expected = calculateExpectedSalary(player);
+    return (res, mood) => mood === 'positive'
+        ? `Sein Berater deutet an: ca. ${formatMoneyShort(Math.round(expected * res / 10000) * 10000)}/J. würden reichen.`
+        : (mood === 'skeptical' ? 'Er erwartet spürbar mehr (Gehalt, Handgeld oder längere Laufzeit).' : 'Das Angebot liegt weit unter seinen Vorstellungen!');
+}
+
 function renderContractsView(viewport) {
     const club = GameState.clubs[GameState.activeClubId];
     const squad = getClubPlayers();
     const seasonEnd = getCurrentSeasonEndYear();
-
     const totalAnnualSalary = squad.reduce((sum, p) => sum + (p.salary || 0), 0);
+    const staffCost = getStaffAnnualCost();
     const totalLeagueMds = getLeagueTotalMatchdays(club.leagueId);
-    const perMatchSalary = Math.round(totalAnnualSalary / Math.max(1, totalLeagueMds));
+    const perMatchSalary = Math.round((totalAnnualSalary + staffCost) / Math.max(1, totalLeagueMds));
     const expiringPlayers = squad.filter(p => (p.contractUntil || seasonEnd) <= seasonEnd);
 
-    let filtered = [...squad];
-    if (contractFilter === 'EXPIRING') {
-        filtered = filtered.filter(p => (p.contractUntil || seasonEnd) <= seasonEnd);
-    } else if (contractFilter === 'TOP') {
-        filtered.sort((a, b) => (b.salary || 0) - (a.salary || 0));
-    }
-
-    if (contractFilter !== 'TOP') {
-        filtered.sort((a, b) => {
-            if (a.contractUntil !== b.contractUntil) return a.contractUntil - b.contractUntil;
-            return b.rating - a.rating;
-        });
-    }
-
-    let negotiationHtml = "";
-    if (activeContractPlayerId) {
-        const player = squad.find(p => p.id === activeContractPlayerId);
-        if (player) {
-            const expectedSal = calculateExpectedSalary(player);
-            const lowSal = Math.round(expectedSal * 0.88);
-            const highSal = Math.round(expectedSal * 1.15);
-
-            negotiationHtml = `
-                <div class="negotiation-box">
-                    <h3>✍️ VERTRAGSVERHANDLUNG: ${player.name}</h3>
-                    <p>Pos: <strong>${player.pos}</strong> | Alter: <strong>${player.age}</strong> | Stärke: <strong>${player.rating.toFixed(1)}</strong> | Mot.: <strong>${player.motivation || 78}%</strong></p>
-                    <p>Aktuell: <strong>${formatMoneyShort(player.salary)}/J.</strong> (Vertrag bis <strong>${player.contractUntil}</strong>)</p>
-
-                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-top:8px;">
-                        <div>
-                            <label style="font-size:0.64rem; display:block; margin-bottom:2px;">NEUE LAUFZEIT</label>
-                            <select id="ct-years" class="bmh-select" style="margin-bottom:0; font-size:0.72rem; padding:4px;">
-                                <option value="1">+1 Jahr (bis ${seasonEnd + 1})</option>
-                                <option value="2" selected>+2 Jahre (bis ${seasonEnd + 2})</option>
-                                <option value="3">+3 Jahre (bis ${seasonEnd + 3})</option>
-                                <option value="4">+4 Jahre (bis ${seasonEnd + 4})</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label style="font-size:0.64rem; display:block; margin-bottom:2px;">NEUES GEHALT / JAHR</label>
-                            <select id="ct-salary" class="bmh-select" style="margin-bottom:0; font-size:0.72rem; padding:4px;">
-                                <option value="${lowSal}">${formatMoneyShort(lowSal)} (-12%)</option>
-                                <option value="${expectedSal}" selected>${formatMoneyShort(expectedSal)} (Fair)</option>
-                                <option value="${highSal}">${formatMoneyShort(highSal)} (+15%)</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div style="margin-top:6px;">
-                        <label style="font-size:0.64rem; display:block; margin-bottom:2px;">HANDGELD / UNTERSCHRIFTSPRÄMIE (SOFORT)</label>
-                        <select id="ct-bonus" class="bmh-select" style="margin-bottom:0; font-size:0.72rem; padding:4px;">
-                            <option value="0" selected>0 € (Kein Handgeld)</option>
-                            <option value="250000">250k € (Kleiner Treuebonus)</option>
-                            <option value="750000">750k € (Hohes Handgeld)</option>
-                        </select>
-                    </div>
-
-                    <div style="display:flex; gap:6px; margin-top:8px;">
-                        <button id="btn-sign-contract" class="bmh-btn primary" style="flex:2;">✅ ANGEBOT VORLEGEN</button>
-                        <button id="btn-cancel-contract" class="bmh-btn danger" style="flex:1;">ABBRUCH</button>
-                    </div>
-                </div>
-            `;
+    let bodyHtml = "";
+    if (contractsSubTab === 'staff') {
+        bodyHtml = buildStaffTabHtml();
+    } else {
+        let filtered = [...squad];
+        if (contractFilter === 'EXPIRING') {
+            filtered = filtered.filter(p => (p.contractUntil || seasonEnd) <= seasonEnd);
         }
+        if (contractFilter === 'TOP') {
+            filtered.sort((a, b) => (b.salary || 0) - (a.salary || 0));
+        } else {
+            filtered.sort((a, b) => (a.contractUntil - b.contractUntil) || (b.rating - a.rating));
+        }
+
+        let negotiationHtml = "";
+        if (activeNegotiation && activeNegotiation.kind === 'contract') {
+            const player = squad.find(p => p.id === activeNegotiation.targetId);
+            if (player) {
+                negotiationHtml = buildNegotiationPanelHtml({
+                    title: `✍️ VERLÄNGERUNG: ${player.name}`,
+                    infoHtml: `<p>Pos: <strong>${player.pos}</strong> | Alter: <strong>${player.age}</strong> | Stärke: <strong>${player.rating.toFixed(1)}</strong> | ${getMotivationIcon(player.motivation)} <strong>${player.motivation || 78}%</strong></p>
+                               <p>Aktuell: <strong>${formatMoneyShort(player.salary)}/J.</strong> bis <strong>${player.contractUntil}</strong> • Marktübliches Gehalt: <strong>${formatMoneyShort(calculateExpectedSalary(player))}</strong></p>`,
+                    optionsHtml: buildPlayerNegoOptions(player, 'contract'),
+                    successText: `${player.name} hat verlängert – bis ${player.contractUntil} für ${formatMoneyShort(player.salary)}/J.`,
+                    abortText: `${player.name} hat die Gespräche abgebrochen. Ein neuer Anlauf ist frühestens in 3 Wochen/Spieltagen möglich.`
+                });
+            }
+        }
+
+        bodyHtml = `
+            ${expiringPlayers.length > 0 ? `
+                <div class="bmh-box" style="background:#ffe3e3; border-color:#a82424; padding:7px 8px; font-size:0.74rem;">
+                    <strong>⚠️ Achtung:</strong> ${expiringPlayers.length} Spieler-Verträge laufen am Saisonende (${seasonEnd}) aus und können ablösefrei wechseln!
+                </div>
+            ` : ''}
+            ${negotiationHtml}
+            <div class="bmh-box" style="padding:6px;">
+                <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:4px; margin-bottom:6px;">
+                    <button type="button" class="sort-btn ${contractFilter === 'ALL' ? 'active' : ''}" data-cfilter="ALL">ALLE (${squad.length})</button>
+                    <button type="button" class="sort-btn ${contractFilter === 'EXPIRING' ? 'active' : ''}" data-cfilter="EXPIRING">AUSLAUFEND (${expiringPlayers.length})</button>
+                    <button type="button" class="sort-btn ${contractFilter === 'TOP' ? 'active' : ''}" data-cfilter="TOP">TOP-GEHALT</button>
+                </div>
+                ${filtered.length === 0 ? '<p style="font-size:0.76rem;">Keine Spieler in dieser Filteransicht.</p>' : `
+                <table class="bmh-table">
+                    <thead>
+                        <tr>
+                            <th style="width:11%;">POS</th>
+                            <th style="width:33%;">SPIELER</th>
+                            <th style="width:11%;">STÄ</th>
+                            <th style="width:17%;">GEHALT</th>
+                            <th style="width:13%;">BIS</th>
+                            <th style="width:15%;">AKT.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${filtered.map(p => {
+                            const yrsLeft = (p.contractUntil || seasonEnd) - seasonEnd;
+                            let pillClass = "long";
+                            if (yrsLeft <= 0) pillClass = "expiring";
+                            else if (yrsLeft === 1) pillClass = "medium";
+                            const blocked = isNegoBlocked('player:' + p.id);
+                            return `
+                            <tr>
+                                <td><strong>${p.pos}</strong></td>
+                                <td title="${p.name} (${p.age} J.)">
+                                    <strong>${p.name}</strong><br>
+                                    <span style="font-size:0.62rem; color:#444;">${p.age} Jahre • ${getMotivationIcon(p.motivation)}${p.motivation || 78}%</span>
+                                </td>
+                                <td><strong>${p.rating.toFixed(1)}</strong></td>
+                                <td>${formatMoneyShort(p.salary)}</td>
+                                <td><span class="contract-pill ${pillClass}">'${String(p.contractUntil).slice(-2)}</span></td>
+                                <td><button type="button" class="mini-action-btn btn-open-contract" data-pid="${p.id}" ${blocked ? 'disabled style="opacity:0.5;" title="Gesprächssperre"' : ''}>${blocked ? '🔒' : 'VERL.'}</button></td>
+                            </tr>
+                        `;
+                        }).join('')}
+                    </tbody>
+                </table>`}
+            </div>
+        `;
     }
 
     viewport.innerHTML = `
-        <h2 class="section-title">✍️ SPIELERVERTRÄGE & GEHÄLTER</h2>
-
+        <h2 class="section-title">✍️ VERTRÄGE & TRAINERSTAB</h2>
         <div class="kpi-grid">
             <div class="kpi-card">
-                <span class="kpi-label">GEHALTSLISTE / SAISON</span>
-                <span class="kpi-value">${formatMoneyShort(totalAnnualSalary)}</span>
+                <span class="kpi-label">GEHÄLTER SPIELER / STAB</span>
+                <span class="kpi-value">${formatMoneyShort(totalAnnualSalary)} / ${formatMoneyShort(staffCost)}</span>
             </div>
             <div class="kpi-card">
                 <span class="kpi-label">KOSTEN PRO SPIELTAG</span>
                 <span class="kpi-value">${formatMoneyShort(perMatchSalary)}</span>
             </div>
         </div>
-
-        ${expiringPlayers.length > 0 ? `
-            <div class="bmh-box" style="background:#ffe3e3; border-color:#a82424; padding:7px 8px; font-size:0.74rem;">
-                <strong>⚠️ Achtung:</strong> ${expiringPlayers.length} Spieler-Verträge laufen am Saisonende (${seasonEnd}) aus und können ablösefrei wechseln!
-            </div>
-        ` : ''}
-
-        ${negotiationHtml}
-
-        <div class="bmh-box" style="padding:6px;">
-            <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:4px; margin-bottom:6px;">
-                <button class="sort-btn ${contractFilter === 'ALL' ? 'active' : ''}" data-cfilter="ALL">ALLE (${squad.length})</button>
-                <button class="sort-btn ${contractFilter === 'EXPIRING' ? 'active' : ''}" data-cfilter="EXPIRING">AUSLAUFEND (${expiringPlayers.length})</button>
-                <button class="sort-btn ${contractFilter === 'TOP' ? 'active' : ''}" data-cfilter="TOP">TOP-GEHALT</button>
-            </div>
-
-            ${filtered.length === 0 ? '<p style="font-size:0.76rem;">Keine Spieler in dieser Filteransicht.</p>' : `
-            <table class="bmh-table">
-                <thead>
-                    <tr>
-                        <th style="width:11%;">POS</th>
-                        <th style="width:33%;">SPIELER</th>
-                        <th style="width:11%;">STÄ</th>
-                        <th style="width:17%;">GEHALT</th>
-                        <th style="width:13%;">BIS</th>
-                        <th style="width:15%;">AKT.</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${filtered.map(p => {
-                        const yrsLeft = (p.contractUntil || seasonEnd) - seasonEnd;
-                        let pillClass = "long";
-                        if (yrsLeft <= 0) pillClass = "expiring";
-                        else if (yrsLeft === 1) pillClass = "medium";
-                        return `
-                        <tr>
-                            <td><strong>${p.pos}</strong></td>
-                            <td title="${p.name} (${p.age} J.)">
-                                <strong>${p.name}</strong><br>
-                                <span style="font-size:0.62rem; color:#444;">${p.age} Jahre</span>
-                            </td>
-                            <td><strong>${p.rating.toFixed(1)}</strong></td>
-                            <td>${formatMoneyShort(p.salary)}</td>
-                            <td><span class="contract-pill ${pillClass}">'${String(p.contractUntil).slice(-2)}</span></td>
-                            <td><button class="mini-action-btn btn-open-contract" data-pid="${p.id}">VERL.</button></td>
-                        </tr>
-                    `}).join('')}
-                </tbody>
-            </table>`}
+        <div class="sub-tab-bar two-tabs">
+            <button type="button" class="sub-tab-btn ${contractsSubTab === 'players' ? 'active' : ''}" data-ctab="players">👥 SPIELER</button>
+            <button type="button" class="sub-tab-btn ${contractsSubTab === 'staff' ? 'active' : ''}" data-ctab="staff">🧑‍🏫 TRAINERSTAB</button>
         </div>
+        ${bodyHtml}
     `;
 
-    document.querySelectorAll('[data-cfilter]').forEach(btn => {
+    viewport.querySelectorAll('[data-ctab]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            contractsSubTab = e.currentTarget.dataset.ctab;
+            activeNegotiation = null;
+            renderContractsView(viewport);
+        });
+    });
+
+    if (contractsSubTab === 'staff') {
+        bindStaffTabEvents(viewport);
+        return;
+    }
+
+    viewport.querySelectorAll('[data-cfilter]').forEach(btn => {
         btn.addEventListener('click', (e) => {
             contractFilter = e.currentTarget.dataset.cfilter;
             renderContractsView(viewport);
         });
     });
-
-    document.querySelectorAll('.btn-open-contract').forEach(btn => {
+    viewport.querySelectorAll('.btn-open-contract').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            activeContractPlayerId = e.currentTarget.dataset.pid;
+            const pid = e.currentTarget.dataset.pid;
+            const player = squad.find(p => p.id === pid);
+            if (!player) return;
+            if (isNegoBlocked('player:' + pid)) {
+                alert(`${player.name} ist nach den gescheiterten Gesprächen vorerst nicht gesprächsbereit.`);
+                return;
+            }
+            negoStart({ kind: 'contract', voice: 'player', key: 'player:' + pid, targetId: pid, name: player.name, reservation: computePlayerReservation(player, 'contract') });
             renderContractsView(viewport);
             document.getElementById('main-viewport').scrollTop = 0;
         });
     });
 
-    const cancelCtBtn = document.getElementById('btn-cancel-contract');
-    if (cancelCtBtn) {
-        cancelCtBtn.addEventListener('click', () => {
-            activeContractPlayerId = null;
-            renderContractsView(viewport);
-        });
-    }
-
-    const signCtBtn = document.getElementById('btn-sign-contract');
-    if (signCtBtn) {
-        signCtBtn.addEventListener('click', () => {
-            const player = squad.find(p => p.id === activeContractPlayerId);
-            if (!club || !player) return;
-
-            const addYears = parseInt(document.getElementById('ct-years').value, 10) || 2;
-            const newSalary = parseInt(document.getElementById('ct-salary').value, 10) || calculateExpectedSalary(player);
-            const bonus = parseInt(document.getElementById('ct-bonus').value, 10) || 0;
-            const expectedSal = calculateExpectedSalary(player);
-
-            if (club.budget < bonus) {
-                alert("Nicht genügend Budget für das geforderte Handgeld!");
-                return;
-            }
-
-            if (player.age >= 35 && addYears > 2) {
-                alert(`${player.name} (${player.age} J.): "In meinem Alter unterschreibe ich maximal für 1 oder 2 Jahre!"`);
-                return;
-            }
-
-            if (newSalary < expectedSal) {
-                const rejectChance = bonus >= 750000 ? 0.10 : (bonus >= 250000 ? 0.25 : 0.45);
-                if (Math.random() < rejectChance) {
-                    alert(`${player.name} lehnt ab: "Das Grundgehalt ist mir zu niedrig. Biete ein faires Gehalt oder mehr Handgeld!"`);
+    if (activeNegotiation && activeNegotiation.kind === 'contract') {
+        bindNegotiationPanel({
+            onClose: () => renderContractsView(viewport),
+            onSubmit: () => {
+                const player = squad.find(p => p.id === activeNegotiation.targetId);
+                if (!club || !player) return;
+                const sel = readPlayerNegoSelection();
+                activeNegotiation.sel = sel;
+                if (club.budget < sel.bonus) {
+                    alert("Nicht genügend Budget für dieses Handgeld!");
                     return;
                 }
+                if (player.age >= 35 && sel.years > 2) {
+                    alert(`${player.name} (${player.age} J.): "In meinem Alter unterschreibe ich maximal für 1 oder 2 Jahre!" (kein Versuch verbraucht)`);
+                    return;
+                }
+                const expected = calculateExpectedSalary(player);
+                const newSalary = Math.round(expected * sel.salary / 10000) * 10000;
+                const offerLabel = `${formatMoneyShort(newSalary)}/J., +${sel.years} J.${sel.bonus > 0 ? ', ' + formatMoneyShort(sel.bonus) + ' HG' : ''}`;
+                const n = negoSubmit(playerOfferScore(player, sel.salary, sel.years, sel.bonus), offerLabel, playerHintBuilder(player));
+                const mood = n.log[n.log.length - 1].mood;
+                if (n.status === 'accepted') {
+                    club.budget -= sel.bonus;
+                    player.salary = newSalary;
+                    player.contractUntil = seasonEnd + sel.years;
+                    adjustPlayerMotivation(player, 6);
+                    setStatus(`✍️ ${player.name} verlängert bis ${player.contractUntil} (${formatMoneyShort(newSalary)}/J.)!`);
+                } else if (n.status === 'aborted') {
+                    adjustPlayerMotivation(player, -6);
+                    addInbox('🚪', `Vertragsgespräche mit ${player.name} gescheitert`, `${player.name} hat die Verhandlungen über eine Vertragsverlängerung abgebrochen und ist enttäuscht (-6% Motivation). Ein neuer Versuch ist frühestens in 3 Wochen/Spieltagen möglich.`, 'contract');
+                } else if (mood === 'angry') {
+                    adjustPlayerMotivation(player, -2);
+                }
+                saveGame();
+                renderHeader();
+                renderContractsView(viewport);
             }
+        });
+    }
+}
 
-            club.budget -= bonus;
-            player.salary = newSalary;
-            player.contractUntil = seasonEnd + addYears;
-            adjustPlayerMotivation(player, 6);
-            activeContractPlayerId = null;
+// ==========================================
+// TRAINERSTAB
+// ==========================================
+function buildStaffTabHtml() {
+    ensureStaffOffersInitialized(false);
+    const isPreseason = GameState.meta.phase === 'preseason';
+    const seasonEnd = getCurrentSeasonEndYear();
+    let negotiationHtml = "";
+    if (activeNegotiation && activeNegotiation.kind === 'staff') {
+        const cand = GameState.staffOffers.find(o => o.id === activeNegotiation.targetId);
+        if (cand) {
+            const role = STAFF_ROLES[cand.role];
+            const n = activeNegotiation;
+            const salOpts = [0.85, 0.95, 1.0, 1.1, 1.2].map(m => ({ value: m, label: `${formatMoneyShort(Math.round(cand.salary * m))} (${m === 1 ? 'Forderung' : (m < 1 ? '-' : '+') + Math.round(Math.abs(m - 1) * 100) + '%'})` }));
+            const yearOpts = [1, 2, 3].map(y => ({ value: y, label: `${y} ${y === 1 ? 'Jahr' : 'Jahre'} (bis ${seasonEnd + y - 1})` }));
+            negotiationHtml = buildNegotiationPanelHtml({
+                title: `${role.icon} ${role.title.toUpperCase()}: ${cand.name}`,
+                infoHtml: `<p>Qualität: <strong>${'★'.repeat(cand.quality)}${'☆'.repeat(5 - cand.quality)}</strong> • Alter: ${cand.age} • Gehaltsforderung: <strong>${formatMoneyShort(cand.salary)}/J.</strong></p><p style="font-size:0.66rem; color:#d3f9d8;">${role.desc}</p>`,
+                optionsHtml: `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
+                        ${negoSelectHtml('nego-staff-salary', 'GEHALT / JAHR', salOpts, n.sel.salary ?? 1.0)}
+                        ${negoSelectHtml('nego-staff-years', 'LAUFZEIT', yearOpts, n.sel.years ?? 2)}
+                    </div>`,
+                successText: `${cand.name} ist ab sofort dein neuer ${role.title}!`,
+                abortText: `${cand.name} hat abgesagt und steht nicht mehr zur Verfügung.`
+            });
+        }
+    }
 
+    const roleCards = Object.keys(STAFF_ROLES).map(roleKey => {
+        const role = STAFF_ROLES[roleKey];
+        const cur = GameState.staff[roleKey];
+        const offers = GameState.staffOffers.filter(o => o.role === roleKey);
+        return `
+            <div class="sponsor-card ${cur ? 'active-deal' : ''}">
+                <div class="sponsor-card-header">
+                    <strong>${role.icon} ${role.title}</strong>
+                    <span class="sponsor-tag">${cur ? 'BESETZT' : 'VAKANT'}</span>
+                </div>
+                <p style="font-size:0.66rem; color:#444;">${role.desc}</p>
+                ${cur ? `
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-top:4px; font-size:0.72rem;">
+                        <span><strong>${cur.name}</strong> ${'★'.repeat(cur.quality)} • ${formatMoneyShort(cur.salary)}/J. • bis ${cur.untilYear}</span>
+                        <button type="button" class="mini-action-btn sell btn-fire-staff" data-role="${roleKey}" style="width:auto; padding:3px 6px;">ENTLASSEN</button>
+                    </div>
+                ` : (isPreseason ? offers.map(o => {
+                    const blocked = isNegoBlocked('staff:' + o.id);
+                    return `
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-top:4px; font-size:0.70rem; background:#fff; border:1px solid #b5bab7; padding:4px 6px;">
+                        <span><strong>${o.name}</strong> (${o.age}) ${'★'.repeat(o.quality)}${'☆'.repeat(5 - o.quality)} • ${formatMoneyShort(o.salary)}/J.</span>
+                        <button type="button" class="mini-action-btn btn-open-staff" data-sid="${o.id}" style="width:auto; padding:3px 6px;" ${blocked ? 'disabled' : ''}>${blocked ? '🔒' : 'VERHANDELN'}</button>
+                    </div>`;
+                }).join('') : `<p style="font-size:0.66rem; color:#a82424; margin-top:4px;">🔒 Neueinstellungen nur in der Saisonvorbereitung möglich.</p>`)}
+            </div>
+        `;
+    }).join('');
+
+    return `
+        ${isPreseason ? `
+            <div class="open-window-banner"><strong>✅ VORBEREITUNG: TRAINERSTAB KANN EINGESTELLT WERDEN</strong>
+            <p style="font-size:0.68rem; margin-top:2px;">Stelle jetzt Co-Trainer, Konditionstrainer & Co. ein. Ab dem 1. Spieltag sind keine Neueinstellungen mehr möglich (Entlassungen schon).</p></div>
+        ` : ''}
+        ${negotiationHtml}
+        <div class="bmh-box" style="padding:8px;">${roleCards}</div>
+    `;
+}
+
+function bindStaffTabEvents(viewport) {
+    const club = GameState.clubs[GameState.activeClubId];
+    viewport.querySelectorAll('.btn-open-staff').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            if (GameState.meta.phase !== 'preseason') return;
+            const sid = e.currentTarget.dataset.sid;
+            const cand = GameState.staffOffers.find(o => o.id === sid);
+            if (!cand) return;
+            negoStart({
+                kind: 'staff', voice: 'staff', key: 'staff:' + sid, targetId: sid, name: cand.name,
+                reservation: negoRandomReservation(0.88, 1.08) + 0.03 * (cand.quality - 3)
+            });
+            renderContractsView(viewport);
+            document.getElementById('main-viewport').scrollTop = 0;
+        });
+    });
+    viewport.querySelectorAll('.btn-fire-staff').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const roleKey = e.currentTarget.dataset.role;
+            const cur = GameState.staff[roleKey];
+            if (!cur || !club) return;
+            const severance = Math.round(cur.salary * 0.5 / 10000) * 10000;
+            if (!confirm(`${cur.name} wirklich entlassen? Abfindung: ${formatMoneyShort(severance)}`)) return;
+            club.budget -= severance;
+            GameState.staff[roleKey] = null;
+            addInbox(STAFF_ROLES[roleKey].icon, `${STAFF_ROLES[roleKey].title} entlassen`, `${cur.name} wurde freigestellt. Abfindung: ${formatMoneyShort(severance)}.`, 'staff');
             saveGame();
             renderHeader();
-            setStatus(`✍️ ${player.name} verlängert bis ${player.contractUntil} (${formatMoneyShort(newSalary)}/J.)!`);
             renderContractsView(viewport);
+        });
+    });
+    if (activeNegotiation && activeNegotiation.kind === 'staff') {
+        bindNegotiationPanel({
+            onClose: () => renderContractsView(viewport),
+            onSubmit: () => {
+                const cand = GameState.staffOffers.find(o => o.id === activeNegotiation.targetId);
+                if (!cand || !club) return;
+                const salMult = parseFloat(document.getElementById('nego-staff-salary').value) || 1.0;
+                const years = parseInt(document.getElementById('nego-staff-years').value, 10) || 2;
+                activeNegotiation.sel = { salary: salMult, years };
+                const salary = Math.round(cand.salary * salMult / 10000) * 10000;
+                const score = salMult + 0.02 * (years - 1);
+                const n = negoSubmit(score, `${formatMoneyShort(salary)}/J., ${years} J.`, (res, mood) =>
+                    mood === 'positive' ? `Mit ca. ${formatMoneyShort(Math.round(cand.salary * res / 10000) * 10000)}/J. wäre er dabei.` : '');
+                if (n.status === 'accepted') {
+                    GameState.staff[cand.role] = { ...cand, salary, untilYear: getCurrentSeasonEndYear() + years - 1 };
+                    GameState.staffOffers = GameState.staffOffers.filter(o => o.role !== cand.role || o.id === cand.id).filter(o => o.id !== cand.id);
+                    addInbox(STAFF_ROLES[cand.role].icon, `Neuer ${STAFF_ROLES[cand.role].title}`, `${cand.name} (${'★'.repeat(cand.quality)}) hat unterschrieben: ${formatMoneyShort(salary)}/J. bis ${getCurrentSeasonEndYear() + years - 1}.`, 'staff');
+                    setStatus(`🤝 ${cand.name} eingestellt!`);
+                } else if (n.status === 'aborted') {
+                    GameState.staffOffers = GameState.staffOffers.filter(o => o.id !== cand.id);
+                }
+                saveGame();
+                renderHeader();
+                renderContractsView(viewport);
+            }
         });
     }
 }
@@ -384,6 +549,7 @@ function renderSquadAndMarketView(viewport) {
         btn.addEventListener('click', (e) => {
             squadSubTab = e.currentTarget.dataset.subtab;
             activeTransferTargetId = null;
+            activeNegotiation = null;
             activeSellTargetId = null;
             renderSquadAndMarketView(viewport);
         });
@@ -480,6 +646,9 @@ function buildRosterTabHtml(mySquad) {
                         if (suspCount > 0) {
                             statusBadge = `<span class="zone-badge" style="background:#a82424; color:#fff;">🟥${suspCount}</span>`;
                             rowStyle = "background:#ffe3e3;";
+                        } else if ((p.injuredMatches || 0) > 0) {
+                            statusBadge = `<span class="zone-badge" style="background:#d9480f; color:#fff;">🚑${p.injuredMatches}</span>`;
+                            rowStyle = "background:#fff0e0;";
                         } else if (activeIds.has(p.id)) {
                             statusBadge = `<span class="zone-badge xi">11</span>`;
                             rowStyle = "background:#d7eadc;";
@@ -489,8 +658,8 @@ function buildRosterTabHtml(mySquad) {
                         }
                         const youthIcon = p.isYouthProduct ? "🌱" : "";
                         const mot = p.motivation || 78;
-                        const suspNote = suspCount > 0
-                            ? ` • <strong style="color:#a82424;">Gesperrt: ${suspCount} Sp. (${p.suspensionReason || 'Rot'})</strong>`
+                        const suspNote = isPlayerUnavailable(p)
+                            ? ` • <strong style="color:#a82424;">${getUnavailableLabel(p)}</strong>`
                             : '';
                         return `
                         <tr style="${rowStyle}">
@@ -582,7 +751,7 @@ function matchesPosGroup(pos, filter) {
 
 function buildTransferMarketTabHtml() {
     const club = GameState.clubs[GameState.activeClubId];
-    const allMarketPlayers = GameState.players.filter(p => p.clubId !== GameState.activeClubId);
+    const allMarketPlayers = GameState.players.filter(p => p.clubId !== GameState.activeClubId && (p.clubId === 'free' || GameState.clubs[p.clubId]));
 
     const filtered = allMarketPlayers
         .filter(p => matchesPosGroup(p.pos, marketPosFilter))
@@ -599,48 +768,21 @@ function buildTransferMarketTabHtml() {
         .slice(0, 35);
 
     let negotiationHtml = "";
-    if (activeTransferTargetId) {
-        const target = GameState.players.find(p => p.id === activeTransferTargetId);
+    if (activeNegotiation && activeNegotiation.kind === 'transfer') {
+        const target = GameState.players.find(p => p.id === activeNegotiation.targetId);
         if (target) {
             const fee = calculateTransferFee(target);
-            const expectedSal = calculateExpectedSalary(target);
             const sellerName = target.clubId === 'free' ? 'Vereinslos (Ablösefrei)' : (GameState.clubs[target.clubId]?.name || 'Unbekannt');
             const canAfford = club && club.budget >= fee;
-
-            negotiationHtml = `
-                <div class="negotiation-box">
-                    <h3>✍️ TRANSFERVERHANDLUNG: ${target.name}</h3>
-                    <p>Pos: <strong>${target.pos}</strong> | Stärke: <strong>${target.rating.toFixed(1)}</strong> | Alter: <strong>${target.age}</strong></p>
-                    <p>Abgebender Verein: <strong>${sellerName}</strong></p>
-                    <p style="margin: 6px 0;">Ablösesumme: <strong style="color:${canAfford ? '#6ee787' : '#ff8787'};">${fee === 0 ? '0 € (Ablösefrei)' : formatMoneyShort(fee)}</strong> (Budget: ${formatMoneyShort(club.budget)})</p>
-
-                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-top:6px;">
-                        <div>
-                            <label style="font-size:0.65rem; display:block; margin-bottom:2px;">LAUFZEIT</label>
-                            <select id="neg-years" class="bmh-select" style="margin-bottom:0; font-size:0.74rem; padding:4px;">
-                                <option value="2">2 Jahre (bis '${String(getCurrentSeasonEndYear() + 2).slice(-2)})</option>
-                                <option value="3" selected>3 Jahre (bis '${String(getCurrentSeasonEndYear() + 3).slice(-2)})</option>
-                                <option value="4">4 Jahre (bis '${String(getCurrentSeasonEndYear() + 4).slice(-2)})</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label style="font-size:0.65rem; display:block; margin-bottom:2px;">GEHALTSANGEBOT</label>
-                            <select id="neg-salary" class="bmh-select" style="margin-bottom:0; font-size:0.74rem; padding:4px;">
-                                <option value="${Math.round(expectedSal * 0.9)}">${formatMoneyShort(Math.round(expectedSal * 0.9))} (-10%)</option>
-                                <option value="${expectedSal}" selected>${formatMoneyShort(expectedSal)} (Fair)</option>
-                                <option value="${Math.round(expectedSal * 1.15)}">${formatMoneyShort(Math.round(expectedSal * 1.15))} (+15%)</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div style="display:flex; gap:6px; margin-top:8px;">
-                        <button id="btn-sign-transfer" class="bmh-btn primary" style="flex:2;" ${!canAfford ? 'disabled' : ''}>
-                            ${canAfford ? '✅ VERPFLICHTEN' : '❌ BUDGET ZU KLEIN'}
-                        </button>
-                        <button id="btn-cancel-transfer" class="bmh-btn danger" style="flex:1;">ABBRUCH</button>
-                    </div>
-                </div>
-            `;
+            negotiationHtml = buildNegotiationPanelHtml({
+                title: `✍️ TRANSFER: ${target.name}`,
+                infoHtml: `<p>Pos: <strong>${target.pos}</strong> | Stärke: <strong>${target.rating.toFixed(1)}</strong> | Alter: <strong>${target.age}</strong> | Verein: <strong>${sellerName}</strong></p>
+                           <p>Ablöse (mit Verein vereinbart): <strong style="color:${canAfford ? '#6ee787' : '#ff8787'};">${fee === 0 ? '0 € (Ablösefrei)' : formatMoneyShort(fee)}</strong> • Budget: ${formatMoneyShort(club.budget)}</p>
+                           <p style="font-size:0.66rem; color:#d3f9d8;">Jetzt verhandelst du mit dem Spieler über seinen persönlichen Vertrag.</p>`,
+                optionsHtml: buildPlayerNegoOptions(target, 'transfer'),
+                successText: `Transfer perfekt! ${target.name} wechselt zu ${club.name}.`,
+                abortText: `${target.name} hat abgesagt. Ein neuer Versuch ist frühestens in 3 Wochen/Spieltagen möglich.`
+            });
         }
     }
 
@@ -685,7 +827,7 @@ function buildTransferMarketTabHtml() {
                             <td>${p.age}</td>
                             <td><strong>${p.rating.toFixed(1)}</strong></td>
                             <td style="color:${p.fee === 0 ? '#184d25' : '#111'};"><strong>${p.fee === 0 ? 'FREI' : formatMoneyShort(p.fee)}</strong></td>
-                            <td><button class="mini-action-btn btn-open-transfer" data-pid="${p.id}">KAUF</button></td>
+                            <td><button type="button" class="mini-action-btn btn-open-transfer" data-pid="${p.id}" ${isNegoBlocked('player:' + p.id) ? 'disabled title="Gesprächssperre"' : ''}>${isNegoBlocked('player:' + p.id) ? '🔒' : 'KAUF'}</button></td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -711,63 +853,58 @@ function bindTransferMarketEvents(viewport) {
 
     document.querySelectorAll('.btn-open-transfer').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            activeTransferTargetId = e.currentTarget.dataset.pid;
+            const pid = e.currentTarget.dataset.pid;
+            const target = GameState.players.find(p => p.id === pid);
+            if (!target) return;
+            if (isNegoBlocked('player:' + pid)) {
+                alert(`${target.name} ist vorerst nicht gesprächsbereit.`);
+                return;
+            }
+            negoStart({ kind: 'transfer', voice: 'player', key: 'player:' + pid, targetId: pid, name: target.name, reservation: computePlayerReservation(target, 'transfer') });
             renderSquadAndMarketView(viewport);
             document.getElementById('main-viewport').scrollTop = 0;
         });
     });
-
-    const cancelBtn = document.getElementById('btn-cancel-transfer');
-    if (cancelBtn) {
-        cancelBtn.addEventListener('click', () => {
-            activeTransferTargetId = null;
-            renderSquadAndMarketView(viewport);
-        });
-    }
-
-    const signBtn = document.getElementById('btn-sign-transfer');
-    if (signBtn) {
-        signBtn.addEventListener('click', () => {
-            const club = GameState.clubs[GameState.activeClubId];
-            const target = GameState.players.find(p => p.id === activeTransferTargetId);
-            if (!club || !target) return;
-
-            const fee = calculateTransferFee(target);
-            if (club.budget < fee) {
-                alert("Nicht genügend Transferbudget!");
-                return;
+    if (activeNegotiation && activeNegotiation.kind === 'transfer') {
+        bindNegotiationPanel({
+            onClose: () => renderSquadAndMarketView(viewport),
+            onSubmit: () => {
+                const club = GameState.clubs[GameState.activeClubId];
+                const target = GameState.players.find(p => p.id === activeNegotiation.targetId);
+                if (!club || !target) return;
+                const sel = readPlayerNegoSelection();
+                activeNegotiation.sel = sel;
+                const fee = calculateTransferFee(target);
+                if (club.budget < fee + sel.bonus) {
+                    alert(`Nicht genügend Budget! Benötigt: ${formatMoneyShort(fee + sel.bonus)} (Ablöse + Handgeld).`);
+                    return;
+                }
+                const expected = calculateExpectedSalary(target);
+                const salary = Math.round(expected * sel.salary / 10000) * 10000;
+                const offerLabel = `${formatMoneyShort(salary)}/J., ${sel.years} J.${sel.bonus > 0 ? ', ' + formatMoneyShort(sel.bonus) + ' HG' : ''}`;
+                const n = negoSubmit(playerOfferScore(target, sel.salary, sel.years, sel.bonus), offerLabel, playerHintBuilder(target));
+                if (n.status === 'accepted') {
+                    const oldClubName = target.clubId === 'free' ? 'vereinslos' : (GameState.clubs[target.clubId]?.name || '');
+                    club.budget -= fee + sel.bonus;
+                    if (target.clubId && target.clubId !== 'free' && GameState.clubs[target.clubId]) {
+                        GameState.clubs[target.clubId].budget += fee;
+                    }
+                    target.clubId = GameState.activeClubId;
+                    target.salary = salary;
+                    target.contractUntil = getCurrentSeasonEndYear() + sel.years;
+                    target.seasonApps = 0;
+                    target.seasonMinutes = 0;
+                    target.seasonGoals = 0;
+                    target.seasonCleanSheets = 0;
+                    target.motivation = 88;
+                    target.talent = computeDefaultTalent(target);
+                    addInbox('✍️', `Neuzugang: ${target.name}`, `${target.name} (${target.pos}, ${target.rating.toFixed(1)}) kommt von ${oldClubName}. Ablöse: ${fee === 0 ? 'ablösefrei' : formatMoneyShort(fee)}, Gehalt: ${formatMoneyShort(salary)}/J. bis ${target.contractUntil}.`, 'transfer');
+                    setStatus(`Transfer perfekt: ${target.name} wechselt zu ${club.name}!`);
+                }
+                saveGame();
+                renderHeader();
+                renderSquadAndMarketView(viewport);
             }
-
-            const years = parseInt(document.getElementById('neg-years').value, 10) || 3;
-            const offeredSalary = parseInt(document.getElementById('neg-salary').value, 10) || calculateExpectedSalary(target);
-            const expectedSal = calculateExpectedSalary(target);
-
-            if (offeredSalary < expectedSal && Math.random() < 0.35) {
-                alert(`${target.name} lehnt das niedrige Gehalt ab! Biete mindestens ${formatMoneyShort(expectedSal)}.`);
-                return;
-            }
-
-            club.budget -= fee;
-            if (target.clubId && target.clubId !== 'free' && GameState.clubs[target.clubId]) {
-                GameState.clubs[target.clubId].budget += fee;
-            }
-
-            target.clubId = GameState.activeClubId;
-            target.salary = offeredSalary;
-            target.contractUntil = getCurrentSeasonEndYear() + years;
-            target.seasonApps = 0;
-            target.seasonMinutes = 0;
-            target.seasonGoals = 0;
-            target.seasonCleanSheets = 0;
-            target.motivation = 85;
-            target.talent = computeDefaultTalent(target);
-
-            activeTransferTargetId = null;
-            saveGame();
-            renderHeader();
-            setStatus(`Transfer perfekt: ${target.name} wechselt zu ${club.name}!`);
-            squadSubTab = 'roster';
-            renderSquadAndMarketView(viewport);
         });
     }
 }

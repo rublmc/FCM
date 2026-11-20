@@ -5,12 +5,24 @@
 // LIVE-TICKER, KONFERENZ & HALBZEIT-ENGINE (v1.0)
 // ==========================================
 const INJURY_REASONS = [
-    "Muskelfaserriss im Oberschenkel",
-    "Zerrung nach Sprintduell",
-    "Schmerzhafter Pferdekuss",
-    "Bänderdehnung am Sprunggelenk",
-    "Adduktorenprobleme"
+    { label: "Muskelfaserriss im Oberschenkel", min: 3, max: 5 },
+    { label: "Zerrung nach Sprintduell", min: 1, max: 2 },
+    { label: "Schmerzhafter Pferdekuss", min: 1, max: 1 },
+    { label: "Bänderdehnung am Sprunggelenk", min: 2, max: 4 },
+    { label: "Adduktorenprobleme", min: 1, max: 3 },
+    { label: "Innenbandverletzung im Knie", min: 4, max: 7 }
 ];
+
+// Verletzung im Live-Spiel registrieren (Ausfallzeit wird nach Abpfiff eingetragen)
+function registerLiveInjury(player, reasonObj) {
+    const physioQ = getStaffQuality('physio');
+    const base = reasonObj.min + Math.floor(Math.random() * (reasonObj.max - reasonObj.min + 1));
+    const matches = Math.max(1, base - Math.floor(physioQ / 2));
+    liveMatchState.injuredIds.push(player.id);
+    liveMatchState.pendingInjuries.push({ playerId: player.id, matches, reason: reasonObj.label });
+    adjustPlayerMotivation(player, -2);
+    return matches;
+}
 
 const ATMOSPHERIC_COMMENTS = [
     "Gute Kombination im Mittelfeld, der Steilpass wird aber abgefangen.",
@@ -197,26 +209,84 @@ function applyHalfTimeTeamTalk(talkId) {
     renderView('liveticker');
 }
 
+function checkLineupBeforeKickoff() {
+    ensureValidSquadAssignment();
+    const ls = getLineupStatus();
+    if (!ls.ok) {
+        alert(`⚠️ Aufstellung unvollständig: Nur ${ls.onPitch}/${ls.required} Spieler in der Startelf!\n\nVerletzte oder gesperrte Spieler wurden aus der Aufstellung genommen. Bitte ersetze sie, bevor der Spieltag angepfiffen werden kann.`);
+        setStatus(`⚠️ Startelf unvollständig (${ls.onPitch}/${ls.required}) – bitte Ersatz aufstellen!`);
+        switchToView('tactics');
+        return false;
+    }
+    return true;
+}
+
 function startLiveMatchday() {
     const club = GameState.clubs[GameState.activeClubId];
     if (!club) {
         alert("Bitte zuerst im Adminbereich ein Datenpaket einspielen!");
         return;
     }
-
+    if (GameState.meta.phase !== 'season') {
+        advanceBreakWeek();
+        return;
+    }
     ensureAllSchedulesInitialized(false);
     ensurePlayerStatsInitialized();
     ensureValidSquadAssignment();
-
     const userLeagueId = club.leagueId;
     const totalMds = getLeagueTotalMatchdays(userLeagueId);
     const currentMd = GameState.meta.matchday;
 
-    if (currentMd > totalMds) {
-        alert("Die Saison ist beendet! Gehe in die Tabelle (🏆 TAB.), um den Saisonabschluss durchzuführen.");
+    // 1. Fällige Nachholspiele ohne eigene Beteiligung im Hintergrund austragen
+    processDueAiCatchUps(currentMd > totalMds);
+
+    // 2. Eigenes Nachholspiel fällig? -> Zuerst dieses live spielen
+    const userCU = getDueUserCatchUp();
+    if (userCU) {
+        if (!checkLineupBeforeKickoff()) return;
+        startLiveSession({ catchUp: userCU });
         return;
     }
 
+    if (currentMd > totalMds) {
+        saveGame();
+        renderHeader();
+        alert("Die Saison ist beendet! Gehe in die Tabelle (🏆 TAB.), um den Saisonabschluss durchzuführen.");
+        switchToView('league');
+        return;
+    }
+
+    // 3. Regulärer Spieltag – nur mit vollständiger Startelf
+    const userSched = GameState.schedule[userLeagueId];
+    const umd = userSched ? userSched.matchdays.find(m => m.matchday === currentMd) : null;
+    const hasUserMatch = Boolean(umd && umd.matches.some(m => m.homeId === club.id || m.awayId === club.id));
+    if (hasUserMatch && !checkLineupBeforeKickoff()) return;
+    startLiveSession({ catchUp: null });
+}
+
+function buildLiveMatchObj(lid, md, idx, m, weatherKey) {
+    return {
+        leagueId: lid,
+        ref: { md, idx },
+        homeId: m.homeId,
+        awayId: m.awayId,
+        homeName: GameState.clubs[m.homeId]?.name || m.homeId,
+        awayName: GameState.clubs[m.awayId]?.name || m.awayId,
+        homeGoals: 0,
+        awayGoals: 0,
+        events: [],
+        weather: weatherKey,
+        isUserMatch: (m.homeId === GameState.activeClubId || m.awayId === GameState.activeClubId)
+    };
+}
+
+function startLiveSession(opts) {
+    const club = GameState.clubs[GameState.activeClubId];
+    const userLeagueId = club.leagueId;
+    const totalMds = getLeagueTotalMatchdays(userLeagueId);
+    const currentMd = GameState.meta.matchday;
+    const catchUp = opts.catchUp || null;
     stopLiveTickerTimer();
 
     // Ausgangs-Tabelle vor dem Spieltag sichern (für Blitztabelle ▲/▼)
@@ -226,53 +296,83 @@ function startLiveMatchday() {
         baseRanks[row.clubId] = idx + 1;
     });
 
-    // Alle Spiele des aktuellen Spieltags in allen Ligen für Live-Betrieb klonen
     const leaguesMatches = {};
     let userMatchRef = null;
+    let userCancelled = null;
+    const cancelledLines = [];
+    let dateISO;
 
-    Object.keys(GameState.schedule).forEach(lid => {
-        const sched = GameState.schedule[lid];
-        const mdObj = sched.matchdays.find(m => m.matchday === currentMd);
-        if (mdObj && !mdObj.played) {
-            leaguesMatches[lid] = mdObj.matches.map(m => {
-                const isUser = (m.homeId === club.id || m.awayId === club.id);
-                const liveM = {
-                    leagueId: lid,
-                    homeId: m.homeId,
-                    awayId: m.awayId,
-                    homeName: GameState.clubs[m.homeId]?.name || m.homeId,
-                    awayName: GameState.clubs[m.awayId]?.name || m.awayId,
-                    homeGoals: 0,
-                    awayGoals: 0,
-                    events: [],
-                    isUserMatch: isUser
-                };
-                if (isUser) userMatchRef = liveM;
-                return liveM;
-            });
+    if (catchUp) {
+        // Nachholspiel unter der Woche – nur diese Partie
+        dateISO = catchUp.date;
+        const orig = getCatchUpMatch(catchUp);
+        if (!orig) {
+            GameState.catchUps = GameState.catchUps.filter(c => c !== catchUp);
+            saveGame();
+            renderHeader();
+            return;
         }
-    });
+        const weatherKey = rollWeather(dateISO, getLeagueCountry(catchUp.leagueId));
+        const safeWeather = getWeather(weatherKey).extreme ? 'cloudy' : weatherKey; // Nachholspiel findet in jedem Fall statt
+        userMatchRef = buildLiveMatchObj(catchUp.leagueId, catchUp.md, catchUp.idx, orig, safeWeather);
+        leaguesMatches[catchUp.leagueId] = [userMatchRef];
+    } else {
+        dateISO = getMatchdayDate(userLeagueId, currentMd);
+        // Alle Spiele des aktuellen Spieltags in allen Ligen – mit Wetter & möglichen Absagen
+        Object.keys(GameState.schedule).forEach(lid => {
+            const sched = GameState.schedule[lid];
+            const mdObj = sched.matchdays.find(m => m.matchday === currentMd);
+            if (!mdObj || mdObj.played) return;
+            const country = getLeagueCountry(lid);
+            const mdDate = mdObj.date || dateISO;
+            leaguesMatches[lid] = [];
+            mdObj.matches.forEach((m, idx) => {
+                const weatherKey = rollWeather(mdDate, country);
+                const homeClub = GameState.clubs[m.homeId];
+                const isUser = (m.homeId === club.id || m.awayId === club.id);
+                if (shouldCancelMatch(weatherKey, homeClub)) {
+                    const cu = postponeMatch(lid, currentMd, idx, weatherKey);
+                    const w = getWeather(weatherKey);
+                    const line = `${GameState.clubs[m.homeId]?.name || m.homeId} – ${GameState.clubs[m.awayId]?.name || m.awayId}`;
+                    if (lid === userLeagueId) cancelledLines.push(`${w.icon} ${line}`);
+                    if (isUser) {
+                        userCancelled = { weather: weatherKey, label: w.label, icon: w.icon, catchUpDate: cu ? cu.date : null, line };
+                    }
+                    return;
+                }
+                const liveM = buildLiveMatchObj(lid, currentMd, idx, m, weatherKey);
+                if (isUser) userMatchRef = liveM;
+                leaguesMatches[lid].push(liveM);
+            });
+        });
+    }
 
     const initialFormationSnapshot = GameState.tactics.formation || "4-4-2";
     const initialLineupSnapshot = Array.isArray(GameState.tactics.lineup) ? [...GameState.tactics.lineup] : new Array(11).fill(null);
     const initialBenchSnapshot = Array.isArray(GameState.tactics.bench) ? [...GameState.tactics.bench] : new Array(MAX_BENCH_SIZE).fill(null);
-
     const minutesPlayedMap = {};
-    GameState.tactics.lineup.filter(Boolean).forEach(pid => {
-        minutesPlayedMap[pid] = 0;
-    });
+    if (userMatchRef) {
+        GameState.tactics.lineup.filter(Boolean).forEach(pid => {
+            minutesPlayedMap[pid] = 0;
+        });
+    }
 
     const homeStrInit = userMatchRef ? calculateLiveClubStrength(userMatchRef.homeId, true) : 6.5;
     const awayStrInit = userMatchRef ? calculateLiveClubStrength(userMatchRef.awayId, false) : 6.5;
     const initPoss = Math.max(32, Math.min(68, Math.round(50 + (homeStrInit - awayStrInit) * 6)));
-
     liveSelectedPitchSlot = null;
+
     liveMatchState = {
-        matchday: currentMd,
+        matchday: catchUp ? catchUp.md : currentMd,
+        isCatchUp: Boolean(catchUp),
+        catchUpRef: catchUp,
+        dateISO,
         totalMds,
         userLeagueId,
         leaguesMatches,
         userMatch: userMatchRef,
+        userCancelled,
+        weather: userMatchRef ? userMatchRef.weather : null,
         baseRanks,
         minute: 0,
         stoppage1: 1 + Math.floor(Math.random() * 3),
@@ -298,6 +398,7 @@ function startLiveMatchday() {
         sentOffIds: [],
         lockedRedSlots: [],
         injuredIds: [],
+        pendingInjuries: [],
         subbedOutIds: [],
         yellowCardIds: [],
         pendingSuspensions: [],
@@ -317,16 +418,24 @@ function startLiveMatchday() {
         tickerLog: []
     };
 
+    if (cancelledLines.length > 0) {
+        addLiveTickerEntry("0'", "system", "card-red", `❌ WETTERBEDINGTE ABSAGE: ${cancelledLines.join(' • ')} – Nachholtermin folgt.`);
+    }
+    if (userCancelled) {
+        addInbox(userCancelled.icon, `Spiel abgesagt: ${userCancelled.line}`, `Wegen ${userCancelled.label} hat der Schiedsrichter nach der Platzbegehung die Partie am ${currentMd}. Spieltag abgesagt. Nachholtermin: ${userCancelled.catchUpDate ? formatGameDate(userCancelled.catchUpDate, true) : 'wird noch festgelegt'}.`, 'league', dateISO);
+    }
     if (userMatchRef) {
-        addLiveTickerEntry("1'", "system", "halftime", `🏟️ ANPFIFF! ${userMatchRef.homeName} gegen ${userMatchRef.awayName} (Spieltag ${currentMd})`);
+        const w = getWeather(userMatchRef.weather);
+        const prefix = catchUp ? `📅 NACHHOLSPIEL (ST ${catchUp.md})` : `🏟️ ANPFIFF`;
+        addLiveTickerEntry("1'", "system", "halftime", `${prefix}! ${userMatchRef.homeName} gegen ${userMatchRef.awayName} • Wetter: ${w.icon} ${w.label}`);
     } else {
-        addLiveTickerEntry("1'", "system", "halftime", `🏟️ ANPFIFF ZU SPIELTAG ${currentMd}!`);
+        addLiveTickerEntry("1'", "system", "halftime", `🏟️ ANPFIFF ZU SPIELTAG ${currentMd}!${userCancelled ? ' (Dein Spiel fällt aus – Konferenz läuft)' : ''}`);
     }
 
     startLiveTickerTimer();
     renderHeader();
     switchToView('liveticker');
-    setStatus(`🔴 LIVE: Spieltag ${currentMd} läuft!`);
+    setStatus(catchUp ? `🔴 LIVE: Nachholspiel (ST ${catchUp.md})` : `🔴 LIVE: Spieltag ${currentMd} läuft!`);
 }
 
 function addLiveTickerEntry(minLabel, side, type, text) {
@@ -429,6 +538,7 @@ function calculateLiveClubStrength(clubId, isHome) {
         if (liveMatchState && liveMatchState.phase === 'SECOND_HALF') {
             str += (liveMatchState.teamTalkStrengthBonus || 0);
         }
+        str += getStaffQuality('co') * 0.04;
 
         if (isHome) str += 0.35;
         return Math.max(1.0, str);
@@ -442,9 +552,6 @@ function performAutomaticInjurySub(slotIdx, injuredPlayer) {
     const squad = getClubPlayers();
     const slots = FORMATIONS[GameState.tactics.formation] || FORMATIONS["4-4-2"];
     const slotPos = slots[slotIdx] || injuredPlayer.pos;
-
-    liveMatchState.injuredIds.push(injuredPlayer.id);
-    adjustPlayerMotivation(injuredPlayer, -2);
 
     // Kann noch gewechselt werden?
     if (liveMatchState.subsUsed >= liveMatchState.maxSubs) {
@@ -567,6 +674,10 @@ function tickLiveMatchday(silentRender = false) {
             liveMatchState.phase = 'HALFTIME';
             liveMatchState.isPaused = true;
             liveMatchState.pauseReason = "⏸ HALBZEITPAUSE";
+            if (!liveMatchState.userMatch) {
+                // Eigenes Spiel abgesagt -> keine Kabinenansprache nötig
+                liveMatchState.teamTalkApplied = true;
+            }
             stopLiveTickerTimer();
             const um = liveMatchState.userMatch;
             const htScore = um ? `${um.homeName} ${um.homeGoals}:${um.awayGoals} ${um.awayName}` : "";
@@ -614,9 +725,10 @@ function tickLiveMatchday(silentRender = false) {
                 if (m.isUserMatch) return;
                 const hStr = calculateClubMatchStrength(m.homeId, true);
                 const aStr = calculateClubMatchStrength(m.awayId, false);
-                const diff = hStr - aStr;
-                const pHome = Math.max(0.003, Math.min(0.052, (1.42 + diff * 0.58) / 90));
-                const pAway = Math.max(0.002, Math.min(0.048, (1.15 - diff * 0.55) / 90));
+                const aw = getWeather(m.weather);
+                const diff = (hStr - aStr) * aw.diffMult;
+                const pHome = Math.max(0.003, Math.min(0.052, ((1.42 + diff * 0.58) * aw.goalMult) / 90));
+                const pAway = Math.max(0.002, Math.min(0.048, ((1.15 - diff * 0.55) * aw.goalMult) / 90));
 
                 if (Math.random() < pHome) {
                     m.homeGoals++;
@@ -650,18 +762,19 @@ function tickLiveMatchday(silentRender = false) {
         const userIsHome = um.homeId === GameState.activeClubId;
         const hStr = calculateLiveClubStrength(um.homeId, true);
         const aStr = calculateLiveClubStrength(um.awayId, false);
-        const diff = hStr - aStr;
+        const wx = getWeather(um.weather);
+        const diff = (hStr - aStr) * wx.diffMult;
 
         // Ballbesitz leicht dynamisch anpassen
         const targetPoss = Math.max(30, Math.min(70, Math.round(50 + diff * 6 + (Math.random() * 4 - 2))));
         liveMatchState.stats.homePossession = Math.round((liveMatchState.stats.homePossession * 4 + targetPoss) / 5);
 
-        let goalFactor = 1.0;
+        let goalFactor = wx.goalMult;
         const ment = GameState.tactics.mentality || "normal";
-        if (ment === "all_out") goalFactor = 1.32;
-        else if (ment === "offensive") goalFactor = 1.15;
-        else if (ment === "defensive") goalFactor = 0.85;
-        else if (ment === "ultra_def") goalFactor = 0.72;
+        if (ment === "all_out") goalFactor *= 1.32;
+        else if (ment === "offensive") goalFactor *= 1.15;
+        else if (ment === "defensive") goalFactor *= 0.85;
+        else if (ment === "ultra_def") goalFactor *= 0.72;
 
         const pHomeGoal = Math.max(0.003, Math.min(0.058, ((1.42 + diff * 0.58) * goalFactor) / 90));
         const pAwayGoal = Math.max(0.002, Math.min(0.055, ((1.15 - diff * 0.55) * goalFactor) / 90));
@@ -712,8 +825,8 @@ function tickLiveMatchday(silentRender = false) {
 
         // Karten & Verletzungen beim eigenen Team prüfen
         const aggr = GameState.tactics.aggression || "normal";
-        const cardMult = (aggr === "hard" ? 1.65 : (aggr === "soft" ? 0.60 : 1.0)) * (liveMatchState.teamTalkCardMult || 1.0);
-        const injuryMult = aggr === "hard" ? 1.35 : (aggr === "soft" ? 0.70 : 1.0);
+        const cardMult = (aggr === "hard" ? 1.65 : (aggr === "soft" ? 0.60 : 1.0)) * (liveMatchState.teamTalkCardMult || 1.0) * wx.cardMult;
+        const injuryMult = (aggr === "hard" ? 1.35 : (aggr === "soft" ? 0.70 : 1.0)) * wx.injuryMult * (1 - 0.08 * getStaffQuality('fitness'));
 
         const activeSlots = [];
         const squad = getClubPlayers();
@@ -727,7 +840,9 @@ function tickLiveMatchday(silentRender = false) {
         // Verletzungs-Check (ca. 16% Chance pro Spiel insgesamt)
         if (!highlightOccurred && activeSlots.length > 0 && Math.random() < (0.0020 * injuryMult)) {
             const victimObj = activeSlots[Math.floor(Math.random() * activeSlots.length)];
-            const reason = INJURY_REASONS[Math.floor(Math.random() * INJURY_REASONS.length)];
+            const reasonObj = INJURY_REASONS[Math.floor(Math.random() * INJURY_REASONS.length)];
+            const injMatches = registerLiveInjury(victimObj.player, reasonObj);
+            const reason = `${reasonObj.label}, ca. ${injMatches} ${injMatches === 1 ? 'Spiel' : 'Spiele'} Pause`;
 
             if (silentRender && !liveMatchState.autoPause) {
                 // Nur wenn Auto-Stopp explizit deaktiviert ist, beim Skippen automatisch wechseln
@@ -749,8 +864,6 @@ function tickLiveMatchday(silentRender = false) {
                 }
             } else {
                 // Im Live-Modus: Verletzten Spieler vom Platz nehmen, KEIN heimlicher Bank-Wechsel -> Manager entscheidet per In-App-Benachrichtigung!
-                liveMatchState.injuredIds.push(victimObj.player.id);
-                adjustPlayerMotivation(victimObj.player, -2);
                 GameState.tactics.lineup[victimObj.slotIdx] = null;
 
                 const canSub = liveMatchState.subsUsed < liveMatchState.maxSubs && GameState.tactics.bench.some(Boolean);
@@ -838,9 +951,14 @@ function tickLiveMatchday(silentRender = false) {
         }
 
         // Gelbe Karte Gegner
-        if (!highlightOccurred && Math.random() < 0.014) {
+        if (!highlightOccurred && Math.random() < 0.014 * wx.cardMult) {
             if (userIsHome) liveMatchState.stats.awayYellows++;
             else liveMatchState.stats.homeYellows++;
+            const oppId = userIsHome ? um.awayId : um.homeId;
+            const oppName = userIsHome ? um.awayName : um.homeName;
+            const oppSquad = [...getClubPlayers(oppId)].sort((a, b) => b.rating - a.rating).slice(0, 11).filter(p => p.pos !== "TW");
+            const culprit = oppSquad.length > 0 ? oppSquad[Math.floor(Math.random() * oppSquad.length)] : null;
+            addLiveTickerEntry(minLabel, userIsHome ? "away" : "home", "card-yellow", `🟨 Gelbe Karte für ${culprit ? culprit.name : 'einen Spieler'} (${oppName}).`);
         }
 
         // Torschüsse, Ecken & atmosphärischer Ticker-Text
@@ -854,8 +972,11 @@ function tickLiveMatchday(silentRender = false) {
                 else liveMatchState.stats.awayCorners++;
             }
             if (Math.random() < 0.06) {
-                const phrase = ATMOSPHERIC_COMMENTS[Math.floor(Math.random() * ATMOSPHERIC_COMMENTS.length)];
-                addLiveTickerEntry(minLabel, "neutral", "info", phrase);
+                const wxComments = WEATHER_COMMENTS[um.weather];
+                const useWx = wxComments && Math.random() < 0.35;
+                const pool = useWx ? wxComments : ATMOSPHERIC_COMMENTS;
+                const phrase = pool[Math.floor(Math.random() * pool.length)];
+                addLiveTickerEntry(minLabel, "neutral", "info", useWx ? `${wx.icon} ${phrase}` : phrase);
             }
         }
     }
@@ -904,7 +1025,7 @@ function performManualLiveSub(pitchSlotIdx, benchIdx) {
     addLiveTickerEntry(
         minLbl,
         "user",
-        "info",
+        "sub",
         `🔄 WECHSEL (${liveMatchState.subsUsed}/5): ${inPlayer.name} (${inPlayer.pos}) kommt für ${outPlayer ? outPlayer.name : 'freien Platz'}.`
     );
     setStatus(`🔄 Wechsel ${liveMatchState.subsUsed}/5: ${inPlayer.name} eingewechselt!`);
@@ -967,30 +1088,33 @@ function computeLiveBlitzStandings(leagueId) {
 function finalizeLiveMatchday() {
     if (!liveMatchState) return;
     stopLiveTickerTimer();
-
     const club = GameState.clubs[GameState.activeClubId];
-    const currentMd = liveMatchState.matchday;
-    const totalMds = liveMatchState.totalMds;
+    const st = liveMatchState;
+    const currentMd = st.matchday;
+    const totalMds = st.totalMds;
+    const isCatchUp = st.isCatchUp;
 
     // 1. Alle Live-Ergebnisse offiziell in den Spielplan schreiben & Torschützen verbuchen
-    Object.keys(liveMatchState.leaguesMatches).forEach(lid => {
+    Object.keys(st.leaguesMatches).forEach(lid => {
         const sched = GameState.schedule[lid];
-        const mdObj = sched?.matchdays.find(m => m.matchday === currentMd);
-        const liveList = liveMatchState.leaguesMatches[lid];
-        if (!mdObj || !liveList) return;
-
-        mdObj.matches.forEach((origMatch, idx) => {
-            const lm = liveList[idx];
-            if (!lm) return;
+        if (!sched) return;
+        st.leaguesMatches[lid].forEach(lm => {
+            const mdObj = sched.matchdays.find(m => m.matchday === lm.ref.md);
+            const origMatch = mdObj ? mdObj.matches[lm.ref.idx] : null;
+            if (!origMatch) return;
             origMatch.homeGoals = lm.homeGoals;
             origMatch.awayGoals = lm.awayGoals;
+            origMatch.weather = lm.weather;
+            if (isCatchUp) {
+                origMatch.postponed = false;
+                origMatch.wasPostponed = true;
+            }
             origMatch.events = lm.events.map(ev => ({
                 minute: ev.minute,
                 side: ev.side,
                 type: ev.type,
                 playerName: ev.playerName
             }));
-
             // Saisontore bei Spielern hochzählen
             lm.events.forEach(ev => {
                 if (ev.type === "goal" && ev.scorerId) {
@@ -998,7 +1122,6 @@ function finalizeLiveMatchday() {
                     if (pl) pl.seasonGoals = (pl.seasonGoals || 0) + 1;
                 }
             });
-
             // KI-Vereine Einsatzzeiten & Zu-Null-Spiele mitführen
             [lm.homeId, lm.awayId].forEach(cid => {
                 if (cid === GameState.activeClubId) return;
@@ -1017,20 +1140,26 @@ function finalizeLiveMatchday() {
                 });
             });
         });
-
-        mdObj.played = true;
     });
+    if (isCatchUp) {
+        GameState.catchUps = GameState.catchUps.filter(c => c !== st.catchUpRef &&
+            !(c.leagueId === st.catchUpRef.leagueId && c.md === st.catchUpRef.md && c.idx === st.catchUpRef.idx));
+    } else {
+        Object.keys(GameState.schedule).forEach(lid => {
+            const mdObj = GameState.schedule[lid].matchdays.find(m => m.matchday === currentMd);
+            if (mdObj) mdObj.played = true;
+        });
+    }
 
     // 2. Eigener Kader: Exakte Minuten, Einsätze, Zu-Null & Motivation verbuchen
-    const um = liveMatchState.userMatch;
+    const um = st.userMatch;
     const squad = getClubPlayers();
-    const minMap = liveMatchState.minutesPlayedMap || {};
+    const minMap = st.minutesPlayedMap || {};
     const benchAllSet = new Set(GameState.tactics.bench.filter(Boolean));
-
     let ticketIncome = 0;
     let visitors = 0;
     let sponsorIncome = 0;
-    const totalAnnualSalary = squad.reduce((sum, p) => sum + (p.salary || 0), 0);
+    const totalAnnualSalary = squad.reduce((sum, p) => sum + (p.salary || 0), 0) + getStaffAnnualCost();
     const salaryCost = Math.round(totalAnnualSalary / Math.max(1, totalMds));
 
     if (um) {
@@ -1040,7 +1169,6 @@ function finalizeLiveMatchday() {
         const won = userGoals > oppGoals;
         const draw = userGoals === oppGoals;
         const cleanSheet = oppGoals === 0;
-
         squad.forEach(p => {
             const mins = minMap[p.id] || 0;
             if (mins > 0) {
@@ -1056,24 +1184,20 @@ function finalizeLiveMatchday() {
                 adjustPlayerMotivation(p, -2);
             }
         });
-
         if (isHome) {
-            const forecast = calculateStadiumForecast(club);
+            const forecast = calculateStadiumForecast(club, um.weather);
             ticketIncome = forecast.totalMatchRevenue;
             visitors = forecast.totalVisitors;
         }
-
         if (GameState.sponsors.main) {
             sponsorIncome += GameState.sponsors.main.perMatch || 0;
             if (won) sponsorIncome += GameState.sponsors.main.winBonus || 0;
         }
-
         if (isHome && GameState.sponsors.boards) {
             sponsorIncome += GameState.sponsors.boards.perMatch || 0;
             if (won) sponsorIncome += GameState.sponsors.boards.winBonus || 0;
         }
     }
-
     const netBalance = ticketIncome + sponsorIncome - salaryCost;
     club.budget += netBalance;
 
@@ -1094,17 +1218,22 @@ function finalizeLiveMatchday() {
                     club.stadium.roof = true;
                 } else if (proj.type === 'vip') {
                     club.stadium.vipLevel = (club.stadium.vipLevel || 0) + 1;
+                } else if (proj.type === 'heating') {
+                    club.stadium.heating = true;
                 }
             }
             buildStatusMsg = ` 🏗️ ${proj.title} fertig!`;
+            addInbox('🏗️', 'Stadionausbau abgeschlossen', `Die Bauarbeiten sind beendet: „${proj.title}“ ist ab sofort in Betrieb. Neue Kapazität: ${(club.stadium.capacity || 0).toLocaleString('de-DE')} Plätze.`, 'stadium', st.dateISO);
             GameState.stadiumProject = null;
         }
     }
 
-    // 4. Bestehende Sperren um 1 Spiel abbauen & neue Sperren aus diesem Spieltag eintragen
-    const newBans = Array.isArray(liveMatchState.pendingSuspensions) ? liveMatchState.pendingSuspensions : [];
+    // 4. Verletzungen heilen, Sperren abbauen & neue Sperren/Verletzungen eintragen
+    const newBans = Array.isArray(st.pendingSuspensions) ? st.pendingSuspensions : [];
     const newlyBannedIds = new Set(newBans.map(b => b.playerId));
-
+    const newInjuries = Array.isArray(st.pendingInjuries) ? st.pendingInjuries : [];
+    const newlyInjuredIds = new Set(newInjuries.map(i => i.playerId));
+    healInjuriesOneStep(newlyInjuredIds);
     squad.forEach(p => {
         if (!newlyBannedIds.has(p.id) && (p.suspendedMatches || 0) > 0) {
             p.suspendedMatches = Math.max(0, p.suspendedMatches - 1);
@@ -1113,54 +1242,55 @@ function finalizeLiveMatchday() {
             }
         }
     });
-
     newBans.forEach(ban => {
         const pl = squad.find(p => p.id === ban.playerId);
         if (pl) {
             pl.suspendedMatches = ban.matches;
             pl.suspensionReason = ban.reason;
+            addInbox('🟥', `Sperre: ${pl.name}`, `Das Sportgericht hat ${pl.name} nach der ${ban.cardType} (${ban.reason}) für ${ban.matches} ${ban.matches === 1 ? 'Spiel' : 'Spiele'} gesperrt. Er wurde aus der Startelf genommen.`, 'discipline', st.dateISO);
+        }
+    });
+    newInjuries.forEach(inj => {
+        const pl = squad.find(p => p.id === inj.playerId);
+        if (pl) {
+            pl.injuredMatches = inj.matches;
+            pl.injuryReason = inj.reason;
+            addInbox('🚑', `Verletzung: ${pl.name}`, `Diagnose der medizinischen Abteilung: ${inj.reason}. ${pl.name} (${pl.pos}) fällt voraussichtlich ${inj.matches} ${inj.matches === 1 ? 'Spiel' : 'Spiele'} aus.${getStaffQuality('physio') > 0 ? ' Dank unseres Physio-Teams verkürzt sich die Pause.' : ''}`, 'injury', st.dateISO);
         }
     });
 
-    // 5. Ausgangsformation & -aufstellung des Spiels wiederherstellen – gesperrte oder im Spiel verletzte Spieler bleiben leer (null)
-    if (liveMatchState.initialFormation && FORMATIONS[liveMatchState.initialFormation]) {
-        GameState.tactics.formation = liveMatchState.initialFormation;
+    // 5. Ausgangsformation & -aufstellung wiederherstellen – gesperrte/verletzte Spieler bleiben leer (manuell ersetzen!)
+    if (st.initialFormation && FORMATIONS[st.initialFormation]) {
+        GameState.tactics.formation = st.initialFormation;
     }
-    const injuredDuringMatchSet = new Set(Array.isArray(liveMatchState.injuredIds) ? liveMatchState.injuredIds : []);
-    const baseLineup = Array.isArray(liveMatchState.initialLineup) && liveMatchState.initialLineup.length === 11
-        ? [...liveMatchState.initialLineup]
+    const baseLineup = Array.isArray(st.initialLineup) && st.initialLineup.length === 11
+        ? [...st.initialLineup]
         : [...GameState.tactics.lineup];
-    const baseBench = Array.isArray(liveMatchState.initialBench) && liveMatchState.initialBench.length === MAX_BENCH_SIZE
-        ? [...liveMatchState.initialBench]
+    const baseBench = Array.isArray(st.initialBench) && st.initialBench.length === MAX_BENCH_SIZE
+        ? [...st.initialBench]
         : [...GameState.tactics.bench];
-
     const squadById = new Map(squad.map(p => [p.id, p]));
     const restoredUsed = new Set();
-
-    GameState.tactics.lineup = baseLineup.map(pid => {
+    const restoreId = (pid) => {
         if (!pid) return null;
         const pl = squadById.get(pid);
-        if (!pl || restoredUsed.has(pid) || isPlayerSuspended(pl) || injuredDuringMatchSet.has(pid)) {
-            return null;
-        }
+        if (!pl || restoredUsed.has(pid) || isPlayerUnavailable(pl)) return null;
         restoredUsed.add(pid);
         return pid;
-    });
-
-    GameState.tactics.bench = baseBench.map(pid => {
-        if (!pid) return null;
-        const pl = squadById.get(pid);
-        if (!pl || restoredUsed.has(pid) || isPlayerSuspended(pl) || injuredDuringMatchSet.has(pid)) {
-            return null;
-        }
-        restoredUsed.add(pid);
-        return pid;
-    });
-
+    };
+    GameState.tactics.lineup = baseLineup.map(restoreId);
+    GameState.tactics.bench = baseBench.map(restoreId);
     ensureValidSquadAssignment();
 
+    // 6. Spielbericht fürs Büro
+    const highlightTypes = new Set(['goal', 'opp-goal', 'card-yellow', 'card-red', 'injury', 'sub']);
+    const highlights = [...st.tickerLog].reverse()
+        .filter(e => highlightTypes.has(e.type) && e.side !== 'system')
+        .map(e => ({ min: e.minLabel, type: e.type, text: e.text }));
     GameState.lastMatchReport = {
         matchday: currentMd,
+        isCatchUp,
+        date: st.dateISO,
         match: um ? {
             leagueId: um.leagueId,
             matchday: currentMd,
@@ -1170,9 +1300,15 @@ function finalizeLiveMatchday() {
             awayName: um.awayName,
             homeGoals: um.homeGoals,
             awayGoals: um.awayGoals,
-            events: um.events,
-            isHome: um.homeId === club.id
+            events: um.events.map(ev => ({ minute: ev.minute, side: ev.side, type: ev.type, playerName: ev.playerName })),
+            isHome: um.homeId === club.id,
+            weather: um.weather
         } : null,
+        cancelled: st.userCancelled,
+        highlights,
+        stats: { ...st.stats },
+        subsUsed: st.subsUsed,
+        teamTalk: st.teamTalkTitle || "",
         visitors,
         ticketIncome,
         sponsorIncome,
@@ -1181,25 +1317,35 @@ function finalizeLiveMatchday() {
         buildStatusMsg
     };
 
-    GameState.meta.matchday = currentMd + 1;
-    selectedFixtureMatchday = currentMd;
+    // 7. Zeit voranschreiten lassen
+    if (!isCatchUp) {
+        GameState.meta.matchday = currentMd + 1;
+        selectedFixtureMatchday = currentMd;
+    }
+    GameState.meta.tick = (GameState.meta.tick || 0) + 1;
     selectedLeagueViewId = club.leagueId;
     liveMatchState = null;
     liveSelectedPitchSlot = null;
 
+    generateRoutineEvents();
+    // Winterpause nach der Hinrunde?
+    if (!isCatchUp && currentMd === getFirstHalfLastMatchday(club.leagueId)) {
+        startWinterBreakIfNeeded();
+    }
+    syncGameClock();
     saveGame();
     renderHeader();
-
     switchToView('office');
-
     if (um) {
-        setStatus(`ST ${currentMd}: ${um.homeName} ${um.homeGoals}:${um.awayGoals} ${um.awayName}`);
+        setStatus(`${isCatchUp ? 'Nachholspiel' : 'ST ' + currentMd}: ${um.homeName} ${um.homeGoals}:${um.awayGoals} ${um.awayName}`);
     } else {
         setStatus(`Spieltag ${currentMd} beendet.`);
     }
+    const ls = getLineupStatus();
+    if (!ls.ok && GameState.meta.phase === 'season') {
+        setStatus(`⚠️ Startelf unvollständig (${ls.onPitch}/${ls.required}) – bitte Verletzte/Gesperrte ersetzen!`);
+    }
 }
 
-function advanceMatchdayAndSimulate() {
-    startLiveMatchday();
-}
+
 
