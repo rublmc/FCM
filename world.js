@@ -542,16 +542,16 @@ function processStaffContractsAtSeasonEnd(seasonEnd) {
 // ==========================================
 let generatedPlayerCounter = 0;
 
-function createGeneratedPlayer(clubId, pos, avgRating, seasonEnd) {
-    const fn = YOUTH_FIRST_NAMES[Math.floor(Math.random() * YOUTH_FIRST_NAMES.length)];
-    const ln = YOUTH_LAST_NAMES[Math.floor(Math.random() * YOUTH_LAST_NAMES.length)];
-    const age = 18 + Math.floor(Math.random() * 13);
-    const youthPenalty = age <= 21 ? 0.4 : 0;
+// isYouth: Nachwuchsspieler (17–19 J., schwächer, aber hohes Talent)
+function createGeneratedPlayer(clubId, pos, avgRating, seasonEnd, isYouth = false) {
+    const country = clubId && GameState.clubs[clubId] ? getLeagueCountry(GameState.clubs[clubId].leagueId) : 'DE';
+    const age = isYouth ? 17 + Math.floor(Math.random() * 3) : 18 + Math.floor(Math.random() * 13);
+    const youthPenalty = isYouth ? 1.1 : (age <= 21 ? 0.4 : 0);
     const rating = parseFloat(Math.max(3.5, Math.min(9.0, avgRating - 0.7 + Math.random() * 1.0 - youthPenalty)).toFixed(1));
     const id = `gen_${Date.now().toString(36)}_${(generatedPlayerCounter++).toString(36)}_${Math.floor(Math.random() * 1e4)}`;
     const p = {
         id, clubId, pos,
-        name: `${fn} ${ln}`,
+        name: randomPlayerName(country),
         age, rating,
         salary: 0,
         contractUntil: seasonEnd + 1 + Math.floor(Math.random() * 3),
@@ -560,10 +560,16 @@ function createGeneratedPlayer(clubId, pos, avgRating, seasonEnd) {
         injuredMatches: 0, injuryReason: ""
     };
     p.salary = calculateExpectedSalary(p);
-    p.talent = computeDefaultTalent(p);
+    p.talent = isYouth ? 4 + (Math.random() < 0.35 ? 1 : 0) : computeDefaultTalent(p);
+    if (isYouth) {
+        p.isRegen = true;
+        p.clubSince = GameState.meta.season;
+    }
     p.birthday = generateBirthday(id);
     return p;
 }
+
+const YOUTH_POSITIONS = ['TW', 'IV', 'IV', 'LV', 'RV', 'DM', 'ZM', 'ZM', 'OM', 'LM', 'RM', 'LA', 'RA', 'ST', 'ST'];
 
 function computeSquadNeeds(sq) {
     const groups = { TW: ['TW'], DEF: ['LV', 'IV', 'RV'], MID: ['DM', 'ZM', 'LM', 'RM', 'OM'], FWD: ['LA', 'RA', 'ST'] };
@@ -603,6 +609,13 @@ function maintainAiSquadsAtSeasonEnd(seasonEnd) {
         addInbox('👋', `Karriereende: ${p.name}`, `${p.name} (${p.age} J.) beendet seine aktive Laufbahn. Danke für alles!`, 'squad');
     });
 
+    // Vereinslose, die zwei Sommer ohne Verein bleiben, wechseln ins Ausland bzw. hören auf
+    GameState.players = GameState.players.filter(p => {
+        if (p.clubId !== 'free') { p.freeSeasons = 0; return true; }
+        p.freeSeasons = (p.freeSeasons || 0) + 1;
+        return p.freeSeasons < 3 && (p.age || 25) < 34;
+    });
+
     const signings = [];
     Object.values(GameState.clubs).forEach(club => {
         if (club.id === GameState.activeClubId) return;
@@ -624,9 +637,56 @@ function maintainAiSquadsAtSeasonEnd(seasonEnd) {
         });
     });
 
+    // Nachwuchs: Jeder KI-Verein zieht pro Saison 1–3 Talente aus der eigenen Jugend hoch
+    let regenCount = 0;
+    Object.values(GameState.clubs).forEach(club => {
+        if (club.id === GameState.activeClubId) return;
+        const sq = getClubPlayers(club.id);
+        const avg = getClubAverageRating(club.id);
+        // Kader auf ca. 23 Spieler halten – mindestens 1 Talent, wenn Platz ist
+        const n = Math.max(sq.length < MAX_SQUAD_SIZE - 1 ? 1 : 0, Math.min(3, 23 - sq.length));
+        for (let i = 0; i < n; i++) {
+            GameState.players.push(createGeneratedPlayer(club.id, YOUTH_POSITIONS[Math.floor(Math.random() * YOUTH_POSITIONS.length)], avg, newSeasonEnd, true));
+            regenCount++;
+        }
+    });
+
+    // Eigener Verein: zu kleiner Kader -> Nachwuchsspieler automatisch hochziehen (mind. 16 Spieler)
+    const userSq = getClubPlayers(GameState.activeClubId);
+    if (userSq.length < 16) {
+        const avg = getClubAverageRating(GameState.activeClubId);
+        const missing = computeSquadNeeds(userSq).slice(0, 16 - userSq.length);
+        while (missing.length < 16 - userSq.length) missing.push(YOUTH_POSITIONS[Math.floor(Math.random() * YOUTH_POSITIONS.length)]);
+        const promoted = missing.map(pos => {
+            const p = createGeneratedPlayer(GameState.activeClubId, pos, avg, newSeasonEnd, true);
+            p.isYouthProduct = true;
+            GameState.players.push(p);
+            return `${p.name} (${p.pos}, ${p.rating.toFixed(1)})`;
+        });
+        addInbox('🌱', 'Nachwuchs in den Profikader übernommen', `Unser Kader war nach Vertragsenden und Karriereenden zu klein (${userSq.length} Spieler). ${promoted.length} Talente aus der eigenen Jugend wurden hochgezogen:\n${promoted.join('\n')}`, 'squad');
+    }
+
+    // Eigener Verein: Für jedes Karriereende rückt ein zusätzliches Talent ins Nachwuchs-Camp
+    if (retiredUser.length > 0) {
+        GameState.meta.pendingYouthExtra = retiredUser.length + 1; // wird nach dem Neuaufbau des Camps hinzugefügt
+        addInbox('🌱', 'Nachwuchs rückt nach', `Für die ${retiredUser.length} Karriereende(n) in unserem Kader stehen ${retiredUser.length + 1} neue Talente im Nachwuchs-Camp bereit (👥 KADER → 🌱 JUGEND).`, 'squad');
+    }
+
+    // Vereinslose Spieler auffüllen, damit der Transfermarkt nicht leerläuft
+    const freeNow = GameState.players.filter(p => p.clubId === 'free').length;
+    const freeTarget = Math.max(40, Math.round(Object.keys(GameState.clubs).length * 0.4));
+    const clubIds = Object.keys(GameState.clubs);
+    for (let i = freeNow; i < freeTarget && clubIds.length > 0; i++) {
+        const refClub = clubIds[Math.floor(Math.random() * clubIds.length)];
+        const fa = createGeneratedPlayer(refClub, YOUTH_POSITIONS[Math.floor(Math.random() * YOUTH_POSITIONS.length)], getClubAverageRating(refClub), newSeasonEnd, false);
+        fa.clubId = 'free';
+        fa.contractUntil = newSeasonEnd - 1;
+        GameState.players.push(fa);
+    }
+
     if (signings.length > 0 || retiredCount > 0) {
         const top = signings.slice(0, 6).join('\n');
-        addInbox('📰', 'Transfer-Ticker der Konkurrenz', `Sommerpause bei der Konkurrenz: ${retiredCount} Karriereenden, ${signings.length} Verpflichtungen vereinsloser Spieler.${top ? '\nAuswahl:\n' + top : ''}`, 'transfer');
+addInbox('📰', 'Transfer-Ticker der Konkurrenz', `Sommerpause bei der Konkurrenz: ${retiredCount} Karriereenden, ${regenCount} Nachwuchsspieler hochgezogen, ${signings.length} Verpflichtungen vereinsloser Spieler.${top ? '\nAuswahl:\n' + top : ''}`, 'transfer');
     }
 }
 

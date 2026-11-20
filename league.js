@@ -645,6 +645,10 @@ function finishSeasonAndAdvance() {
     ensureFinanceLedger();
     ensureSponsorOffersInitialized(true);
     ensureYouthPool(true);
+    if (GameState.meta.pendingYouthExtra) {
+        addYouthTalentsToAcademy(GameState.meta.pendingYouthExtra);
+        GameState.meta.pendingYouthExtra = 0;
+    }
     ensureStaffOffersInitialized(true);
     ensurePreseasonInitialized(true);
     ensureAllSchedulesInitialized(true);

@@ -428,6 +428,14 @@ function calendarReportRow(key, report) {
     return `<div class="cal-report">${buildLastMatchReportHtml(report, 'btn-close-cal-report')}</div>`;
 }
 
+// Heim-/Auswärts-Kennzeichnung im Kalender
+function venueBadgeHtml(isHome) {
+    if (isHome === null || isHome === undefined) return '<span class="venue-badge neutral" title="Neutraler Ort">NEUTRAL</span>';
+    return isHome
+        ? '<span class="venue-badge home" title="Heimspiel">🏟️ HEIM</span>'
+        : '<span class="venue-badge away" title="Auswärtsspiel">🚌 AUSW.</span>';
+}
+
 function buildSeasonCalendarHtml(club, isPreseason) {
     const uid = club.id;
     const userSched = GameState.schedule[club.leagueId];
@@ -485,7 +493,7 @@ function buildSeasonCalendarHtml(club, isPreseason) {
                 <div class="fixture-row ${isNext ? 'user-match' : ''} ${report ? 'cal-clickable' : ''} ${calendarOpenReportKey === rKey ? 'cal-open' : ''}" ${report ? `data-rkey="${rKey}" role="button" tabindex="0"` : ''} style="flex-wrap:wrap;">
                     <span style="width:18%; font-weight:bold;">ST ${md.matchday}</span>
                     <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                        <span style="font-size:0.62rem; color:#444;">${formatGameDate(md.date)}</span> ${isHome ? '🏟️' : '🚌'} ${oppName}
+                        <span style="font-size:0.62rem; color:#444;">${formatGameDate(md.date)}</span> ${venueBadgeHtml(isHome)} ${oppName}
                     </span>
                     <span style="font-size:0.7rem; width:16px; text-align:center;">${wIcon}</span>
                     <span class="fixture-score ${myMatch.homeGoals === null ? 'unplayed' : ''}">${resText}</span>
@@ -515,7 +523,7 @@ function buildSeasonCalendarHtml(club, isPreseason) {
         rows.push({ date: cu.date, order: 0, html: `
             <div class="fixture-row ${nextEv && nextEv.type === 'catchup' && nextEv.ref === cu ? 'user-match' : ''}" style="background:#fff9db;">
                 <span style="width:18%; font-weight:bold;">📅 NH</span>
-                <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><span style="font-size:0.62rem; color:#444;">${formatGameDate(cu.date)}</span> ${isHome ? '🏟️' : '🚌'} ${getAnyClubName(isHome ? cu.awayId : cu.homeId)} (ST ${cu.md})</span>
+                <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><span style="font-size:0.62rem; color:#444;">${formatGameDate(cu.date)}</span> ${venueBadgeHtml(isHome)} ${getAnyClubName(isHome ? cu.awayId : cu.homeId)} (ST ${cu.md})</span>
                 <span class="fixture-score unplayed">offen</span>
             </div>
         ` });
@@ -531,7 +539,7 @@ function buildSeasonCalendarHtml(club, isPreseason) {
             <div class="fixture-row ${isNext ? 'user-match' : ''} ${report ? 'cal-clickable' : ''} ${calendarOpenReportKey === rKey ? 'cal-open' : ''}" ${report ? `data-rkey="${rKey}" role="button" tabindex="0"` : ''} style="background:#f3f0ff; flex-wrap:wrap;">
                 <span style="width:18%; font-weight:bold;">${e.comp.icon} ${e.comp.short}</span>
                 <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                    <span style="font-size:0.62rem; color:#444;">${formatGameDate(e.date)}</span> ${e.isHome === null ? '⚖️' : (e.isHome ? '🏟️' : '🚌')} ${e.opp || '<em>Auslosung folgt</em>'}
+                    <span style="font-size:0.62rem; color:#444;">${formatGameDate(e.date)}</span> ${venueBadgeHtml(e.isHome)} ${e.opp || '<em>Auslosung folgt</em>'}
                 </span>
                 <span class="fixture-score ${!m || !m.played ? 'unplayed' : ''}" style="min-width:44px;">${res}</span>
                 <div style="width:100%; font-size:0.58rem; color:#5f3dc4;">${shortRound}</div>
@@ -545,7 +553,7 @@ function buildSeasonCalendarHtml(club, isPreseason) {
         <div class="bmh-box" style="padding:8px;">
             <h3 style="font-size:0.84rem; color:#184d25; margin-bottom:6px;">📅 SAISONKALENDER (${GameState.meta.season})</h3>
             ${GameState.meta.harshWinter ? `<p style="font-size:0.64rem; color:#1c4f8a; margin-bottom:4px;">🌨️ Wetterdienst: Für diesen Winter wird ein strenger Winter erwartet – Spielabsagen sind wahrscheinlicher.</p>` : ''}
-            <p style="font-size:0.60rem; color:#444; margin-bottom:4px;">⚽ Liga • 📅 Nachholspiel • 🏆 Pokal • ⭐ CL • 🟠 EL • 🟢 ECL • <strong>Gespielte Partien antippen = Spielbericht</strong></p>
+            <p style="font-size:0.60rem; color:#444; margin-bottom:4px;">${venueBadgeHtml(true)} Heimspiel • ${venueBadgeHtml(false)} Auswärtsspiel<br>📅 Nachholspiel • 🏆 Pokal • ⭐ CL • 🟠 EL • 🟢 ECL • <strong>Gespielte Partien antippen = Spielbericht</strong></p>
             ${preseasonSectionHtml}
             <p style="font-size:0.68rem; color:#444; margin:4px 0 4px 0;"><strong>PFLICHTSPIELE</strong></p>
             ${rows.map(r => r.html).join('')}

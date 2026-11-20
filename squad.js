@@ -101,56 +101,64 @@ function calculateExpectedSalary(player) {
     return Math.round(sal / 10000) * 10000;
 }
 
+// Ein einzelnes Nachwuchstalent für das eigene Camp erzeugen
+function generateYouthTalent(usedNames = new Set()) {
+    const club = GameState.clubs[GameState.activeClubId];
+    const league = club ? GameState.leagues[club.leagueId] : null;
+    const isTopTier = !league || (league.tier || 1) === 1;
+    const country = club ? getLeagueCountry(club.leagueId) : 'DE';
+    const positions = ["TW", "IV", "LV", "RV", "DM", "ZM", "OM", "LM", "RM", "LA", "RA", "ST"];
+    let fullName = "";
+    let guard = 0;
+    do {
+        fullName = randomPlayerName(country);
+    } while (usedNames.has(fullName) && guard++ < 30);
+    usedNames.add(fullName);
+    const pos = positions[Math.floor(Math.random() * positions.length)];
+    const age = 16 + Math.floor(Math.random() * 4);
+    const minR = isTopTier ? 5.2 : 4.4;
+    const maxR = isTopTier ? 6.8 : 5.9;
+    const youthCoachBonus = getStaffQuality('youth') * 0.12;
+    const rating = parseFloat(Math.min(9.0, minR + Math.random() * (maxR - minR) + youthCoachBonus).toFixed(1));
+    const fee = Math.round(((rating - 4.0) * 220000 + 120000) / 25000) * 25000;
+    const salary = Math.round(((rating - 4.0) * 90000 + 120000) / 10000) * 10000;
+    const potential = rating >= (isTopTier ? 6.3 : 5.5) ? "Jahrhundert-Talent" : "Hohes Potenzial";
+    return {
+        id: `yth_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6)}`,
+        pos,
+        name: fullName,
+        age,
+        rating,
+        fee: Math.max(100000, fee),
+        salary: Math.max(100000, salary),
+        potential
+    };
+}
+
 function ensureYouthPool(forceRegenerate = false) {
     if (!GameState.activeClubId) return;
     if (!forceRegenerate && GameState.youthAcademy.clubId === GameState.activeClubId && GameState.youthAcademy.players.length > 0) {
         return;
     }
-
-    const club = GameState.clubs[GameState.activeClubId];
-    const league = club ? GameState.leagues[club.leagueId] : null;
-    const isTopTier = !league || (league.tier || 1) === 1;
-
-    const positions = ["TW", "IV", "LV", "RV", "DM", "ZM", "OM", "LM", "RM", "ST"];
-    const generated = [];
     const usedNames = new Set();
-
-    for (let i = 0; i < 6; i++) {
-        let fullName = "";
-        do {
-            const fn = YOUTH_FIRST_NAMES[Math.floor(Math.random() * YOUTH_FIRST_NAMES.length)];
-            const ln = YOUTH_LAST_NAMES[Math.floor(Math.random() * YOUTH_LAST_NAMES.length)];
-            fullName = `${fn} ${ln}`;
-        } while (usedNames.has(fullName));
-        usedNames.add(fullName);
-
-        const pos = positions[Math.floor(Math.random() * positions.length)];
-        const age = 16 + Math.floor(Math.random() * 4);
-        const minR = isTopTier ? 5.2 : 4.4;
-        const maxR = isTopTier ? 6.8 : 5.9;
-        const youthCoachBonus = getStaffQuality('youth') * 0.12;
-        const rating = parseFloat(Math.min(9.0, minR + Math.random() * (maxR - minR) + youthCoachBonus).toFixed(1));
-        const fee = Math.round(((rating - 4.0) * 220000 + 120000) / 25000) * 25000;
-        const salary = Math.round(((rating - 4.0) * 90000 + 120000) / 10000) * 10000;
-        const potential = rating >= (isTopTier ? 6.3 : 5.5) ? "Jahrhundert-Talent" : "Hohes Potenzial";
-
-        generated.push({
-            id: `yth_${Date.now()}_${i}`,
-            pos,
-            name: fullName,
-            age,
-            rating,
-            fee: Math.max(100000, fee),
-            salary: Math.max(100000, salary),
-            potential
-        });
-    }
-
+    const generated = [];
+    for (let i = 0; i < 6; i++) generated.push(generateYouthTalent(usedNames));
     GameState.youthAcademy = {
         clubId: GameState.activeClubId,
         players: generated.sort((a, b) => b.rating - a.rating)
     };
     saveGame();
+}
+
+// Zusätzliche Talente ins Nachwuchs-Camp (z. B. als Ersatz für Karriereenden)
+function addYouthTalentsToAcademy(count) {
+    if (!GameState.youthAcademy || GameState.youthAcademy.clubId !== GameState.activeClubId) {
+        GameState.youthAcademy = { clubId: GameState.activeClubId, players: [] };
+    }
+    const usedNames = new Set(GameState.youthAcademy.players.map(y => y.name));
+    for (let i = 0; i < count; i++) GameState.youthAcademy.players.push(generateYouthTalent(usedNames));
+    GameState.youthAcademy.players.sort((a, b) => b.rating - a.rating);
+    if (GameState.youthAcademy.players.length > 12) GameState.youthAcademy.players.length = 12;
 }
 
 // ==========================================

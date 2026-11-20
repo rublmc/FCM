@@ -170,6 +170,10 @@ function startSecondHalf() {
         return;
     }
     liveMatchState.phase = 'SECOND_HALF';
+    liveFormationEditMode = false;
+    if (GameState.tactics.formation === 'custom') {
+        addLiveTickerEntry("46'", "system", "halftime", `✏️ Neue Formation zur 2. Halbzeit: ${describeCustomFormation()}`);
+    }
     liveMatchState.minute = 45;
     liveMatchState.stoppageElapsed = 0;
     liveMatchState.isPaused = false;
@@ -457,6 +461,7 @@ function startLiveSessionInner(opts) {
         subsUsed: 0,
         maxSubs: 5,
         initialFormation: initialFormationSnapshot,
+        initialCustomCoords: Array.isArray(GameState.tactics.customCoords) ? GameState.tactics.customCoords.map(c => ({ ...c })) : null,
         initialLineup: initialLineupSnapshot,
         initialBench: initialBenchSnapshot,
         sentOffIds: [],
@@ -1402,7 +1407,9 @@ function finalizeLiveMatchdayInner() {
     }
 
     // 5. Ausgangsaufstellung wiederherstellen – gesperrte/verletzte Spieler bleiben LEER (manuell ersetzen!)
+    if (st.initialCustomCoords) GameState.tactics.customCoords = st.initialCustomCoords;
     if (st.initialFormation && isValidFormation(st.initialFormation)) GameState.tactics.formation = st.initialFormation;
+    liveFormationEditMode = false;
     const baseLineup = Array.isArray(st.initialLineup) && st.initialLineup.length === 11 ? [...st.initialLineup] : [...GameState.tactics.lineup];
     const baseBench = Array.isArray(st.initialBench) && st.initialBench.length === MAX_BENCH_SIZE ? [...st.initialBench] : [...GameState.tactics.bench];
     const squadById = new Map(squad.map(p => [p.id, p]));

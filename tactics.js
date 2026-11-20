@@ -90,6 +90,54 @@ function buildFormationOptionsHtml(selected) {
     return html;
 }
 
+// Eigene Formation aus der aktuellen Formation starten (falls noch keine eigene aktiv)
+function beginCustomFormation() {
+    if (GameState.tactics.formation !== 'custom') {
+        GameState.tactics.lastStandardFormation = GameState.tactics.formation;
+        GameState.tactics.customCoords = getFormationCoords(GameState.tactics.formation).map(c => ({ x: c.x, y: c.y }));
+        GameState.tactics.formation = 'custom';
+    }
+}
+
+function resetToStandardFormation() {
+    GameState.tactics.formation = GameState.tactics.lastStandardFormation || '4-4-2';
+}
+
+// Positionen auf einem Spielfeld per Finger/Maus verschiebbar machen (Torwart bleibt fix)
+function bindFormationDrag(board, nodes, onDone) {
+    if (!board) return;
+    nodes.forEach(node => {
+        const idx = parseInt(node.dataset.index, 10);
+        if (Number.isNaN(idx) || idx === 0) return;
+        node.addEventListener('pointerdown', (ev) => {
+            ev.preventDefault();
+            try { node.setPointerCapture(ev.pointerId); } catch (err) { /* ältere Browser */ }
+            node.classList.add('selected-swap');
+            let cur = null;
+            const move = (e2) => {
+                const r = board.getBoundingClientRect();
+                const x = Math.max(6, Math.min(94, ((e2.clientX - r.left) / r.width) * 100));
+                const y = Math.max(10, Math.min(80, ((e2.clientY - r.top) / r.height) * 100));
+                cur = { x: Math.round(x), y: Math.round(y) };
+                node.style.left = cur.x + '%';
+                node.style.top = cur.y + '%';
+                const posEl = node.querySelector('.pitch-node-pos');
+                if (posEl) posEl.textContent = roleFromCoord(cur, idx);
+            };
+            const up = () => {
+                node.removeEventListener('pointermove', move);
+                node.removeEventListener('pointerup', up);
+                node.removeEventListener('pointercancel', up);
+                if (cur) GameState.tactics.customCoords[idx] = cur;
+                onDone();
+            };
+            node.addEventListener('pointermove', move);
+            node.addEventListener('pointerup', up);
+            node.addEventListener('pointercancel', up);
+        });
+    });
+}
+
 function isPlayerSuspended(player) {
     return Boolean(player && (player.suspendedMatches || 0) > 0);
 }
@@ -553,11 +601,7 @@ function renderTacticsView(viewport) {
     document.getElementById('btn-edit-formation').addEventListener('click', () => {
         if (!tacticsEditMode) {
             // Editor starten: aktuelle Formation als Ausgangspunkt übernehmen
-            if (GameState.tactics.formation !== 'custom') {
-                GameState.tactics.lastStandardFormation = GameState.tactics.formation;
-                GameState.tactics.customCoords = getFormationCoords(GameState.tactics.formation).map(c => ({ x: c.x, y: c.y }));
-                GameState.tactics.formation = 'custom';
-            }
+            beginCustomFormation();
             tacticsEditMode = true;
             selectedSwapSource = null;
         } else {
@@ -571,7 +615,7 @@ function renderTacticsView(viewport) {
     const resetFormBtn = document.getElementById('btn-reset-formation');
     if (resetFormBtn) {
         resetFormBtn.addEventListener('click', () => {
-            GameState.tactics.formation = GameState.tactics.lastStandardFormation || '4-4-2';
+            resetToStandardFormation();
             tacticsEditMode = false;
             saveGame();
             setStatus(`Zurück zur Formation ${GameState.tactics.formation}.`);
@@ -580,39 +624,9 @@ function renderTacticsView(viewport) {
     }
 
     if (tacticsEditMode) {
-        const board = viewport.querySelector('.pitch-board');
-        viewport.querySelectorAll('.pitch-node.edit-node').forEach(node => {
-            const idx = parseInt(node.dataset.index, 10);
-            if (idx === 0) return;
-            node.addEventListener('pointerdown', (ev) => {
-                ev.preventDefault();
-                try { node.setPointerCapture(ev.pointerId); } catch (err) { /* ältere Browser */ }
-                node.classList.add('selected-swap');
-                let cur = null;
-                const move = (e2) => {
-                    const r = board.getBoundingClientRect();
-                    const x = Math.max(6, Math.min(94, ((e2.clientX - r.left) / r.width) * 100));
-                    const y = Math.max(10, Math.min(80, ((e2.clientY - r.top) / r.height) * 100));
-                    cur = { x: Math.round(x), y: Math.round(y) };
-                    node.style.left = cur.x + '%';
-                    node.style.top = cur.y + '%';
-                    const posEl = node.querySelector('.pitch-node-pos');
-                    if (posEl) posEl.textContent = roleFromCoord(cur, idx);
-                };
-                const up = () => {
-                    node.removeEventListener('pointermove', move);
-                    node.removeEventListener('pointerup', up);
-                    node.removeEventListener('pointercancel', up);
-                    if (cur) {
-                        GameState.tactics.customCoords[idx] = cur;
-                        saveGame();
-                    }
-                    renderTacticsView(viewport);
-                };
-                node.addEventListener('pointermove', move);
-                node.addEventListener('pointerup', up);
-                node.addEventListener('pointercancel', up);
-            });
+        bindFormationDrag(viewport.querySelector('.pitch-board'), viewport.querySelectorAll('.pitch-node.edit-node'), () => {
+            saveGame();
+            renderTacticsView(viewport);
         });
     }
 

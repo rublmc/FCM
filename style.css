@@ -1432,3 +1432,61 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
 .finance-table .fin-total td { font-weight: bold; font-size: 0.80rem; border-top: 2px solid #184d25; background: #d7eadc; }
 .rank-badge.ecl { background-color: #7048e8; color: #fff; }
 .roster-row:hover td { background: #d0dfd4; }
+
+/* ==========================================
+   v1.6: GESPERRTE NAVIGATION, HEIM/AUSWÄRTS, TICKER-VEREIN, VERSION
+   ========================================== */
+.bmh-nav.nav-locked .nav-btn {
+    opacity: 0.35;
+    pointer-events: none;
+    filter: grayscale(1);
+}
+.bmh-nav.nav-locked { position: relative; }
+.bmh-nav.nav-locked::after {
+    content: "🔒 LIVE-SPIEL – MENÜ GESPERRT";
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.7rem; font-weight: bold; color: #fff;
+    background: rgba(24, 77, 37, 0.55);
+    pointer-events: none;
+}
+#header-date-box.locked { pointer-events: none; opacity: 0.8; }
+.venue-badge {
+    display: inline-block; font-size: 0.56rem; font-weight: bold;
+    padding: 1px 4px; margin: 0 2px; vertical-align: middle; border: 1px solid #111; white-space: nowrap;
+}
+.venue-badge.home { background: #246b35; color: #fff; }
+.venue-badge.away { background: #e2e5e3; color: #111; }
+.venue-badge.neutral { background: #8c918e; color: #111; }
+.ticker-club {
+    display: inline-block; font-size: 0.6rem; font-weight: bold; padding: 0 4px;
+    margin-right: 2px; border: 1px solid #111; vertical-align: middle;
+    max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ticker-club.own { background: #246b35; color: #fff; }
+.ticker-club.opp { background: #a82424; color: #fff; }
+.version-pill { background: var(--pitch-dark); color: var(--accent-gold); font-weight: bold; padding: 4px 8px; font-size: 0.9rem; }
+
+/* ==========================================
+   v1.6.1: BUTTON-REIHEN IN BANNERN (Kalender & Büro) – kein Überlaufen mehr
+   ========================================== */
+.open-window-banner { overflow: hidden; }
+.open-window-banner > div[style*="display:flex"] {
+    flex-wrap: wrap;
+}
+.open-window-banner .bmh-btn.small-btn {
+    min-width: 0;
+    white-space: normal;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+    text-align: center;
+}
+/* Untere Button-Reihe: gleichmäßig verteilen, bei Platzmangel umbrechen */
+.open-window-banner > div[style*="margin-top:6px"] > .bmh-btn {
+    flex: 1 1 30%;
+}
+/* "WOCHE x ▶" oben rechts bleibt kompakt in einer Zeile */
+#btn-sim-preseason-week, #btn-banner-calendar {
+    flex-shrink: 0;
+    white-space: nowrap;
+}

@@ -2,6 +2,8 @@
 // FC MANAGER 27 - MODUL: DATA & KONSTANTEN
 // ==========================================
 window.FCM_APP_STARTED = true;
+const GAME_VERSION = "1.6.0";
+const GAME_BUILD_DATE = "20.11.2026";
 
 const STORAGE_KEY = 'fcm_savegame_v1';
 
@@ -227,7 +229,7 @@ const CLUB_EVENTS = [
 
 let GameState = {
     meta: {
-        coreVersion: "1.4.0",
+        coreVersion: "1.6.0",
         season: "2026/27",
         phase: "preseason", // 'preseason' | 'season' | 'winter'
         preseasonWeek: 1,   // 1..4
@@ -364,6 +366,7 @@ let cupsSubTab = 'rounds';          // 'rounds' | 'bracket' | 'table'
 let calendarOpenReportKey = null;   // aufgeklappter Spielbericht im Kalender
 let playerCardId = null;            // geöffnete Spielerkarte im Kader
 let tacticsEditMode = false;        // Formations-Editor aktiv
+let liveFormationEditMode = false;  // Formations-Editor in der Halbzeitpause
 
 // Maximale Kadergröße (Profikader)
 const MAX_SQUAD_SIZE = 25;
@@ -605,4 +608,33 @@ function expandSavedState(parsed) {
         delete parsed.saveFmt;
     }
     return parsed;
+}
+
+// ==========================================
+// NAMENSPOOLS FÜR NACHWUCHS & NEUE SPIELER (je Land)
+// ==========================================
+const PLAYER_NAME_POOLS = {
+    DE: [["Lukas", "Finn", "Leon", "Jonas", "Elias", "Paul", "Felix", "Noah", "Ben", "Luis", "Emil", "Mats", "Henri", "Anton", "Theo", "Jannik", "Malik", "Yusuf"], ["Müller", "Schmidt", "Schneider", "Fischer", "Weber", "Wagner", "Becker", "Hoffmann", "Schulz", "Koch", "Richter", "Klein", "Wolf", "Neumann", "Braun", "Krüger", "Yilmaz", "Kaya"]],
+    AT: [["Lukas", "David", "Maximilian", "Tobias", "Florian", "Simon", "Fabian", "Matthias", "Jakob", "Raphael"], ["Gruber", "Huber", "Bauer", "Wagner", "Pichler", "Steiner", "Moser", "Mayer", "Hofer", "Leitner"]],
+    CH: [["Noah", "Luca", "Nico", "Silvan", "Cedric", "Fabian", "Jan", "Levin", "Dario", "Ardon"], ["Müller", "Meier", "Keller", "Widmer", "Frei", "Gerber", "Baumann", "Brunner", "Ammann", "Zimmermann"]],
+    EN: [["Jack", "Harry", "Oliver", "George", "Charlie", "Alfie", "Mason", "Callum", "Reece", "Jamal", "Kai", "Tyler"], ["Smith", "Jones", "Taylor", "Brown", "Wilson", "Davies", "Walker", "Wright", "Hughes", "Turner", "Campbell", "Mensah"]],
+    ES: [["Pablo", "Sergio", "Álvaro", "Hugo", "Iker", "Marcos", "Unai", "Mario", "Adrián", "Gonzalo"], ["García", "Martínez", "López", "Sánchez", "Pérez", "Gómez", "Ruiz", "Moreno", "Navarro", "Torres"]],
+    IT: [["Lorenzo", "Matteo", "Leonardo", "Francesco", "Andrea", "Davide", "Riccardo", "Tommaso", "Simone", "Gabriele"], ["Rossi", "Russo", "Ferrari", "Esposito", "Bianchi", "Romano", "Colombo", "Ricci", "Marino", "Greco"]],
+    FR: [["Lucas", "Hugo", "Théo", "Nathan", "Enzo", "Mathis", "Rayan", "Yanis", "Moussa", "Ibrahima"], ["Martin", "Bernard", "Dubois", "Petit", "Durand", "Moreau", "Laurent", "Diallo", "Traoré", "Koné"]],
+    PT: [["João", "Rodrigo", "Diogo", "Tiago", "Francisco", "Gonçalo", "Rafael", "Rúben", "Bernardo", "Nuno"], ["Silva", "Santos", "Ferreira", "Pereira", "Oliveira", "Costa", "Martins", "Sousa", "Gomes", "Lopes"]],
+    NL: [["Daan", "Sem", "Milan", "Levi", "Luuk", "Thijs", "Jesse", "Bram", "Ruben", "Stijn"], ["de Jong", "Jansen", "de Vries", "Bakker", "Visser", "Smit", "Meijer", "de Boer", "Mulder", "Bos"]],
+    BE: [["Arthur", "Louis", "Jules", "Victor", "Mathis", "Senne", "Arne", "Wout", "Jelle", "Maxim"], ["Peeters", "Janssens", "Maes", "Jacobs", "Mertens", "Willems", "Claes", "Goossens", "Wouters", "Lambert"]],
+    TR: [["Mehmet", "Emre", "Burak", "Arda", "Kerem", "Kaan", "Yusuf", "Semih", "Mert", "Oğuz"], ["Yılmaz", "Kaya", "Demir", "Şahin", "Çelik", "Yıldız", "Öztürk", "Aydın", "Arslan", "Doğan"]],
+    GR: [["Giorgos", "Dimitris", "Nikos", "Kostas", "Giannis", "Christos", "Vasilis", "Thanasis", "Petros", "Stelios"], ["Papadopoulos", "Georgiou", "Oikonomou", "Nikolaou", "Vlachos", "Pappas", "Makris", "Ioannidis", "Dimitriou", "Athanasiou"]],
+    NO: [["Ole", "Lars", "Erik", "Magnus", "Henrik", "Sander", "Mathias", "Sindre", "Tobias", "Kasper"], ["Hansen", "Johansen", "Olsen", "Larsen", "Andersen", "Pedersen", "Nilsen", "Berg", "Haugen", "Strand"]],
+    CZ: [["Jan", "Jakub", "Tomáš", "Lukáš", "Ondřej", "Matěj", "Adam", "Filip", "Vojtěch", "Patrik"], ["Novák", "Svoboda", "Novotný", "Dvořák", "Černý", "Procházka", "Kučera", "Veselý", "Horák", "Král"]],
+    SK: [["Martin", "Peter", "Tomáš", "Marek", "Lukáš", "Michal", "Matúš", "Dávid", "Juraj", "Erik"], ["Horváth", "Kováč", "Varga", "Tóth", "Nagy", "Baláž", "Szabó", "Molnár", "Polák", "Kollár"]],
+    UA: [["Oleksandr", "Andriy", "Dmytro", "Bohdan", "Artem", "Maksym", "Taras", "Vladyslav", "Illia", "Danylo"], ["Kovalenko", "Bondarenko", "Tkachenko", "Kravchenko", "Oliynyk", "Melnyk", "Savchenko", "Rudenko", "Moroz", "Boyko"]],
+    RU: [["Aleksandr", "Dmitri", "Andrei", "Maksim", "Ivan", "Nikita", "Artyom", "Daniil", "Kirill", "Matvei"], ["Ivanov", "Smirnov", "Kuznetsov", "Popov", "Petrov", "Sokolov", "Volkov", "Lebedev", "Kozlov", "Orlov"]]
+};
+
+function randomPlayerName(country) {
+    const pool = PLAYER_NAME_POOLS[country] || PLAYER_NAME_POOLS.DE;
+    const pick = (a) => a[Math.floor(Math.random() * a.length)];
+    return `${pick(pool[0])} ${pick(pool[1])}`;
 }

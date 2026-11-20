@@ -904,6 +904,13 @@ function renderAdminView(viewport) {
 
     viewport.innerHTML = `
         <h2 class="section-title">⚙️ ADMIN & UPDATE-MANAGER</h2>
+        <div class="bmh-box version-box">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+                <span><strong>🎮 FC MANAGER 27</strong><br><span style="font-size:0.66rem; color:#444;">Spielversion</span></span>
+                <span class="version-pill">v${GAME_VERSION}</span>
+            </div>
+            <p style="font-size:0.64rem; color:#444; margin-top:4px;">Stand: ${GAME_BUILD_DATE} • Spielstand-Format: v${GameState.meta.coreVersion || '-'} • Saison ${GameState.meta.season}</p>
+        </div>
         
         <div class="bmh-box">
             <h3>1. Verein wechseln</h3><br>

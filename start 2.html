@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>FC Manager - Start</title>
+    <link rel="icon" type="image/png" href="logo.png">
+    <link rel="apple-touch-icon" href="logo.png">
+    <link rel="stylesheet" href="style.css?v=16.1">
+</head>
+<body>
+    <div id="app-container">
+        <!-- Kopfzeile mit Safe-Area für iPhone Dynamic Island -->
+        <header class="bmh-header">
+            <div class="header-top-row">
+                <div class="header-left">
+                    <img src="logo.png?v=16.1" alt="FC Manager Logo" class="header-logo">
+                    <div class="club-title-wrap">
+                        <h1>FC MANAGER</h1>
+                        <span class="sub-info">RETRO EDITION • SAISON 2026/27</span>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <div class="stat-box">
+                        <span class="label">VERSION</span>
+                        <span class="value">v1.6.1</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Hauptbereich für Startbildschirm & 3-Schritt-Setup -->
+        <main id="setup-viewport" class="bmh-panel">
+            <!-- Dynamisch über setup.js gerendert -->
+        </main>
+
+        <!-- Fixierte Fußzeile -->
+        <div class="bmh-bottom-dock">
+            <div class="bmh-footer" style="border-bottom: none;">
+                <span id="setup-status">Bereit für Spielstart.</span>
+                <button id="btn-setup-admin" class="bmh-btn small-btn" style="background:#d4c391;">⚙️ DATEN-IMPORT</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="data.js?v=16.1"></script>
+    <script src="setup.js?v=16.1"></script>
+</body>
+</html>

@@ -4,6 +4,19 @@
 // ==========================================
 // MODUL: LIVE-TICKER, KONFERENZ & HALBZEIT UI (v1.0)
 // ==========================================
+// Vereinsname zu einer Ticker-Aktion (Karten, Verletzungen, Wechsel, Tore …)
+function getTickerClubLabel(item, st) {
+    const um = st.userMatch;
+    if (!um || item.type === 'halftime' || item.side === 'system' || item.side === 'neutral') return null;
+    const uid = GameState.activeClubId;
+    let clubId = null;
+    if (item.side === 'user') clubId = uid;
+    else if (item.side === 'home') clubId = um.homeId;
+    else if (item.side === 'away') clubId = um.awayId;
+    if (!clubId) return null;
+    return { name: getAnyClubName(clubId), own: clubId === uid };
+}
+
 function renderLiveTickerView(viewport) {
     if (!liveMatchState) {
         switchToView('league');
@@ -144,6 +157,7 @@ function renderLiveTickerView(viewport) {
                     `).join('')}
                 </div>
 
+                <button id="btn-ht-open-tactics" type="button" class="bmh-btn small-btn" style="width:100%; margin-bottom:6px;">📋 TAKTIK, WECHSEL & FORMATION ANPASSEN</button>
                 <button id="btn-start-second-half" class="bmh-btn gold-btn" style="width:100%; padding:9px; font-size:0.80rem; ${!st.teamTalkApplied ? 'opacity:0.55;' : ''}">
                     ${st.teamTalkApplied ? "▶ ANPFIFF 2. HALBZEIT (46')" : "🔒 ZUERST ANSPRACHE WÄHLEN"}
                 </button>
@@ -180,12 +194,14 @@ function renderLiveTickerView(viewport) {
             </div>
 
             <div class="ticker-feed-box">
-                ${st.tickerLog.map(item => `
+                ${st.tickerLog.map(item => {
+                    const clubLabel = getTickerClubLabel(item, st);
+                    return `
                     <div class="ticker-item ${item.type}">
                         <span class="ticker-min">${item.minLabel}</span>
-                        <span style="flex:1;">${item.text}</span>
-                    </div>
-                `).join('')}
+                        <span style="flex:1;">${clubLabel ? `<span class="ticker-club ${clubLabel.own ? 'own' : 'opp'}">${clubLabel.name}</span> ` : ''}${item.text}</span>
+                    </div>`;
+                }).join('')}
             </div>
         `;
     } else if (st.activeSubTab === 'conference') {
@@ -318,6 +334,7 @@ function renderLiveTickerView(viewport) {
 
         let pitchOrListHtml = "";
         if (liveTacticsDisplayMode === 'pitch') {
+            const formEdit = liveFormationEditMode && st.phase === 'HALFTIME';
             const livePitchNodesHtml = slots.map((slotPos, idx) => {
                 const isRedLocked = st.lockedRedSlots.includes(idx);
                 const pid = GameState.tactics.lineup[idx];
@@ -331,10 +348,11 @@ function renderLiveTickerView(viewport) {
                     ? `${getShortName(player.name)}${hasYellow ? ' 🟨' : ''}`
                     : (isRedLocked ? '🟥 ROT' : '+ FREI');
 
+                const editCls = formEdit ? ('edit-node' + (idx === 0 ? ' locked' : '')) : 'btn-pick-live-pitch';
                 return `
-                    <div class="pitch-node btn-pick-live-pitch ${!player ? 'empty-slot' : ''} ${isMismatch ? 'mismatch' : ''} ${isSelected ? 'selected-swap' : ''}"
+                    <div class="pitch-node ${editCls} ${!player ? 'empty-slot' : ''} ${isMismatch ? 'mismatch' : ''} ${isSelected && !formEdit ? 'selected-swap' : ''}"
                          style="left:${posCoord.x}%; top:${posCoord.y}%; ${isRedLocked && !player ? 'border-color:#ff6b6b; background:rgba(168,36,36,0.88); color:#fff;' : ''}"
-                         data-slot="${idx}">
+                         data-slot="${idx}" data-index="${idx}">
                         <div class="pitch-node-top">
                             <span class="pitch-node-pos">${slotPos}</span>
                             <span class="pitch-node-rating">${player ? effRating.toFixed(1) : '--'}</span>
@@ -345,7 +363,8 @@ function renderLiveTickerView(viewport) {
             }).join('');
 
             pitchOrListHtml = `
-                <div class="pitch-board live-pitch-board">
+                ${formEdit ? `<div class="swap-banner"><span>✏️ <strong>HALBZEIT-FORMATION:</strong> Ziehe die Positionen an die gewünschte Stelle. Die Rolle passt sich automatisch an, der Torwart bleibt fix.</span></div>` : ''}
+                <div class="pitch-board live-pitch-board ${formEdit ? 'edit-mode' : ''}">
                     <div class="pitch-halfline"></div>
                     <div class="pitch-circle"></div>
                     <div class="pitch-box-top"></div>
@@ -420,6 +439,12 @@ function renderLiveTickerView(viewport) {
                     </select>
                 </div>
 
+                ${st.phase === 'HALFTIME' ? `
+                    <div style="display:flex; gap:6px; margin-bottom:6px;">
+                        <button id="btn-live-edit-formation" type="button" class="bmh-btn ${liveFormationEditMode ? 'gold-btn' : ''} small-btn" style="flex:1;">${liveFormationEditMode ? '✅ FORMATION FERTIG' : '✏️ EIGENE FORMATION'}</button>
+                        ${GameState.tactics.formation === 'custom' ? `<button id="btn-live-reset-formation" type="button" class="bmh-btn small-btn" style="flex:1;">↩ ZURÜCK ZU ${GameState.tactics.lastStandardFormation || '4-4-2'}</button>` : ''}
+                    </div>
+                ` : `<p style="font-size:0.60rem; color:#555; margin-bottom:4px;">✏️ Eigene Formationen kannst du in der Halbzeitpause erstellen.</p>`}
                 ${selectionBarHtml}
                 ${pitchOrListHtml}
 
@@ -560,8 +585,39 @@ function renderLiveTickerView(viewport) {
     if (liveForm) {
         liveForm.addEventListener('change', (e) => {
             GameState.tactics.formation = e.currentTarget.value;
+            if (e.currentTarget.value !== 'custom') GameState.tactics.lastStandardFormation = e.currentTarget.value;
+            liveFormationEditMode = false;
             renderLiveTickerView(viewport);
         });
+    }
+    const htTacBtn = document.getElementById('btn-ht-open-tactics');
+    if (htTacBtn) htTacBtn.addEventListener('click', () => { st.activeSubTab = 'livetactics'; liveTacticsDisplayMode = 'pitch'; renderLiveTickerView(viewport); });
+    const liveEditBtn = document.getElementById('btn-live-edit-formation');
+    if (liveEditBtn) {
+        liveEditBtn.addEventListener('click', () => {
+            if (!liveFormationEditMode) {
+                beginCustomFormation();
+                liveFormationEditMode = true;
+                liveTacticsDisplayMode = 'pitch';
+                liveSelectedPitchSlot = null;
+            } else {
+                liveFormationEditMode = false;
+                setStatus(`Halbzeit-Formation ${describeCustomFormation()} übernommen.`);
+            }
+            renderLiveTickerView(viewport);
+        });
+    }
+    const liveResetBtn = document.getElementById('btn-live-reset-formation');
+    if (liveResetBtn) {
+        liveResetBtn.addEventListener('click', () => {
+            resetToStandardFormation();
+            liveFormationEditMode = false;
+            setStatus(`Zurück zur Formation ${GameState.tactics.formation}.`);
+            renderLiveTickerView(viewport);
+        });
+    }
+    if (liveFormationEditMode && st.phase === 'HALFTIME' && st.activeSubTab === 'livetactics') {
+        bindFormationDrag(viewport.querySelector('.live-pitch-board'), viewport.querySelectorAll('.live-pitch-board .pitch-node.edit-node'), () => renderLiveTickerView(viewport));
     }
     const liveMent = document.getElementById('live-mentality');
     if (liveMent) {

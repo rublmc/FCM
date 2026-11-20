@@ -47,7 +47,7 @@ const PLAYER_DEFAULTS = {
     seasonApps: 0, seasonMinutes: 0, seasonGoals: 0, seasonCleanSheets: 0, cupGoals: 0,
     seasonYellows: 0, clubApps: 0, clubGoals: 0, motivation: 78, campDevBonus: 0,
     suspendedMatches: 0, suspensionReason: "", injuredMatches: 0, injuryReason: "",
-    transferListed: false, askingMult: 1
+    transferListed: false, askingMult: 1, freeSeasons: 0
 };
 
 function compactPlayer(p) {
@@ -101,6 +101,7 @@ function loadGame() {
         const parsed = expandSavedState(JSON.parse(saved));
         GameState = { ...GameState, ...parsed };
         GameState.meta = { ...GameState.meta, ...(parsed.meta || {}) };
+        GameState.meta.coreVersion = GAME_VERSION;
         if (!GameState.meta.phase) {
             GameState.meta.phase = (GameState.meta.matchday && GameState.meta.matchday > 1) ? 'season' : 'preseason';
         }
@@ -252,8 +253,7 @@ function setupNavigation() {
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             if (liveMatchState) {
-                setStatus("🔴 Live-Spiel läuft! Schließe erst das Spiel ab.");
-                switchToView('liveticker');
+                setStatus("🔒 Live-Spiel läuft – die Menüs sind bis zum Abpfiff gesperrt.");
                 return;
             }
             switchToView(e.currentTarget.dataset.view);
@@ -331,6 +331,17 @@ function renderHeader() {
         leagueInfoEl.textContent = `${league ? league.name : ''} • Mgr: ${GameState.meta.managerName}`;
         budgetEl.textContent = formatMoneyShort(club.budget);
     }
+
+    // Während eines Live-Spiels sind die Kacheln unten gesperrt
+    const locked = Boolean(liveMatchState);
+    const nav = document.querySelector('.bmh-nav');
+    if (nav) nav.classList.toggle('nav-locked', locked);
+    document.querySelectorAll('.nav-btn').forEach(b => {
+        b.disabled = locked;
+        b.setAttribute('aria-disabled', locked ? 'true' : 'false');
+    });
+    const dateBoxEl = document.getElementById('header-date-box');
+    if (dateBoxEl) dateBoxEl.classList.toggle('locked', locked);
 
     const officeBtn = document.querySelector('.nav-btn[data-view="office"]');
     if (officeBtn) {
