@@ -5,6 +5,8 @@
 // GameState, Speicher- & Datenbank-Funktionen kommen aus storage.js/data.js (wird in start.html vorher geladen)
 let setupStep = 0; // 0 = Titelbildschirm, 1 = Managername, 2 = Land, 3 = Verein, 50 = Spielstände, 99 = Daten-Import
 let setupNewGame = false; // true, solange ein neues Spiel eingerichtet wird (alter Spielstand wird nicht überschrieben)
+let packSync = { running: false, done: false, text: '', result: null }; // automatisches Laden der Länderpakete
+let worldChoice = { mode: 'all', custom: [] };                         // Spielwelt-Auswahl beim neuen Spiel
 
 const COUNTRY_NAMES = {
     "DE": "🇩🇪 Deutschland",
@@ -41,6 +43,33 @@ function startSetupAfterStorage() {
         renderSetup();
     });
     renderSetup();
+    startPackSync();
+}
+
+// Länderpakete im Hintergrund vom Server laden (GitHub-Ordner data/)
+function startPackSync() {
+    if (packSync.running) return;
+    packSync = { running: true, done: false, text: '🌍 Prüfe Länderpakete …', result: null };
+    setSetupStatus(packSync.text);
+    syncServerPacks((text) => {
+        packSync.text = text;
+        setSetupStatus(text);
+    }).then(res => {
+        packSync.running = false;
+        packSync.done = true;
+        packSync.result = res;
+        if (!res.ok) {
+            packSync.text = '⚠️ Länderpakete konnten nicht automatisch geladen werden (offline?)';
+        } else if (res.missing.length > 0) {
+            packSync.text = `⚠️ Nicht gefunden: ${res.missing.join(', ')}`;
+        }
+        setSetupStatus(packSync.text);
+        // Startmenü mit den neuen Ligen aktualisieren (nur wenn gerade kein neues Spiel eingerichtet wird)
+        if (!setupNewGame && (setupStep === 0 || setupStep === 99)) {
+            loadGameState();
+            renderSetup();
+        }
+    });
 }
 
 const SETUP_EMPTY_STATE = JSON.stringify(GameState);
@@ -110,20 +139,22 @@ function renderSetup() {
                     💾 SPIELSTÄNDE VERWALTEN (${slots.length})
                 </button>
 
-                <button id="btn-new-game" class="bmh-btn ${hasSavegame ? '' : 'primary'}" style="width:100%; margin-bottom:8px; padding: 12px; font-size: 0.9rem;">
-                    🆕 NEUES SPIEL STARTEN
+                <button id="btn-new-game" class="bmh-btn ${hasSavegame ? '' : 'primary'}" style="width:100%; margin-bottom:8px; padding: 12px; font-size: 0.9rem;" ${packSync.running ? 'disabled' : ''}>
+                    ${packSync.running ? '⏳ LIGEN WERDEN GELADEN …' : '🆕 NEUES SPIEL STARTEN'}
                 </button>
 
                 <button id="btn-goto-import" class="bmh-btn" style="width:100%; padding: 10px;">
-                    📦 LIGEN-UPDATE EINLESEN (${Object.keys(GameState.clubs).length} Vereine geladen)
+                    📦 DATENBANK: ${countDbCountries()} Länder • ${countDbClubs()} Vereine
                 </button>
+                ${packSync.running ? `<p style="font-size:0.66rem; color:#184d25; margin-top:6px;">${packSync.text}</p>` : ''}
             </div>
 
             <div class="bmh-box" style="font-size: 0.78rem;">
                 <p><strong>Ablauf beim Neustart:</strong></p>
                 <p>1. Manager-Namen eingeben</p>
-                <p>2. Land & Verein übernehmen</p>
-                <p>3. Saisonvorbereitung & Live-Ticker-Spieltage mit Konferenz</p>
+                <p>2. Spielwelt wählen (alle Länder, Top-Ligen oder eigene Auswahl)</p>
+                <p>3. Land & Verein übernehmen</p>
+                <p>Alle Länder werden im Hintergrund mitsimuliert – für Europapokal & Transfers.</p>
             </div>
         `;
 
@@ -147,6 +178,7 @@ function renderSetup() {
                 renderSetup();
                 return;
             }
+            if (packSync.running) return;
             // Neues Spiel: frischer Spielstand + Datenbank im Original-Zustand (gespeichert wird erst bei der Vereinswahl)
             const prev = GameState;
             GameState = JSON.parse(SETUP_EMPTY_STATE);
@@ -172,7 +204,7 @@ function renderSetup() {
     // SCHRITT 1: SPIELERNAME / MANAGERNAME
     if (setupStep === 1) {
         viewport.innerHTML = `
-            <h2 class="section-title">SCHRITT 1 / 3: MANAGER-PROFIL</h2>
+            <h2 class="section-title">SCHRITT 1 / 4: MANAGER-PROFIL</h2>
             <div class="bmh-box">
                 <p style="margin-bottom: 8px;">Wie lautet dein Name als Trainer & Manager?</p>
                 <input type="text" id="input-manager-name" class="bmh-input" placeholder="z.B. Michi" value="${GameState.meta.managerName || ''}" maxlength="24">
@@ -202,18 +234,26 @@ function renderSetup() {
             GameState.meta.managerName = name;
             saveGameState();
             setSetupStatus(`Manager: ${name}`);
-            setupStep = 2;
+            setupStep = 15;
             renderSetup();
         });
         return;
     }
 
+    // SCHRITT 15: SPIELWELT – WELCHE LÄNDER SIND SELBST SPIELBAR?
+    if (setupStep === 15) {
+        renderWorldChoice(viewport);
+        return;
+    }
+
     // SCHRITT 2: LAND WÄHLEN
     if (setupStep === 2) {
-        const countries = [...new Set(Object.values(GameState.leagues).map(l => l.country || "DE"))];
+        const countries = [...new Set(Object.values(GameState.leagues).map(l => l.country || "DE"))]
+            .filter(c => isPlayableCountry(c))
+            .sort((a, b) => (TOP_COUNTRIES.indexOf(a) + 1 || 99) - (TOP_COUNTRIES.indexOf(b) + 1 || 99));
 
         viewport.innerHTML = `
-            <h2 class="section-title">SCHRITT 2 / 3: LAND WÄHLEN</h2>
+            <h2 class="section-title">SCHRITT 3 / 4: LAND WÄHLEN</h2>
             <div class="bmh-box">
                 <p style="margin-bottom: 10px;">Hallo <strong>${GameState.meta.managerName}</strong>! In welchem Land möchtest du deine Karriere starten?</p>
                 ${countries.map(code => {
@@ -244,7 +284,7 @@ function renderSetup() {
         });
 
         document.getElementById('btn-step2-back').addEventListener('click', () => {
-            setupStep = 1;
+            setupStep = 15;
             renderSetup();
         });
         return;
@@ -279,7 +319,7 @@ function renderSetup() {
         }).join('');
 
         viewport.innerHTML = `
-            <h2 class="section-title">SCHRITT 3 / 3: VEREIN WÄHLEN</h2>
+            <h2 class="section-title">SCHRITT 4 / 4: VEREIN WÄHLEN</h2>
             ${leaguesHtml}
             <button id="btn-step3-back" class="bmh-btn" style="width:100%; margin-bottom:12px;">◀ ZURÜCK ZUR LÄNDERAUSWAHL</button>
         `;
@@ -319,6 +359,10 @@ function renderSetup() {
                 <p style="font-size:0.8rem; margin-bottom:8px;">Lade hier deine <code>update_bl1_bl2_komplett.json</code> (oder weitere Länder-Updates) hoch – du kannst auch mehrere Dateien gleichzeitig auswählen:</p>
                 <input type="file" id="setup-file-upload" accept=".json" class="bmh-input" multiple>
                 <button id="btn-setup-demo" class="bmh-btn" style="width:100%; margin-top:4px;">📦 Mini-Demo (4 Vereine) laden</button>
+            </div>
+            <div class="bmh-box" style="font-size:0.74rem;">
+                <p><strong>🌍 Automatische Länderpakete:</strong> ${packSync.running ? packSync.text : (packSync.result && packSync.result.ok ? `✅ verbunden – ${packSync.result.total} Pakete verfügbar${packSync.result.missing.length ? ` (fehlend: ${packSync.result.missing.join(', ')})` : ''}` : '⚠️ nicht erreichbar (offline oder Datei direkt geöffnet) – bitte manuell einspielen')}</p>
+                <button id="btn-resync-packs" type="button" class="bmh-btn small-btn" style="width:100%; margin-top:6px;" ${packSync.running ? 'disabled' : ''}>🔄 LÄNDERPAKETE ERNEUT LADEN</button>
             </div>
             <div class="bmh-box" style="font-size:0.8rem;">
                 <p><strong>Aktueller Datenbank-Status:</strong></p>
@@ -371,6 +415,13 @@ function renderSetup() {
                     { id: "p_006", clubId: "fcn", pos: "ZM", name: "Jens Castrop", age: 23, rating: 6.4, salary: 850000, contractUntil: 2027 }
                 ]
             });
+            renderSetup();
+        });
+
+        document.getElementById('btn-resync-packs').addEventListener('click', () => {
+            const db = loadDatabaseSnapshot();
+            if (db) { db.packRevs = {}; saveDatabaseSnapshot(db); }
+            startPackSync();
             renderSetup();
         });
 
@@ -501,5 +552,76 @@ function renderSlotsPage(viewport) {
             });
         };
         reader.readAsText(file);
+    });
+}
+
+// ==========================================
+// SPIELWELT-AUSWAHL & HILFSFUNKTIONEN
+// ==========================================
+function getDbCountries() {
+    return [...new Set(Object.values(GameState.leagues).map(l => l.country || 'DE'))]
+        .sort((a, b) => (TOP_COUNTRIES.indexOf(a) + 1 || 99) - (TOP_COUNTRIES.indexOf(b) + 1 || 99) || a.localeCompare(b));
+}
+function countDbCountries() { return getDbCountries().length; }
+function countDbClubs() { return Object.keys(GameState.clubs).length; }
+
+function countryStats(code) {
+    const leagues = Object.values(GameState.leagues).filter(l => (l.country || 'DE') === code);
+    const ids = new Set(leagues.map(l => l.id));
+    const clubs = Object.values(GameState.clubs).filter(c => ids.has(c.leagueId)).length;
+    return { leagues: leagues.length, clubs };
+}
+
+function renderWorldChoice(viewport) {
+    const all = getDbCountries();
+    const tops = all.filter(c => TOP_COUNTRIES.includes(c));
+    if (worldChoice.custom.length === 0) worldChoice.custom = [...tops];
+    const opt = (mode, title, desc) => `
+        <button type="button" class="bmh-btn world-opt ${worldChoice.mode === mode ? 'primary' : ''}" data-mode="${mode}" style="width:100%; text-align:left; margin-bottom:6px; padding:10px;">
+            <strong>${worldChoice.mode === mode ? '◉' : '○'} ${title}</strong><br>
+            <span style="font-size:0.68rem; font-weight:normal;">${desc}</span>
+        </button>`;
+    viewport.innerHTML = `
+        <h2 class="section-title">SCHRITT 2 / 4: SPIELWELT</h2>
+        <div class="bmh-box">
+            <p style="font-size:0.76rem; margin-bottom:8px;">Welche Länder sollen <strong>selbst spielbar</strong> sein? Alle anderen Länder laufen im Hintergrund mit – für den Europapokal, Transfers und die Tabellen.</p>
+            ${opt('all', `ALLE LÄNDER (${all.length})`, all.map(c => COUNTRY_NAMES[c] || c).join(' • '))}
+            ${opt('top', `NUR TOP-LIGEN (${tops.length})`, tops.map(c => COUNTRY_NAMES[c] || c).join(' • ') || 'Keine Top-Liga in der Datenbank')}
+            ${opt('custom', 'EIGENE AUSWAHL', 'Wähle die Länder einzeln aus')}
+            ${worldChoice.mode === 'custom' ? `
+                <div class="world-grid">
+                    ${all.map(c => {
+                        const s = countryStats(c);
+                        const on = worldChoice.custom.includes(c);
+                        return `<label class="world-check ${on ? 'on' : ''}"><input type="checkbox" class="world-cb" value="${c}" ${on ? 'checked' : ''}> ${COUNTRY_NAMES[c] || c}<br><span>${s.leagues} Liga${s.leagues === 1 ? '' : 'en'} • ${s.clubs} Vereine</span></label>`;
+                    }).join('')}
+                </div>` : ''}
+            <div style="display:flex; gap:8px; margin-top:8px;">
+                <button id="btn-world-back" type="button" class="bmh-btn" style="flex:1;">◀ ZURÜCK</button>
+                <button id="btn-world-next" type="button" class="bmh-btn primary" style="flex:2;">WEITER ZUM LAND ▶</button>
+            </div>
+        </div>`;
+    viewport.querySelectorAll('.world-opt').forEach(b => b.addEventListener('click', (e) => {
+        worldChoice.mode = e.currentTarget.dataset.mode;
+        renderWorldChoice(viewport);
+    }));
+    viewport.querySelectorAll('.world-cb').forEach(cb => cb.addEventListener('change', (e) => {
+        const c = e.currentTarget.value;
+        worldChoice.custom = e.currentTarget.checked ? [...new Set([...worldChoice.custom, c])] : worldChoice.custom.filter(x => x !== c);
+        renderWorldChoice(viewport);
+    }));
+    document.getElementById('btn-world-back').addEventListener('click', () => { setupStep = 1; renderSetup(); });
+    document.getElementById('btn-world-next').addEventListener('click', () => {
+        let list = null;
+        if (worldChoice.mode === 'top') list = tops;
+        if (worldChoice.mode === 'custom') list = all.filter(c => worldChoice.custom.includes(c));
+        if (Array.isArray(list) && list.length === 0) {
+            alert('Bitte wähle mindestens ein Land aus!');
+            return;
+        }
+        GameState.meta.playableCountries = list && list.length < all.length ? list : null;
+        setSetupStatus(`Spielwelt: ${list ? list.length + ' spielbare Länder' : 'alle Länder spielbar'} • ${all.length} Länder simuliert`);
+        setupStep = 2;
+        renderSetup();
     });
 }

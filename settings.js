@@ -95,10 +95,11 @@ function buildSettingsHtml() {
             <div class="setting-row">
                 <div>
                     <strong>🔊 Sound</strong><br>
-                    <span>Stadion, Torjubel, Pfiffe, Kabinen-Ansprache & Verhandlungen</span>
+                    <span>Stadion, Torjubel, Pfiffe, Kabinen-Ansprache & Verhandlungen<br>Status: ${SoundFX.statusLabel()}</span>
                 </div>
                 ${toggle('set-sound', s.sound)}
             </div>
+            ${s.sound ? `<button id="set-sound-test" type="button" class="bmh-btn small-btn" style="width:100%; margin-bottom:4px;">🔊 TON TESTEN (Torjubel)</button>` : ''}
             <div class="setting-row">
                 <div>
                     <strong>📱 Bildschirm anlassen</strong><br>
@@ -106,7 +107,7 @@ function buildSettingsHtml() {
                 </div>
                 ${toggle('set-wakelock', s.wakeLock)}
             </div>
-            <p style="font-size:0.60rem; color:#555; margin-top:4px;">Tipp: Am iPhone bleibt der Ton aus, wenn der Stummschalter an der Seite aktiv ist.</p>
+            <p style="font-size:0.60rem; color:#555; margin-top:4px;">Kein Ton? Lautstärke-Taste drücken (Medienlautstärke, nicht Klingelton) und einmal auf „Ton testen“ tippen. Ab iOS 17 klingt das Spiel auch bei eingeschaltetem Stummschalter, bei älteren iPhones bitte den Stummschalter ausschalten.</p>
         </div>`;
 }
 
@@ -116,6 +117,13 @@ function bindSettings(rerender) {
         setSetting('sound', !getSetting('sound'));
         if (getSetting('sound')) SoundFX.playUi('on');
         rerender();
+    });
+    const test = document.getElementById('set-sound-test');
+    if (test) test.addEventListener('click', () => {
+        SoundFX.unlock();
+        SoundFX.lastPlay = {};
+        SoundFX.playTickerEvent('goal');
+        setTimeout(rerender, 400);
     });
     const wl = document.getElementById('set-wakelock');
     if (wl) wl.addEventListener('click', async () => {

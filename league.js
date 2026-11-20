@@ -792,10 +792,15 @@ function renderLeagueView(viewport) {
         selectedFixtureMatchday = Math.min(totalMds, GameState.meta.matchday);
     }
 
-    const leagueOptions = Object.values(GameState.leagues)
-        .sort((a, b) => ((a.country || 'DE') === (GameState.leagues[club.leagueId]?.country || 'DE') ? -1 : 0) - ((b.country || 'DE') === (GameState.leagues[club.leagueId]?.country || 'DE') ? -1 : 0) || (a.country || '').localeCompare(b.country || '') || (a.tier || 1) - (b.tier || 1))
-        .map(l => `<option value="${l.id}" ${l.id === selectedLeagueViewId ? 'selected' : ''}>${COUNTRY_FLAGS[l.country || 'DE'] || ''} ${l.name}</option>`)
-        .join('');
+    const myCountry = GameState.leagues[club.leagueId]?.country || 'DE';
+    const sortedLeagues = Object.values(GameState.leagues)
+        .sort((a, b) => ((a.country || 'DE') === myCountry ? -1 : 0) - ((b.country || 'DE') === myCountry ? -1 : 0) || (a.country || '').localeCompare(b.country || '') || (a.tier || 1) - (b.tier || 1));
+    const optHtml = (l) => `<option value="${l.id}" ${l.id === selectedLeagueViewId ? 'selected' : ''}>${COUNTRY_FLAGS[l.country || 'DE'] || ''} ${l.name}</option>`;
+    const playableL = sortedLeagues.filter(l => isPlayableCountry(l.country || 'DE'));
+    const backgroundL = sortedLeagues.filter(l => !isPlayableCountry(l.country || 'DE'));
+    const leagueOptions = backgroundL.length === 0
+        ? sortedLeagues.map(optHtml).join('')
+        : `<optgroup label="⚽ Spielbare Länder">${playableL.map(optHtml).join('')}</optgroup><optgroup label="🌍 Im Hintergrund simuliert">${backgroundL.map(optHtml).join('')}</optgroup>`;
 
     const isPreseason = GameState.meta.phase === 'preseason';
     const userMaxMd = getLeagueTotalMatchdays(club.leagueId);

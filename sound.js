@@ -11,6 +11,8 @@ const SoundFX = {
     chantTimer: null,
     eventsMuted: false,    // true während "Bis zur Pause vorspulen"
     lastPlay: {},
+    unlocked: false,       // iPhone: Audio wurde per Berührung freigeschaltet
+    silentEl: null,
 
     enabled() {
         return typeof getSetting === 'function' ? Boolean(getSetting('sound')) : true;
@@ -39,8 +41,52 @@ const SoundFX = {
                 return null;
             }
         }
-        if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+        // iPhone kennt neben 'suspended' auch 'interrupted' (z. B. nach Anruf / App-Wechsel)
+        if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {});
         return this.ctx;
+    },
+
+    // Muss direkt in einer Berührung (touchend/click) aufgerufen werden – sonst bleibt Safari stumm
+    unlock() {
+        if (!this.enabled()) return;
+        // 1) iOS 17+: Wiedergabe-Modus "playback" -> Ton auch bei aktivem Stummschalter
+        try {
+            if (typeof navigator !== 'undefined' && navigator.audioSession && navigator.audioSession.type !== 'playback') {
+                navigator.audioSession.type = 'playback';
+            }
+        } catch (e) { /* ältere Geräte */ }
+        // 2) Ältere iPhones: kurzer stiller HTML-Audio-Clip schaltet ebenfalls auf "Wiedergabe" um
+        if (!this.unlocked && !(typeof navigator !== 'undefined' && navigator.audioSession)) {
+            try {
+                if (!this.silentEl) {
+                    this.silentEl = new Audio('data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==');
+                    this.silentEl.setAttribute('playsinline', '');
+                    this.silentEl.volume = 0.01;
+                }
+                const pr = this.silentEl.play();
+                if (pr && pr.catch) pr.catch(() => {});
+            } catch (e) { /* ignorieren */ }
+        }
+        // 3) AudioContext innerhalb der Berührung erzeugen/fortsetzen und einen stillen Puffer abspielen
+        const ctx = this.ensure();
+        if (!ctx) return;
+        try {
+            const buf = ctx.createBuffer(1, 1, 22050);
+            const src = ctx.createBufferSource();
+            src.buffer = buf;
+            src.connect(ctx.destination);
+            src.start(0);
+        } catch (e) { /* ignorieren */ }
+        if (ctx.state === 'running') this.unlocked = true;
+    },
+
+    statusLabel() {
+        if (!this.enabled()) return 'aus';
+        const AC = (typeof window !== 'undefined') && (window.AudioContext || window.webkitAudioContext);
+        if (!AC) return '❌ Browser unterstützt kein Web-Audio';
+        if (!this.ctx) return '⏳ startet beim nächsten Tippen';
+        if (this.ctx.state === 'running') return '✅ aktiv';
+        return '⏳ blockiert – einmal auf den Bildschirm tippen';
     },
 
     makeNoiseBuffer(seconds) {
@@ -423,9 +469,10 @@ const SoundFX = {
     }
 };
 
-// iPhone: Audio darf erst nach einer Berührung starten
-['pointerdown', 'touchend', 'keydown'].forEach(evt => {
-    document.addEventListener(evt, () => { if (SoundFX.enabled()) SoundFX.ensure(); }, { passive: true });
+// iPhone: Audio darf nur innerhalb einer echten Berührung starten.
+// Safari zählt dafür 'touchend' bzw. 'click' – NICHT 'pointerdown' (daran lag der fehlende Ton).
+['touchend', 'click', 'keydown'].forEach(evt => {
+    document.addEventListener(evt, () => SoundFX.unlock(), { passive: true, capture: true });
 });
 document.addEventListener('visibilitychange', () => {
     if (!SoundFX.ctx) return;
@@ -433,6 +480,7 @@ document.addEventListener('visibilitychange', () => {
         SoundFX.stopAmbience();
         SoundFX.ctx.suspend().catch(() => {});
     } else if (SoundFX.enabled()) {
+        SoundFX.unlocked = false; // nach App-Wechsel beim nächsten Tippen neu freischalten
         SoundFX.ctx.resume().catch(() => {});
         SoundFX.syncAmbience();
     }

@@ -994,7 +994,7 @@ function renderStadiumView(viewport) {
 // ADMIN-BEREICH UI
 // ==========================================
 function renderAdminView(viewport) {
-    const clubOptions = Object.values(GameState.clubs).map(c => 
+    const clubOptions = Object.values(GameState.clubs).filter(c => isPlayableCountry(getLeagueCountry(c.leagueId))).map(c =>  
         `<option value="${c.id}" ${c.id === GameState.activeClubId ? 'selected' : ''}>${c.name} (${GameState.leagues[c.leagueId]?.name || c.leagueId})</option>`
     ).join('');
 
@@ -1050,7 +1050,7 @@ function renderAdminView(viewport) {
 
         <div class="bmh-box">
             <h3>4. Datenbank-Wartung</h3><br>
-            <p style="font-size:0.72rem; margin-bottom:6px;">Datenbank: ${Object.keys(GameState.leagues).length} Ligen • ${Object.keys(GameState.clubs).length} Vereine • ${GameState.players.length} Spieler<br>Spielstand & Datenbank: <strong>${getStorageUsageKB()} KB</strong><br>Speicherort: ${storeModeLabel()}</p>
+            <p style="font-size:0.72rem; margin-bottom:6px;">Spielwelt: ${Array.isArray(GameState.meta.playableCountries) ? GameState.meta.playableCountries.map(c => COUNTRY_FLAGS[c] || c).join(' ') + ' spielbar, Rest im Hintergrund' : 'alle Länder spielbar'}<br>Datenbank: ${Object.keys(GameState.leagues).length} Ligen • ${Object.keys(GameState.clubs).length} Vereine • ${GameState.players.length} Spieler<br>Spielstand & Datenbank: <strong>${getStorageUsageKB()} KB</strong><br>Speicherort: ${storeModeLabel()}</p>
             <button id="btn-export-db" class="bmh-btn" style="margin-bottom:6px;">💾 Backup-Datei dieses Spielstands</button>
             <button id="btn-reset-db" class="bmh-btn danger">🗑️ ALLES LÖSCHEN (alle Spielstände & Länderpakete)</button>
         </div>

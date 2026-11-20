@@ -2,7 +2,7 @@
 // FC MANAGER 27 - MODUL: DATA & KONSTANTEN
 // ==========================================
 window.FCM_APP_STARTED = true;
-const GAME_VERSION = "1.10.0";
+const GAME_VERSION = "1.11.0";
 const GAME_BUILD_DATE = "20.11.2026";
 
 
@@ -273,14 +273,15 @@ const WINTER_EVENTS = [
 
 let GameState = {
     meta: {
-        coreVersion: "1.10.0",
+        coreVersion: "1.11.0",
         season: "2026/27",
         phase: "preseason", // 'preseason' | 'season' | 'winter'
         preseasonWeek: 1,   // 1..4
         matchday: 1,
         installedUpdates: [],
-        managerName: "",
+          managerName: "",
         selectedCountry: "",
+        playableCountries: null, // null = alle Länder spielbar; sonst Liste der Länder-Codes
         currentDate: null,  // ISO-Datum (YYYY-MM-DD)
         tick: 0,            // Zeit-Zähler (Woche / Spiel) für Verhandlungssperren
         harshWinter: false,
@@ -457,9 +458,8 @@ function saveDatabaseSnapshot(db) {
     }
 }
 
-// Ein Update-Paket zusätzlich in die unveränderte Original-Datenbank übernehmen
-function applyPackageToDatabaseSnapshot(pkg) {
-    const db = loadDatabaseSnapshot() || { leagues: {}, clubs: {}, players: [], updates: [] };
+// Ein Paket in ein Datenbank-Objekt einmischen (ohne zu speichern)
+function mergePackIntoDb(db, pkg) {
     if (pkg.leagues) Object.assign(db.leagues, deepCopy(pkg.leagues));
     if (pkg.clubs) Object.assign(db.clubs, deepCopy(pkg.clubs));
     if (Array.isArray(pkg.players)) {
@@ -475,8 +475,68 @@ function applyPackageToDatabaseSnapshot(pkg) {
         });
     }
     db.updates = db.updates || [];
-    db.updates.push(pkg.updateId || 'update');
+    if (!db.updates.includes(pkg.updateId || 'update')) db.updates.push(pkg.updateId || 'update');
+    return db;
+}
+
+// Ein Update-Paket zusätzlich in die unveränderte Original-Datenbank übernehmen
+function applyPackageToDatabaseSnapshot(pkg) {
+    const db = loadDatabaseSnapshot() || { leagues: {}, clubs: {}, players: [], updates: [] };
+    mergePackIntoDb(db, pkg);
     saveDatabaseSnapshot(db);
+}
+
+// ==========================================
+// LÄNDERPAKETE VOM SERVER (GitHub: Ordner data/)
+// Damit stehen alle Länder auf jedem Gerät zur Verfügung – ohne manuellen Import.
+// ==========================================
+const SERVER_PACK_DIR = 'data/';
+const TOP_COUNTRIES = ['DE', 'EN', 'ES', 'IT', 'FR'];
+
+async function fetchPackManifest() {
+    const res = await fetch(SERVER_PACK_DIR + 'packs.json', { cache: 'no-cache' });
+    if (!res.ok) throw new Error('packs.json nicht gefunden (' + res.status + ')');
+    return res.json();
+}
+
+// Lädt alle fehlenden/aktualisierten Pakete in die Original-Datenbank.
+// onProgress(text, done, total). Rückgabe: { ok, loaded, missing, total, error }
+async function syncServerPacks(onProgress = () => {}) {
+    let manifest;
+    try {
+        manifest = await fetchPackManifest();
+    } catch (e) {
+        return { ok: false, loaded: 0, missing: [], total: 0, error: 'offline' };
+    }
+    const packs = (manifest && manifest.packs) || [];
+    const db = loadDatabaseSnapshot() || { leagues: {}, clubs: {}, players: [], updates: [] };
+    db.packRevs = db.packRevs || {};
+    const todo = packs.filter(p => db.packRevs[p.id] !== p.rev);
+    const missing = [];
+    let loaded = 0;
+    for (let i = 0; i < todo.length; i++) {
+        const p = todo[i];
+        onProgress(`🌍 Lade ${p.name} (${i + 1}/${todo.length}) …`, i, todo.length);
+        try {
+            const res = await fetch(SERVER_PACK_DIR + p.file, { cache: 'no-cache' });
+            if (!res.ok) { missing.push(p.name); continue; }
+            const pkg = await res.json();
+            mergePackIntoDb(db, pkg);
+            db.packRevs[p.id] = p.rev;
+            loaded++;
+        } catch (e) {
+            missing.push(p.name);
+        }
+    }
+    if (loaded > 0) saveDatabaseSnapshot(db);
+    onProgress(loaded > 0 ? `✅ ${loaded} Länderpakete geladen` : '✅ Alle Länder aktuell', todo.length, todo.length);
+    return { ok: true, loaded, missing, total: packs.length };
+}
+
+// Ist ein Land selbst spielbar? (null = alle)
+function isPlayableCountry(country) {
+    const list = GameState.meta.playableCountries;
+    return !Array.isArray(list) || list.length === 0 || list.includes(country);
 }
 
 // Datenbank für ein neues Spiel auf den Original-Stand zurücksetzen

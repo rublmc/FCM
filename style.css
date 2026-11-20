@@ -1509,3 +1509,15 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
 }
 .toggle-switch.on .toggle-knob { left: 26px; }
 .toggle-switch:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+
+/* ==========================================
+   v1.11: SPIELWELT-AUSWAHL
+   ========================================== */
+.world-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; margin: 6px 0; }
+.world-check {
+    display: block; background: #e9ecea; border: 2px solid var(--panel-shadow);
+    padding: 6px; font-size: 0.72rem; font-weight: bold; cursor: pointer; min-width: 0;
+}
+.world-check.on { background: #d7eadc; border-color: var(--pitch-green); }
+.world-check span { font-size: 0.58rem; font-weight: normal; color: #444; }
+.world-check input { margin-right: 4px; vertical-align: middle; }
