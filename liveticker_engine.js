@@ -155,10 +155,12 @@ function skipLiveToNextBreak() {
     liveMatchState.isPaused = false;
     liveMatchState.pauseReason = "";
     let safety = 0;
+    SoundFX.eventsMuted = true; // beim Vorspulen keine Geräusch-Flut
     while (liveMatchState && !liveMatchState.isPaused && liveMatchState.phase !== 'HALFTIME' && liveMatchState.phase !== 'FULLTIME' && safety < 110) {
         tickLiveMatchday(true);
         safety++;
     }
+    SoundFX.eventsMuted = false;
     renderHeader();
     renderView('liveticker');
 }
@@ -185,6 +187,7 @@ function startSecondHalf() {
         addLiveTickerEntry("46'", "system", "halftime", `🗣️ KABINEN-ANSPRACHE: ${liveMatchState.teamTalkTitle}`);
     }
     addLiveTickerEntry("46'", "system", "halftime", "▶️ ANPFIFF ZUR 2. HALBZEIT!");
+    SoundFX.playWhistle('kickoff');
     startLiveTickerTimer();
     renderHeader();
     renderView('liveticker');
@@ -210,6 +213,7 @@ function applyHalfTimeTeamTalk(talkId) {
     liveMatchState.prevMotDelta = talk.motDelta;
 
     setStatus(`Kabinen-Ansprache gewählt: ${talk.title}`);
+    SoundFX.playTeamTalk(talk.id);
     renderView('liveticker');
 }
 
@@ -505,6 +509,7 @@ function startLiveSessionInner(opts) {
     renderHeader();
     switchToView('liveticker');
     setStatus(`🔴 LIVE: ${label}`);
+    if (userMatchRef) SoundFX.playWhistle('kickoff');
 }
 
 function addLiveTickerEntry(minLabel, side, type, text) {
@@ -515,6 +520,7 @@ function addLiveTickerEntry(minLabel, side, type, text) {
         type,
         text
     });
+    SoundFX.playTickerEvent(type, text);
 }
 
 function showLiveInAppAlert(alertObj) {
@@ -746,6 +752,7 @@ function tickLiveMatchday(silentRender = false) {
             liveMatchState.phase = 'HALFTIME';
             liveMatchState.isPaused = true;
             liveMatchState.pauseReason = "⏸ HALBZEITPAUSE";
+            SoundFX.playWhistle('halftime');
             if (!liveMatchState.userMatch) liveMatchState.teamTalkApplied = true;
             stopLiveTickerTimer();
             const um = liveMatchState.userMatch;
@@ -768,6 +775,7 @@ function tickLiveMatchday(silentRender = false) {
         } else {
             liveMatchState.phase = 'FULLTIME';
             liveMatchState.isPaused = true;
+            SoundFX.playWhistle('fulltime');
             liveMatchState.pauseReason = "🏁 ABPFIFF";
             stopLiveTickerTimer();
             const um = liveMatchState.userMatch;
@@ -1521,9 +1529,5 @@ function finalizeLiveMatchdayUi(st, um, currentMd) {
     if (!ls.ok && GameState.meta.phase === 'season') {
         setStatus(`⚠️ Startelf unvollständig (${ls.onPitch}/${ls.required}) – bitte Verletzte/Gesperrte ersetzen!`);
     }
-}
-
-function advanceMatchdayAndSimulate() {
-    startLiveMatchday();
 }
 

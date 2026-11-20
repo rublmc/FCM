@@ -506,6 +506,7 @@ function renderOfficeView(viewport) {
         <div class="bmh-box">
             <button id="btn-back-to-start" type="button" class="bmh-btn" style="width:100%;">🏠 ZUM STARTBILDSCHIRM / NEUES SPIEL</button>
         </div>
+        ${buildSettingsHtml()}
     `;
 
     const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
@@ -516,6 +517,7 @@ function renderOfficeView(viewport) {
     bind('btn-office-staff', () => { contractsSubTab = 'staff'; switchToView('contracts'); });
     bind('btn-office-tactics', () => switchToView('tactics'));
     bind('btn-back-to-start', () => saveAndNavigate('start.html'));
+    bindSettings(() => renderOfficeView(viewport));
     bind('btn-inbox-readall', () => {
         GameState.inbox.forEach(m => { m.read = true; });
         saveGame();

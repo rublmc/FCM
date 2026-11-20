@@ -67,10 +67,6 @@ function calculateTransferFee(player) {
     return val;
 }
 
-function calculateSellPrice(player) {
-    return getQuickSalePrice(player);
-}
-
 // Rohformel Gehalt (vor Kalibrierung)
 function rawExpectedSalary(player) {
     const r = Math.max(0.0, Math.min(10.0, player.rating || 5.0));
@@ -578,10 +574,8 @@ function renderSquadAndMarketView(viewport) {
     document.querySelectorAll('.sub-tab-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             squadSubTab = e.currentTarget.dataset.subtab;
-            activeTransferTargetId = null;
             activeNegotiation = null;
             playerCardId = null;
-            activeSellTargetId = null;
             renderSquadAndMarketView(viewport);
         });
     });

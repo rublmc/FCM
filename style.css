@@ -69,14 +69,6 @@ html, body {
     flex: 1;
 }
 
-.club-badge {
-    font-size: 1.4rem;
-    background: var(--pitch-green);
-    padding: 3px 6px;
-    border: 2px solid var(--accent-gold);
-    flex-shrink: 0;
-}
-
 .club-title-wrap {
     min-width: 0;
     overflow: hidden;
@@ -514,12 +506,12 @@ html, body {
     flex: 1;
 }
 
-/* Alle 9 Kacheln nebeneinander in einer festen Reihe */
+/* Navigation: 2 Reihen à 5 Kacheln (breite Bildschirme: 1 Reihe) */
 .bmh-nav {
     display: grid;
-    grid-template-columns: repeat(9, 1fr);
-    gap: 2px;
-    padding: 3px 2px;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 3px;
+    padding: 4px 3px;
     width: 100%;
 }
 
@@ -528,22 +520,24 @@ html, body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 5px 0px;
+    padding: 5px 0 4px 0;
     background-color: var(--panel-bg);
     border: 2px solid var(--panel-light);
     border-right-color: var(--panel-shadow);
     border-bottom-color: var(--panel-shadow);
     font-weight: bold;
-    font-size: 0.50rem;
+    font-size: 0.58rem;
     line-height: 1.1;
     cursor: pointer;
     color: var(--text-dark);
     min-width: 0;
     overflow: hidden;
+    position: relative;
+    letter-spacing: 0.2px;
 }
 
 .nav-icon {
-    font-size: 0.90rem;
+    font-size: 1.05rem;
     margin-bottom: 2px;
 }
 
@@ -772,6 +766,7 @@ html, body {
     padding: 8px 10px;
     margin-bottom: 10px;
     font-size: 0.75rem;
+    overflow: hidden;
 }
 
 .progress-bar-wrap {
@@ -1027,7 +1022,6 @@ html, body {
     font-weight: bold;
 }
 
-
 /* ==========================================
    LIVE-TICKER, KONFERENZ, HALBZEIT & KABINEN-ANSPRACHE (v1.0)
    ========================================== */
@@ -1142,18 +1136,6 @@ html, body {
     font-size: 0.75rem;
 }
 
-.live-pause-banner.danger-alert {
-    background-color: #ffe3e3;
-    border-color: #a82424;
-    color: #5e1111;
-}
-
-.live-pause-banner.goal-alert {
-    background-color: #d3f9d8;
-    border-color: #246b35;
-    color: #0e2e16;
-}
-
 .ticker-feed-box {
     max-height: 290px;
     overflow-y: auto;
@@ -1205,21 +1187,6 @@ html, body {
 
 .ticker-item.halftime .ticker-min {
     color: #ffffff;
-}
-
-.live-mini-stats {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 4px;
-    margin-bottom: 8px;
-    font-size: 0.68rem;
-}
-
-.live-mini-stat-cell {
-    background-color: #e9ecea;
-    border: 1px solid var(--panel-shadow);
-    padding: 4px;
-    text-align: center;
 }
 
 .teamtalk-grid {
@@ -1279,7 +1246,6 @@ html, body {
     opacity: 0.85;
 }
 
-
 .live-inapp-toast {
     padding: 8px 10px;
     margin-bottom: 6px;
@@ -1291,7 +1257,6 @@ html, body {
     from { opacity: 0; transform: translateY(-6px); }
     to { opacity: 1; transform: translateY(0); }
 }
-
 
 .pitch-board.live-pitch-board {
     height: 255px;
@@ -1309,7 +1274,6 @@ html, body {
     background: #26292c;
     flex-shrink: 0;
 }
-.nav-btn { position: relative; }
 .nav-badge {
     position: absolute; top: 1px; right: 2px;
     min-width: 14px; height: 14px; padding: 0 3px;
@@ -1355,22 +1319,10 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
 .bmh-btn:focus-visible, .nav-btn:focus-visible, .sort-btn:focus-visible, .mini-action-btn:focus-visible, .sub-tab-btn:focus-visible {
     outline: 2px solid var(--accent-gold); outline-offset: 1px;
 }
-.sub-tab-bar { flex-wrap: wrap; }
 
 /* ==========================================
    v1.5: NAVIGATION (2 REIHEN), TURNIERBAUM, SPIELERKARTE, FORMATIONS-EDITOR, FINANZEN
    ========================================== */
-.bmh-nav {
-    grid-template-columns: repeat(5, 1fr);
-    gap: 3px;
-    padding: 4px 3px;
-}
-.nav-btn {
-    font-size: 0.58rem;
-    padding: 5px 0 4px 0;
-    letter-spacing: 0.2px;
-}
-.nav-icon { font-size: 1.05rem; }
 @media (min-width: 700px) {
     .bmh-nav { grid-template-columns: repeat(10, 1fr); }
 }
@@ -1470,7 +1422,6 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
 /* ==========================================
    v1.6.1: BUTTON-REIHEN IN BANNERN (Kalender & Büro) – kein Überlaufen mehr
    ========================================== */
-.open-window-banner { overflow: hidden; }
 .open-window-banner > div[style*="display:flex"] { flex-wrap: wrap; }
 .open-window-banner .bmh-btn.small-btn {
     min-width: 0;
@@ -1532,3 +1483,29 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
 }
 .backup-banner span { color: #444; }
 .backup-banner .bmh-btn { flex-shrink: 0; }
+
+/* ==========================================
+   v1.10: EINSTELLUNGEN (Schalter)
+   ========================================== */
+.settings-box { margin-top: 4px; }
+.setting-row {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 7px 0; border-top: 1px dashed #b5bab7; font-size: 0.74rem;
+}
+.setting-row:first-of-type { border-top: none; }
+.setting-row span { font-size: 0.62rem; color: #444; }
+.toggle-switch {
+    position: relative; flex-shrink: 0;
+    width: 52px; height: 28px; border-radius: 14px;
+    background: #8c918e; border: 2px solid #111; cursor: pointer; padding: 0;
+    transition: background 0.15s ease;
+}
+.toggle-switch.on { background: var(--pitch-green); }
+.toggle-knob {
+    position: absolute; top: 2px; left: 2px;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #fff; border: 1px solid #111;
+    transition: left 0.15s ease;
+}
+.toggle-switch.on .toggle-knob { left: 26px; }
+.toggle-switch:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }

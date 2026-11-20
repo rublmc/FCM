@@ -2,10 +2,9 @@
 // FC MANAGER 27 - MODUL: DATA & KONSTANTEN
 // ==========================================
 window.FCM_APP_STARTED = true;
-const GAME_VERSION = "1.9.0";
+const GAME_VERSION = "1.10.0";
 const GAME_BUILD_DATE = "20.11.2026";
 
-const STORAGE_KEY = 'fcm_savegame_v1'; // nur noch für die Migration alter Spielstände
 
 const FORMATIONS = {
     "4-4-2":   ["TW", "LV", "IV", "IV", "RV", "LM", "ZM", "ZM", "RM", "ST", "ST"],
@@ -71,19 +70,6 @@ const POS_ORDER = {
 };
 
 const MAX_BENCH_SIZE = 7;
-
-const YOUTH_FIRST_NAMES = [
-    "Lukas", "Noah", "Finn", "Leon", "Paul", "Elias", "Ben", "Jonas",
-    "Felix", "Maximilian", "Julian", "Tim", "Moritz", "Lennard", "Tom",
-    "Kilian", "Mats", "Henri", "Emil", "Oskar", "Anton", "Theo", "Niklas"
-];
-
-const YOUTH_LAST_NAMES = [
-    "Weber", "Wagner", "Becker", "Hoffmann", "Schäfer", "Koch", "Bauer",
-    "Richter", "Klein", "Wolf", "Schröder", "Neumann", "Schwarz", "Zimmermann",
-    "Braun", "Krüger", "Hofmann", "Hartmann", "Lange", "Schmitt", "Werner",
-    "Krause", "Meier", "Lehmann", "Köhler", "Herrmann", "König", "Walter"
-];
 
 const FREE_AGENT_POOL = [
     { id: "fa_001", clubId: "free", pos: "IV", name: "Mats Hummels", age: 37, rating: 7.7, salary: 3200000, contractUntil: 2026 },
@@ -287,7 +273,7 @@ const WINTER_EVENTS = [
 
 let GameState = {
     meta: {
-        coreVersion: "1.9.0",
+        coreVersion: "1.10.0",
         season: "2026/27",
         phase: "preseason", // 'preseason' | 'season' | 'winter'
         preseasonWeek: 1,   // 1..4
@@ -396,13 +382,9 @@ let rosterSortBy = 'rating';
 let rosterSortDir = 'desc';
 let marketPosFilter = 'ALL';
 let marketSortBy = 'rating';
-let activeTransferTargetId = null;
-let activeSellTargetId = null;
 
 // Temporärer UI-State für Verträge & Sponsoren
 let contractFilter = 'ALL';
-let activeContractPlayerId = null;
-let activeSponsorOffer = null;
 
 // Temporärer UI-State für Tabelle & Spieltag
 let leagueSubTab = 'table'; // 'table' | 'fixtures' | 'scorers'
@@ -707,4 +689,16 @@ function randomPlayerName(country) {
     const pool = PLAYER_NAME_POOLS[country] || PLAYER_NAME_POOLS.DE;
     const pick = (a) => a[Math.floor(Math.random() * a.length)];
     return `${pick(pool[0])} ${pick(pool[1])}`;
+}
+
+// Geldbeträge kurz formatieren (wird von Startbildschirm & Spiel genutzt)
+function formatMoneyShort(amount) {
+    // Mio-Beträge mit 1 Nachkommastelle – oder 2, wenn sonst zwei verschiedene Beträge gleich aussähen (z. B. 8,15 Mio)
+    if (Math.abs(amount) >= 1000000) {
+        const v = amount / 1000000;
+        const oneDec = Math.abs(v * 10 - Math.round(v * 10)) < 1e-6;
+        return v.toFixed(oneDec ? 1 : 2).replace('.', ',') + ' Mio';
+    }
+    if (Math.abs(amount) >= 1000) return Math.round(amount / 1000) + 'k €';
+    return Math.round(amount) + ' €';
 }

@@ -410,10 +410,6 @@ function resolveCatchUpSilently(cu) {
     return m;
 }
 
-function flushAllCatchUps() {
-    [...(GameState.catchUps || [])].forEach(cu => resolveCatchUpSilently(cu));
-}
-
 // ==========================================
 // VERLETZUNGEN & VERFÜGBARKEIT
 // ==========================================

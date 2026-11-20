@@ -356,10 +356,6 @@ runAiTransferRound(brk.key === 'winter' ? 'winter' : 'summer', brk.key === 'wint
     switchToView('calendar');
 }
 
-function advancePreseasonWeek() {
-    advanceBreakWeek();
-}
-
 // ==========================================
 // KALENDER-ANSICHT
 // ==========================================

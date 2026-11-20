@@ -18,6 +18,7 @@ function getTickerClubLabel(item, st) {
 }
 
 function renderLiveTickerView(viewport) {
+    SoundFX.syncAmbience();
     if (!liveMatchState) {
         switchToView('league');
         return;

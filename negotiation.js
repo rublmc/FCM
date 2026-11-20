@@ -136,6 +136,7 @@ function negoSubmit(score, offerLabel, hintBuilder) {
     }
     n.log.push({ round: n.round, mood, offer: offerLabel, quote: pickQuote(n.voice, quoteKey), hint });
     n.lastMood = mood;
+    if (typeof SoundFX !== 'undefined') SoundFX.playNegotiation(accepted ? 'happy' : mood);
     n.status = accepted ? 'accepted' : (mood === 'quit' ? 'aborted' : 'open');
     if (n.status === 'aborted' && n.key) blockNego(n.key, 3);
     return n;

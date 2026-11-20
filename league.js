@@ -263,19 +263,8 @@ function simulateSingleMatch(match, isOfficialLeagueMatch = true) {
     const expectedHome = Math.max(0.25, Math.min(4.6, (1.42 + diff * 0.58) * goalFactor));
     const expectedAway = Math.max(0.20, Math.min(4.3, (1.15 - diff * 0.55) * goalFactor));
 
-    const sampleGoals = (lambda) => {
-        const L = Math.exp(-lambda);
-        let k = 0;
-        let p = 1.0;
-        do {
-            k++;
-            p *= Math.random();
-        } while (p > L && k < 8);
-        return k - 1;
-    };
-
-    const homeGoals = sampleGoals(expectedHome);
-    const awayGoals = sampleGoals(expectedAway);
+    const homeGoals = samplePoisson(expectedHome);
+    const awayGoals = samplePoisson(expectedAway);
 
     const events = [];
     const totalGoals = homeGoals + awayGoals;
@@ -323,7 +312,7 @@ function simulateSingleMatch(match, isOfficialLeagueMatch = true) {
     // Einsatzminuten & Zu-Null-Spiele für KI-Vereine mitführen
     if (isOfficialLeagueMatch) {
         [match.homeId, match.awayId].forEach(cid => {
-            if (cid === GameState.activeClubId) return; // Eigener Kader wird detailliert in advanceMatchdayAndSimulate verbucht
+            if (cid === GameState.activeClubId) return; // Eigener Kader wird detailliert in finalizeLiveMatchday verbucht
             const conceded = cid === match.homeId ? awayGoals : homeGoals;
             const sq = [...getClubPlayers(cid)].sort((a, b) => b.rating - a.rating);
             sq.slice(0, 11).forEach(p => {

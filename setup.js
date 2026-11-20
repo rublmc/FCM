@@ -2,7 +2,7 @@
 // FC MANAGER - STARTBILDSCHIRM & SETUP-WIZARD
 // ==========================================
 
-// GameState, STORAGE_KEY & Datenbank-Funktionen kommen aus data.js (wird in start.html vorher geladen)
+// GameState, Speicher- & Datenbank-Funktionen kommen aus storage.js/data.js (wird in start.html vorher geladen)
 let setupStep = 0; // 0 = Titelbildschirm, 1 = Managername, 2 = Land, 3 = Verein, 50 = Spielstände, 99 = Daten-Import
 let setupNewGame = false; // true, solange ein neues Spiel eingerichtet wird (alter Spielstand wird nicht überschrieben)
 
@@ -408,17 +408,6 @@ function applyUpdateOnStart(updateData) {
     saveGameState();
     setSetupStatus(`Paket "${updateData.name}" geladen!`);
     return true;
-}
-
-function formatMoneyShort(amount) {
-    // Mio-Beträge mit 1 Nachkommastelle – oder 2, wenn sonst zwei verschiedene Beträge gleich aussähen (z. B. 8,15 Mio)
-    if (Math.abs(amount) >= 1000000) {
-        const v = amount / 1000000;
-        const oneDec = Math.abs(v * 10 - Math.round(v * 10)) < 1e-6;
-        return v.toFixed(oneDec ? 1 : 2).replace('.', ',') + ' Mio';
-    }
-    if (Math.abs(amount) >= 1000) return Math.round(amount / 1000) + 'k €';
-    return Math.round(amount) + ' €';
 }
 
 // ==========================================

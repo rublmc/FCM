@@ -5,7 +5,17 @@ document.addEventListener('DOMContentLoaded', () => {
     storeInit().then(() => startGameAfterStorage());
 });
 
+// Ausstehende Änderungen sichern, bevor Safari die Seite pausiert oder schließt
+function flushPendingSaveOnHide() {
+    if (hasPendingSave()) saveGameNow();
+}
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPendingSaveOnHide();
+});
+window.addEventListener('pagehide', flushPendingSaveOnHide);
+
 function startGameAfterStorage() {
+    applyWakeLock();
     if (!getActiveSlotId()) {
         window.location.href = 'start.html';
         return;
@@ -79,13 +89,31 @@ function serializeGameState() {
 }
 
 let saveWarnedFull = false;
+// Speichern wird gebündelt: Viele Aktionen kurz hintereinander lösen nur EINEN Schreibvorgang aus
+// (der Spielstand ist mit vielen Ligen über 1 MB groß – das spart auf dem iPhone spürbar Zeit).
+let saveTimer = null;
+const SAVE_DEBOUNCE_MS = 600;
+
 function saveGame() {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveGameNow, SAVE_DEBOUNCE_MS);
+}
+
+function hasPendingSave() {
+    return Boolean(saveTimer);
+}
+
+// Sofort speichern (Autosave nach Spieltagen, Seitenwechsel, App geht in den Hintergrund)
+function saveGameNow() {
+    if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+    }
     const id = getActiveSlotId();
     if (!id) return;
     try {
         storeSet(slotKey(id), serializeGameState());
         updateSlotMeta(id, GameState);
-        setStatus("Spielstand gespeichert.");
     } catch (e) {
         setStatus("⚠️ Speichern fehlgeschlagen – Speicher voll!");
         if (!saveWarnedFull) {
@@ -108,7 +136,7 @@ function autosaveAfterRound(label) {
     GameState.meta.roundsSinceBackup = (GameState.meta.roundsSinceBackup || 0) + 1;
     GameState.meta.lastAutosave = new Date().toISOString();
     GameState.meta.lastAutosaveLabel = label;
-    saveGame();
+    saveGameNow();
     const t = new Date();
     setStatus(`💾 Autosave (${label}) • ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')} Uhr`);
 }
@@ -123,7 +151,7 @@ function exportCurrentBackup() {
     if (!id) return;
     GameState.meta.roundsSinceBackup = 0;
     GameState.meta.lastFileBackup = new Date().toISOString();
-    saveGame();
+    saveGameNow();
     if (exportSlotBackup(id)) setStatus('💾 Backup-Datei erstellt – bitte in „Dateien“ / iCloud aufbewahren.');
 }
 
@@ -144,7 +172,7 @@ function bindBackupReminder(rerender) {
 
 // Speichern & dann zu einer anderen Seite wechseln (wartet auf IndexedDB)
 function saveAndNavigate(url) {
-    saveGame();
+    saveGameNow();
     storeFlush().then(() => { window.location.href = url; });
 }
 
@@ -205,10 +233,6 @@ function switchToView(viewName) {
     const targetBtn = document.querySelector(`.nav-btn[data-view="${navView}"]`);
     if (targetBtn) targetBtn.classList.add('active');
     selectedSwapSource = null;
-    activeTransferTargetId = null;
-    activeSellTargetId = null;
-    activeContractPlayerId = null;
-    activeSponsorOffer = null;
     activeNegotiation = null;
     playerCardId = null;
     calendarOpenReportKey = null;
@@ -390,6 +414,7 @@ function renderHeader() {
         budgetEl.textContent = formatMoneyShort(club.budget);
     }
 
+    SoundFX.syncAmbience();
     // Während eines Live-Spiels sind die Kacheln unten gesperrt
     const locked = Boolean(liveMatchState);
     const nav = document.querySelector('.bmh-nav');
@@ -434,20 +459,6 @@ function renderView(viewName) {
         case 'admin': renderAdminView(viewport); break;
         default: renderOfficeView(viewport);
     }
-}
-
-// ==========================================
-// HILFSFUNKTIONEN
-// ==========================================
-function formatMoneyShort(amount) {
-    // Mio-Beträge mit 1 Nachkommastelle – oder 2, wenn sonst zwei verschiedene Beträge gleich aussähen (z. B. 8,15 Mio)
-    if (Math.abs(amount) >= 1000000) {
-        const v = amount / 1000000;
-        const oneDec = Math.abs(v * 10 - Math.round(v * 10)) < 1e-6;
-        return v.toFixed(oneDec ? 1 : 2).replace('.', ',') + ' Mio';
-    }
-    if (Math.abs(amount) >= 1000) return Math.round(amount / 1000) + 'k €';
-    return Math.round(amount) + ' €';
 }
 
 function setStatus(msg) {
