@@ -37,6 +37,14 @@ const NEGO_QUOTES = {
         angry: ["Dafür stehe ich nicht morgens um sieben auf dem Platz!", "Das ist weit unter meinem Marktwert."],
         quit: ["Danke, aber ich habe mich für einen anderen Verein entschieden.", "Ich ziehe meine Bewerbung zurück."]
     },
+    seller: {
+        happy: ["Einverstanden – für diese Summe geben wir ihn ab.", "Unser Vorstand hat zugestimmt. Sie dürfen mit dem Spieler sprechen!"],
+        concede: ["Na gut, wir kommen Ihnen entgegen – die Ablöse ist vereinbart.", "Schweren Herzens: einverstanden."],
+        positive: ["Wir sind nah dran – legen Sie noch etwas drauf.", "Knapp unter unserer Schmerzgrenze …"],
+        skeptical: ["Für diese Summe geben wir einen Stammspieler nicht ab.", "Unser Sportdirektor schüttelt den Kopf."],
+        angry: ["Das ist eine Frechheit – so viel ist uns der Spieler nicht wert?!", "Mit solchen Angeboten brauchen Sie nicht wiederzukommen!"],
+        quit: ["Der Spieler ist für Sie nicht mehr zu haben. Die Gespräche sind beendet.", "Wir brechen die Verhandlungen ab."]
+    },
     club: {
         happy: ["Einverstanden – wir haben einen Deal!", "Unser Sportdirektor sagt zu. Der Transfer ist perfekt!"],
         concede: ["Na gut, wir legen noch etwas drauf – abgemacht!"],

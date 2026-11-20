@@ -48,6 +48,8 @@ function startWinterBreakIfNeeded() {
     const realWeeks = getWinterBreakWeeks(lid);
     const country = getLeagueCountry(lid);
     if (realWeeks <= 0) {
+        // Ohne Winterpause: Winter-Transferfenster in einem Schritt
+runAiTransferRound('winter', 0.4);
         addInbox('🎄', 'Keine Winterpause', `In ${COUNTRY_LABELS[country] || country} gibt es keine Winterpause – der Spielbetrieb läuft über die Feiertage durch. Achte auf die Belastung deiner Spieler!`, 'calendar');
         return;
     }
@@ -298,6 +300,8 @@ function advanceBreakWeek() {
 
     healInjuriesOneStep();
     generateRoutineEvents();
+    // Transferfenster: KI-Vereine kaufen ein (Sommer stärker als Winter)
+runAiTransferRound(brk.key === 'winter' ? 'winter' : 'summer', brk.key === 'winter' ? 0.15 : 0.35);
     processTransferListOffers();
     GameState.meta.tick = (GameState.meta.tick || 0) + 1;
 

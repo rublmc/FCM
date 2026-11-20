@@ -47,7 +47,7 @@ const PLAYER_DEFAULTS = {
     seasonApps: 0, seasonMinutes: 0, seasonGoals: 0, seasonCleanSheets: 0, cupGoals: 0,
     seasonYellows: 0, clubApps: 0, clubGoals: 0, motivation: 78, campDevBonus: 0,
     suspendedMatches: 0, suspensionReason: "", injuredMatches: 0, injuryReason: "",
-    transferListed: false, askingMult: 1, freeSeasons: 0
+    transferListed: false, askingMult: 1, freeSeasons: 0, lastMoveSeason: undefined
 };
 
 function compactPlayer(p) {
@@ -127,6 +127,7 @@ function loadGame() {
         GameState.finance = parsed.finance || null;
         GameState.matchReports = Array.isArray(parsed.matchReports) ? parsed.matchReports : [];
         GameState.transferOffers = Array.isArray(parsed.transferOffers) ? parsed.transferOffers : [];
+        GameState.transferNews = Array.isArray(parsed.transferNews) ? parsed.transferNews : [];
         setStatus("Spielstand geladen.");
     } catch (e) {
         console.error("Fehler beim Laden:", e);

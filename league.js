@@ -624,6 +624,7 @@ function finishSeasonAndAdvance() {
     }
     processStaffContractsAtSeasonEnd(seasonEnd);
     maintainAiSquadsAtSeasonEnd(seasonEnd);
+    replenishAiBudgets();
     ensureSquadsPlayable();
     // 5. Neue Saison in der SAISONVORBEREITUNG (4 Wochen) starten!
     GameState.meta.season = nextSeasonLabel;

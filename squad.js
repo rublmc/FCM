@@ -56,10 +56,11 @@ function calculateTransferFee(player) {
     if (!player) return 0;
     if (!player.clubId || player.clubId === "free") return 0;
     const seasonEnd = getCurrentSeasonEndYear();
-    if ((player.contractUntil || seasonEnd + 1) <= seasonEnd) {
-        return 0;
-    }
     let val = calculateMarketValue(player);
+    if ((player.contractUntil || seasonEnd + 1) <= seasonEnd) {
+        // Vertrag läuft zum Saisonende aus: Verein gibt ihn günstig ab (sonst geht er im Sommer ablösefrei)
+        return Math.max(50000, Math.round((val * 0.4) / 50000) * 50000);
+    }
     if (player.contractUntil === seasonEnd + 1) {
         val = Math.round((val * 0.75) / 50000) * 50000;
     }
@@ -740,27 +741,43 @@ function buildTransferMarketTabHtml() {
         .slice(0, 35);
 
     let negotiationHtml = "";
+    if (activeNegotiation && activeNegotiation.kind === 'transferFee') {
+        negotiationHtml = buildTransferFeeNegotiationHtml();
+    }
     if (activeNegotiation && activeNegotiation.kind === 'transfer') {
         const target = GameState.players.find(p => p.id === activeNegotiation.targetId);
         if (target) {
-            const fee = calculateTransferFee(target);
+            const fee = activeNegotiation.extra.agreedFee || 0;
             const sellerName = target.clubId === 'free' ? 'Vereinslos (Ablösefrei)' : (GameState.clubs[target.clubId]?.name || 'Unbekannt');
             const canAfford = club && club.budget >= fee;
             negotiationHtml = buildNegotiationPanelHtml({
                 title: `✍️ TRANSFER: ${target.name}`,
                 infoHtml: `<p>Pos: <strong>${target.pos}</strong> | Stärke: <strong>${target.rating.toFixed(1)}</strong> | Alter: <strong>${target.age}</strong> | Verein: <strong>${sellerName}</strong></p>
-                           <p>Ablöse (mit Verein vereinbart): <strong style="color:${canAfford ? '#6ee787' : '#ff8787'};">${fee === 0 ? '0 € (Ablösefrei)' : formatMoneyShort(fee)}</strong> • Budget: ${formatMoneyShort(club.budget)}</p>
+                           <p>${fee === 0 ? '✅ Ablösefrei' : `✅ Ablöse mit ${sellerName} vereinbart: <strong style="color:${canAfford ? '#6ee787' : '#ff8787'};">${formatMoneyShort(fee)}</strong>`} • Budget: ${formatMoneyShort(club.budget)}</p>
+                           <p style="font-size:0.64rem; color:#d3f9d8;">${fee === 0 ? 'Schritt 1/1' : 'Schritt 2/2'}: Jetzt verhandelst du mit dem Spieler über seinen Vertrag.</p>
                            <p>Aktuelles Gehalt: ${formatMoneyShort(target.salary || 0)}/J. • Marktüblich: <strong>${formatMoneyShort(getPlayerReferenceSalary(target))}/J.</strong> • Kader: ${getClubPlayers().length}/${MAX_SQUAD_SIZE}</p>`,
                 optionsHtml: buildPlayerNegoOptions(target, 'transfer'),
                 successText: `Transfer perfekt! ${target.name} wechselt zu ${club.name}.`,
-                abortText: `${target.name} hat abgesagt. Ein neuer Versuch ist frühestens in 3 Wochen/Spielen möglich.`
+                abortText: `${target.name} hat abgesagt – der Transfer ist geplatzt (keine Ablöse gezahlt). Ein neuer Versuch ist frühestens in 3 Wochen/Spielen möglich.`
             });
         }
     }
 
+    const news = (GameState.transferNews || []).slice(0, 15);
+    const newsHtml = `
+        <details class="bmh-box transfer-news" style="padding:6px;">
+            <summary style="font-size:0.78rem; font-weight:bold; color:#184d25; cursor:pointer;">📰 LETZTE TRANSFERS (${(GameState.transferNews || []).length}) ${isInTransferWindow() ? '• 🟢 Transferfenster offen' : ''}</summary>
+            ${news.length === 0 ? '<p style="font-size:0.68rem; margin-top:4px;">Noch keine Wechsel. KI-Vereine kaufen in der Vorbereitung und in der Winterpause ein.</p>' : news.map(t => `
+                <div class="fixture-row" style="flex-wrap:wrap; font-size:0.66rem;">
+                    <span style="flex:1; min-width:0;"><strong>${t.pos}</strong> ${t.name} (${Number(t.rating).toFixed(1)})<br><span style="color:#444;">${t.from} → <strong>${t.to}</strong></span></span>
+                    <span style="font-weight:bold; white-space:nowrap;">${t.fee > 0 ? formatMoneyShort(t.fee) : 'ablösefrei'}</span>
+                </div>`).join('')}
+        </details>`;
+
     return `
         ${buildMyTransferListHtml()}
         ${negotiationHtml}
+        ${newsHtml}
         <div class="bmh-box" style="padding: 6px;">
             <div class="filter-bar">
                 <button class="filter-btn ${marketPosFilter === 'ALL' ? 'active' : ''}" data-posf="ALL">ALLE</button>
@@ -799,7 +816,7 @@ function buildTransferMarketTabHtml() {
                             <td>${p.age}</td>
                             <td><strong>${p.rating.toFixed(1)}</strong></td>
                             <td style="color:${p.fee === 0 ? '#184d25' : '#111'};"><strong>${p.fee === 0 ? 'FREI' : formatMoneyShort(p.fee)}</strong></td>
-                            <td><button type="button" class="mini-action-btn btn-open-transfer" data-pid="${p.id}" ${isNegoBlocked('player:' + p.id) ? 'disabled title="Gesprächssperre"' : ''}>${isNegoBlocked('player:' + p.id) ? '🔒' : 'KAUF'}</button></td>
+                            <td><button type="button" class="mini-action-btn btn-open-transfer" data-pid="${p.id}" ${isTransferBlocked(p.id) ? 'disabled title="Gesprächssperre"' : ''}>${isTransferBlocked(p.id) ? '🔒' : 'KAUF'}</button></td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -834,15 +851,18 @@ function bindTransferMarketEvents(viewport) {
                 alert(`Dein Kader ist voll (${MAX_SQUAD_SIZE} Spieler). Verkaufe zuerst einen Spieler!`);
                 return;
             }
-            if (isNegoBlocked('player:' + pid)) {
-                alert(`${target.name} ist vorerst nicht gesprächsbereit.`);
+            if (isTransferBlocked(pid)) {
+                alert(`${target.name} bzw. sein Verein ist vorerst nicht gesprächsbereit.`);
                 return;
             }
-            negoStart({ kind: 'transfer', voice: 'player', key: 'player:' + pid, targetId: pid, name: target.name, reservation: computePlayerReservation(target, 'transfer') });
+            startTransferNegotiation(target);
             renderSquadAndMarketView(viewport);
             document.getElementById('main-viewport').scrollTop = 0;
         });
     });
+    if (activeNegotiation && activeNegotiation.kind === 'transferFee') {
+        bindTransferFeeNegotiation(() => renderSquadAndMarketView(viewport));
+    }
     if (activeNegotiation && activeNegotiation.kind === 'transfer') {
         bindNegotiationPanel({
             onClose: () => renderSquadAndMarketView(viewport),
@@ -856,7 +876,7 @@ function bindTransferMarketEvents(viewport) {
                 }
                 const sel = readPlayerNegoSelection();
                 activeNegotiation.sel = sel;
-                const fee = calculateTransferFee(target);
+                const fee = activeNegotiation.extra.agreedFee || 0;
                 if (club.budget < fee + sel.bonus) {
                     alert(`Nicht genügend Budget! Benötigt: ${formatMoneyShort(fee + sel.bonus)} (Ablöse + Handgeld). (kein Versuch verbraucht)`);
                     return;
@@ -870,6 +890,7 @@ function bindTransferMarketEvents(viewport) {
                     if (target.clubId && target.clubId !== 'free' && GameState.clubs[target.clubId]) {
                         GameState.clubs[target.clubId].budget += fee;
                     }
+                    const fromClubId = target.clubId;
                     movePlayerToClub(target, GameState.activeClubId);
                     target.salary = salary;
                     target.contractUntil = getCurrentSeasonEndYear() + sel.years;
@@ -879,6 +900,7 @@ function bindTransferMarketEvents(viewport) {
                     target.seasonCleanSheets = 0;
                     target.motivation = 88;
                     target.talent = computeDefaultTalent(target);
+                    if (fee > 0) recordTransferNews(target, fromClubId, GameState.activeClubId, fee);
                     addInbox('✍️', `Neuzugang: ${target.name}`, `${target.name} (${target.pos}, ${target.rating.toFixed(1)}) kommt von ${oldClubName}. Ablöse: ${fee === 0 ? 'ablösefrei' : formatMoneyShort(fee)}, Gehalt: ${formatMoneyShort(salary)}/J. bis ${target.contractUntil}.`, 'transfer');
                     setStatus(`Transfer perfekt: ${target.name} wechselt zu ${club.name}!`);
                 }
@@ -1275,3 +1297,115 @@ function buildMyTransferListHtml() {
         </div>`;
 }
 
+
+// ==========================================
+// TRANSFER SCHRITT 1: ABLÖSE-VERHANDLUNG MIT DEM ABGEBENDEN VEREIN
+// ==========================================
+// Angebotsstufen relativ zur Ablöseforderung (= Marktwert-basierte Ablöse)
+const FEE_STEPS = [0.60, 0.70, 0.80, 0.90, 1.00, 1.10, 1.20, 1.35, 1.50, 1.75, 2.00].map(v => ({
+    value: v,
+    label: v === 1 ? 'Forderung' : `${v > 1 ? '+' : '-'}${Math.round(Math.abs(v - 1) * 100)}%`
+}));
+
+function feeForStep(askingFee, step) {
+    const v = askingFee * step;
+    return v >= 1000000 ? Math.round(v / 100000) * 100000 : Math.round(v / 25000) * 25000;
+}
+
+function isTransferBlocked(pid) {
+    return isNegoBlocked('player:' + pid) || isNegoBlocked('club:' + pid);
+}
+
+// Wie viel (als Vielfaches der Ablöseforderung) will der Verein mindestens?
+function computeSellerReservation(target) {
+    const seller = GameState.clubs[target.clubId];
+    let r = negoRandomReservation(0.92, 1.12);
+    const sq = [...getClubPlayers(target.clubId)].sort((a, b) => b.rating - a.rating);
+    const rank = sq.findIndex(p => p.id === target.id) + 1;
+    if (rank > 0 && rank <= 3) r += 0.25;          // Leistungsträger
+    else if (rank > 0 && rank <= 6) r += 0.12;
+    if (sq.length <= 18) r += 0.15;                 // dünner Kader
+    const fee = calculateTransferFee(target);
+    if (seller && (seller.budget || 0) < 0) r -= 0.15;              // Verein braucht Geld
+    else if (seller && (seller.budget || 0) > fee * 4) r += 0.05;   // reicher Verein muss nicht verkaufen
+    const seasonEnd = getCurrentSeasonEndYear();
+    if (target.contractUntil === seasonEnd + 1) r -= 0.05;         // Vertrag läuft bald aus
+    const userLeague = GameState.clubs[GameState.activeClubId]?.leagueId;
+    if (seller && seller.leagueId === userLeague) r += 0.05;       // ungern an direkte Konkurrenz
+    return Math.max(0.6, r);
+}
+
+function startTransferNegotiation(target) {
+    const asking = calculateTransferFee(target);
+    if (asking <= 0) {
+        // Vereinslos / Vertrag ausgelaufen: direkt mit dem Spieler verhandeln
+        negoStart({ kind: 'transfer', voice: 'player', key: 'player:' + target.id, targetId: target.id, name: target.name, reservation: computePlayerReservation(target, 'transfer'), extra: { agreedFee: 0 } });
+        return;
+    }
+    negoStart({
+        kind: 'transferFee', voice: 'seller', key: 'club:' + target.id, targetId: target.id,
+        name: GameState.clubs[target.clubId]?.name || 'Verein',
+        reservation: computeSellerReservation(target),
+        sel: { fee: 1.0 },
+        extra: { askingFee: asking, sellerId: target.clubId }
+    });
+}
+
+function buildTransferFeeNegotiationHtml() {
+    const n = activeNegotiation;
+    const target = GameState.players.find(p => p.id === n.targetId);
+    const club = GameState.clubs[GameState.activeClubId];
+    if (!target || !club) return '';
+    const asking = n.extra.askingFee;
+    const seller = GameState.clubs[n.extra.sellerId];
+    const opts = FEE_STEPS.map(s => ({ value: s.value, label: `${formatMoneyShort(feeForStep(asking, s.value))} (${s.label})` }));
+    return buildNegotiationPanelHtml({
+        title: `💼 ABLÖSE: ${target.name} (${seller ? seller.name : ''})`,
+        infoHtml: `<p>Pos: <strong>${target.pos}</strong> | Stärke: <strong>${target.rating.toFixed(1)}</strong> | Alter: <strong>${target.age}</strong> | Vertrag bis <strong>${target.contractUntil}</strong></p>
+                   <p>Marktwert: <strong>${formatMoneyShort(calculateMarketValue(target))}</strong> • Ablöseforderung: <strong>${formatMoneyShort(asking)}</strong> • Dein Budget: <strong>${formatMoneyShort(club.budget)}</strong></p>
+                   <p style="font-size:0.64rem; color:#d3f9d8;">Schritt 1/2: Einigung mit ${seller ? seller.name : 'dem Verein'} über die Ablöse. Danach verhandelst du mit dem Spieler über seinen Vertrag. Die Ablöse wird erst fällig, wenn auch der Spieler unterschreibt.</p>`,
+        optionsHtml: negoSelectHtml('nego-fee', 'DEIN ABLÖSE-ANGEBOT', opts, n.sel.fee ?? 1.0),
+        submitLabel: 'ABLÖSE ANBIETEN',
+        successText: 'Ablöse vereinbart – jetzt mit dem Spieler verhandeln!',
+        abortText: `${seller ? seller.name : 'Der Verein'} hat die Gespräche abgebrochen. Ein neuer Versuch ist frühestens in 3 Wochen/Spielen möglich.`
+    });
+}
+
+function bindTransferFeeNegotiation(rerender) {
+    // Eigener Weiter-Button nach Einigung: in Schritt 2 wechseln
+    bindNegotiationPanel({
+        onClose: () => {
+            rerender();
+        },
+        onSubmit: () => {
+            const n = activeNegotiation;
+            const target = GameState.players.find(p => p.id === n.targetId);
+            const club = GameState.clubs[GameState.activeClubId];
+            if (!target || !club) return;
+            const step = parseFloat(document.getElementById('nego-fee').value) || 1.0;
+            n.sel = { fee: step };
+            const fee = feeForStep(n.extra.askingFee, step);
+            if (club.budget < fee) {
+                alert(`Nicht genügend Budget für ${formatMoneyShort(fee)} Ablöse! (kein Versuch verbraucht)`);
+                return;
+            }
+            const res = negoSubmit(step, formatMoneyShort(fee), (r, mood) => {
+                const ok = FEE_STEPS.find(s => s.value >= r - 1e-9);
+                if (mood === 'angry') return ok ? '' : 'Der Verein betrachtet den Spieler als praktisch unverkäuflich.';
+                if (!ok) return 'Sportdirektor: „Für keine Summe, die Sie bieten können – er ist unverkäuflich.“';
+                return `Sportdirektor: „Für ${formatMoneyShort(feeForStep(n.extra.askingFee, ok.value))} wären wir dabei.“`;
+            });
+            if (res.status === 'accepted') {
+                const feeLog = res.log.slice();
+                negoStart({
+                    kind: 'transfer', voice: 'player', key: 'player:' + target.id, targetId: target.id, name: target.name,
+                    reservation: computePlayerReservation(target, 'transfer'),
+                    extra: { agreedFee: fee, feeLog }
+                });
+                setStatus(`💼 Ablöse ${formatMoneyShort(fee)} vereinbart – jetzt mit ${target.name} verhandeln.`);
+            }
+            saveGame();
+            rerender();
+        }
+    });
+}

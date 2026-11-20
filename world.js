@@ -770,6 +770,7 @@ function processTransferListOffers() {
     });
     GameState.transferOffers = GameState.transferOffers.filter(o => o.status === 'open' || (tick - (o.createdTick || 0)) < 6);
 
+    maybeUnsolicitedOffer();
     const listed = getClubPlayers().filter(p => p.transferListed);
     listed.forEach(p => {
         if (getOpenOffersForPlayer(p.id).length >= 2) return;
@@ -816,4 +817,186 @@ function completePlayerSale(player, buyerId, fee) {
     GameState.transferOffers.forEach(o => {
         if (o.playerId === player.id && o.status === 'open') o.status = 'closed';
     });
+}
+
+// ==========================================
+// KI-TRANSFERMARKT (Sommer- & Winterfenster)
+// ==========================================
+const POS_GROUP_OF = { TW: 'TW', IV: 'DEF', LV: 'DEF', RV: 'DEF', DM: 'MID', ZM: 'MID', OM: 'MID', LM: 'MID', RM: 'MID', LA: 'FWD', RA: 'FWD', ST: 'FWD' };
+const GROUP_STARTERS = { TW: 1, DEF: 4, MID: 4, FWD: 2 };
+
+function recordTransferNews(p, fromId, toId, fee) {
+    if (!Array.isArray(GameState.transferNews)) GameState.transferNews = [];
+    GameState.transferNews.unshift({
+        name: p.name, pos: p.pos, rating: p.rating, age: p.age,
+        from: fromId === 'free' ? 'vereinslos' : getAnyClubName(fromId),
+        fromId, to: getAnyClubName(toId), toId, fee,
+        date: GameState.meta.currentDate || getCurrentGameDate(),
+        season: GameState.meta.season
+    });
+    if (GameState.transferNews.length > 80) GameState.transferNews.length = 80;
+}
+
+function isInTransferWindow() {
+    return GameState.meta.phase === 'preseason' || GameState.meta.phase === 'winter';
+}
+
+// Eine Runde KI-Transfers. intensity = Anteil der KI-Vereine, die einen Transfer versuchen
+function runAiTransferRound(windowKey, intensity = 0.08) {
+    const uid = GameState.activeClubId;
+    const seasonEnd = getCurrentSeasonEndYear();
+    const aiClubs = Object.values(GameState.clubs).filter(c => c.id !== uid);
+    if (aiClubs.length === 0) return [];
+
+    // Lokaler Index Verein -> Spieler (wird bei Wechseln mitgepflegt)
+    const byClub = new Map();
+    GameState.players.forEach(p => {
+        if (!byClub.has(p.clubId)) byClub.set(p.clubId, []);
+        byClub.get(p.clubId).push(p);
+    });
+    const squadOf = (cid) => byClub.get(cid) || [];
+    const avgOf = (cid) => {
+        const top = [...squadOf(cid)].sort((a, b) => b.rating - a.rating).slice(0, 11);
+        return top.length ? top.reduce((s, p) => s + p.rating, 0) / top.length : 6.0;
+    };
+    const movePlayer = (p, toId) => {
+        const from = squadOf(p.clubId);
+        const i = from.indexOf(p);
+        if (i >= 0) from.splice(i, 1);
+        movePlayerToClub(p, toId);
+        if (!byClub.has(toId)) byClub.set(toId, []);
+        byClub.get(toId).push(p);
+    };
+
+    // Markt: alle Spieler bei KI-Vereinen + Vereinslose (nicht vom eigenen Verein, nicht frisch gewechselt)
+    const market = GameState.players.filter(p => p.clubId !== uid && (p.clubId === 'free' || GameState.clubs[p.clubId]) && p.lastMoveSeason !== GameState.meta.season + windowKey);
+    const done = [];
+    const attempts = Math.max(1, Math.round(aiClubs.length * intensity));
+
+    for (let a = 0; a < attempts; a++) {
+        const buyer = aiClubs[Math.floor(Math.random() * aiClubs.length)];
+        const bSquad = squadOf(buyer.id);
+        if (bSquad.length >= MAX_SQUAD_SIZE + 1) continue;
+        const teamAvg = avgOf(buyer.id);
+        const budget = buyer.budget || 0;
+
+        // Schwächsten Mannschaftsteil bestimmen
+        let need = null;
+        let needGap = -99;
+        Object.keys(GROUP_STARTERS).forEach(g => {
+            const inG = bSquad.filter(p => POS_GROUP_OF[p.pos] === g).sort((x, y) => y.rating - x.rating).slice(0, GROUP_STARTERS[g]);
+            const gAvg = inG.length ? inG.reduce((s, p) => s + p.rating, 0) / inG.length : teamAvg - 1.5;
+            const missing = GROUP_STARTERS[g] - inG.length;
+            const gap = (teamAvg - gAvg) + missing * 0.8 + Math.random() * 0.25;
+            if (gap > needGap) { needGap = gap; need = { g, gAvg }; }
+        });
+        if (!need) continue;
+        const minR = Math.max(need.gAvg + 0.15, teamAvg - 0.4);
+        const maxR = teamAvg + 0.9;
+        const buyerCountry = getLeagueCountry(buyer.leagueId);
+        const maxFee = budget * 0.6;
+
+        const cands = [];
+        for (const p of market) {
+            if (POS_GROUP_OF[p.pos] !== need.g || p.rating < minR || p.rating > maxR) continue;
+            if (p.clubId === buyer.id || (p.age || 25) > 31) continue;
+            if (p.clubId !== 'free') {
+                if (squadOf(p.clubId).length <= 17) continue;
+                const fee = calculateTransferFee(p);
+                if (fee > maxFee) continue;
+                const sameCountry = getLeagueCountry(GameState.clubs[p.clubId].leagueId) === buyerCountry;
+                if (!sameCountry && Math.random() < 0.6) continue; // eher national einkaufen
+            }
+            cands.push(p);
+            if (cands.length > 40) break;
+        }
+        if (cands.length === 0) continue;
+        cands.sort((x, y) => y.rating - x.rating);
+        const target = cands[Math.floor(Math.random() * Math.min(5, cands.length))];
+        const fromId = target.clubId;
+        let fee = 0;
+        if (fromId !== 'free') {
+            const seller = GameState.clubs[fromId];
+            const sSquad = [...squadOf(fromId)].sort((x, y) => y.rating - x.rating);
+            const rank = sSquad.indexOf(target) + 1;
+            const acceptChance = rank <= 3 ? 0.4 : (rank <= 6 ? 0.6 : 0.85);
+            if (Math.random() > acceptChance) continue;
+            fee = Math.round(calculateTransferFee(target) * (0.95 + Math.random() * 0.3) / 50000) * 50000;
+            if (fee > budget) continue;
+            buyer.budget = budget - fee;
+            seller.budget = (seller.budget || 0) + fee;
+        }
+        movePlayer(target, buyer.id);
+        target.lastMoveSeason = GameState.meta.season + windowKey;
+        target.contractUntil = seasonEnd + 1 + Math.floor(Math.random() * 3);
+        target.salary = calculateExpectedSalary(target);
+        recordTransferNews(target, fromId, buyer.id, fee);
+        done.push({ p: target, fromId, toId: buyer.id, fee });
+
+        // Kader zu groß -> schwächsten älteren Spieler abgeben
+        const after = squadOf(buyer.id);
+        if (after.length > MAX_SQUAD_SIZE) {
+            const out = [...after].filter(p => p !== target).sort((x, y) => (x.rating - y.rating) || (y.age - x.age))[0];
+            if (out) {
+                movePlayer(out, 'free');
+                out.contractUntil = seasonEnd;
+            }
+        }
+    }
+
+    // Transfer-Ticker fürs Postfach: eigene Liga & große Transfers
+    const userLeague = GameState.clubs[uid]?.leagueId;
+    const userCountry = getLeagueCountry(userLeague);
+    const relevant = done.filter(t => {
+        const toLeague = GameState.clubs[t.toId]?.leagueId;
+        const fromLeague = GameState.clubs[t.fromId]?.leagueId;
+        return toLeague === userLeague || fromLeague === userLeague || t.fee >= 15000000 || getLeagueCountry(toLeague) === userCountry && t.fee >= 3000000;
+    }).sort((x, y) => y.fee - x.fee);
+    if (relevant.length > 0) {
+        const lines = relevant.slice(0, 8).map(t => `${t.p.name} (${t.p.pos}, ${t.p.rating.toFixed(1)}): ${t.fromId === 'free' ? 'vereinslos' : getAnyClubName(t.fromId)} → ${getAnyClubName(t.toId)} • ${t.fee > 0 ? formatMoneyShort(t.fee) : 'ablösefrei'}`);
+        const total = done.reduce((s, t) => s + t.fee, 0);
+        addInbox('📰', `Transfer-Ticker (${windowKey === 'winter' ? 'Winterfenster' : 'Sommerfenster'})`, `${done.length} Wechsel diese Woche (Ablösen gesamt ${formatMoneyShort(total)}). Die wichtigsten:\n${lines.join('\n')}${relevant.length > 8 ? `\n… und ${relevant.length - 8} weitere (👥 KADER → TRANSFERMARKT → Letzte Transfers).` : ''}`, 'transfer');
+    }
+    return done;
+}
+
+// Transfereinnahmen der KI-Vereine am Saisonende (TV-Geld etc.), damit sie weiter einkaufen können
+function replenishAiBudgets() {
+    const uid = GameState.activeClubId;
+    Object.values(GameState.leagues).forEach(lg => {
+        const st = (GameState.prevStandings && GameState.prevStandings[lg.id]) || [];
+        st.forEach((cid, i) => {
+            if (cid === uid) return;
+            const c = GameState.clubs[cid];
+            if (!c) return;
+            const income = getAnnualTvMoney(lg.id, i + 1) * 0.35 + getAnnualMerchMoney(c.id) * 0.25;
+            c.budget = Math.round(Math.min((c.budget || 0) + income, 400000000));
+        });
+    });
+}
+
+// Anfragen anderer Vereine für eigene Spieler (auch ohne Transferliste) – nur im Transferfenster
+function maybeUnsolicitedOffer() {
+    if (!isInTransferWindow() || Math.random() > 0.3) return;
+    const uid = GameState.activeClubId;
+    const squad = getClubPlayers(uid).filter(p => !p.transferListed && getOpenOffersForPlayer(p.id).length === 0);
+    if (squad.length < MIN_SQUAD_SIZE + 2) return;
+    const teamAvg = getClubAverageRating(uid);
+    const good = squad.filter(p => p.rating >= teamAvg - 0.3 && (p.age || 25) <= 31);
+    if (good.length === 0) return;
+    const p = good[Math.floor(Math.random() * good.length)];
+    const value = calculateMarketValue(p);
+    const buyers = Object.values(GameState.clubs).filter(c => c.id !== uid && getClubAverageRating(c.id) >= p.rating - 0.4 && (c.budget || 0) >= value * 1.2 && getClubPlayers(c.id).length < MAX_SQUAD_SIZE);
+    if (buyers.length === 0) return;
+    const buyer = buyers[Math.floor(Math.random() * buyers.length)];
+    const fee = Math.round(value * (1.0 + Math.random() * 0.35) / 50000) * 50000;
+    const tick = GameState.meta.tick || 0;
+    const offer = {
+        id: `off_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e5)}`,
+        playerId: p.id, clubId: buyer.id, fee,
+        maxFee: Math.round(fee * (1.05 + Math.random() * 0.25) / 50000) * 50000,
+        createdTick: tick, expiresTick: tick + 2, status: 'open', unsolicited: true
+    };
+    GameState.transferOffers.push(offer);
+    addInbox('📨', `Anfrage für ${p.name}: ${formatMoneyShort(fee)}`, `${buyer.name} (${GameState.leagues[buyer.leagueId]?.name || ''}) möchte ${p.name} (${p.pos}, ${p.rating.toFixed(1)}, Marktwert ${formatMoneyShort(value)}) verpflichten und bietet ${formatMoneyShort(fee)} Ablöse – obwohl er nicht auf der Transferliste steht.\nDu kannst verhandeln oder ablehnen. Das Angebot gilt für 2 Wochen/Spiele.`, 'transfer', null, { type: 'transferOffer', offerId: offer.id });
 }

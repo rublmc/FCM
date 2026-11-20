@@ -2,7 +2,7 @@
 // FC MANAGER 27 - MODUL: DATA & KONSTANTEN
 // ==========================================
 window.FCM_APP_STARTED = true;
-const GAME_VERSION = "1.6.1";
+const GAME_VERSION = "1.7.0";
 const GAME_BUILD_DATE = "20.11.2026";
 
 const STORAGE_KEY = 'fcm_savegame_v1';
@@ -229,7 +229,7 @@ const CLUB_EVENTS = [
 
 let GameState = {
     meta: {
-        coreVersion: "1.6.0",
+        coreVersion: "1.7.0",
         season: "2026/27",
         phase: "preseason", // 'preseason' | 'season' | 'winter'
         preseasonWeek: 1,   // 1..4
@@ -257,6 +257,7 @@ let GameState = {
     finance: null,         // Saison-Buchhaltung des eigenen Vereins
     matchReports: [],      // Spielberichte aller eigenen Pflichtspiele der laufenden Saison
     transferOffers: [],    // Angebote anderer Vereine für Spieler auf der Transferliste
+    transferNews: [],      // Transfer-Ticker (alle Wechsel)
     preseason: null,
     winterBreak: null,
     lastBreakReport: null,
@@ -303,6 +304,7 @@ function resetCareerFields(clubId) {
     GameState.finance = null;
     GameState.matchReports = [];
     GameState.transferOffers = [];
+    GameState.transferNews = [];
     GameState.preseason = null;
     GameState.winterBreak = null;
     GameState.lastBreakReport = null;

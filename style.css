@@ -1481,3 +1481,8 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
 }
 .open-window-banner > div[style*="margin-top:6px"] > .bmh-btn { flex: 1 1 30%; }
 #btn-sim-preseason-week, #btn-banner-calendar { flex-shrink: 0; white-space: nowrap; }
+
+/* v1.7: Transfer-Ticker */
+.transfer-news summary { list-style: none; }
+.transfer-news summary::-webkit-details-marker { display: none; }
+.transfer-news[open] summary { margin-bottom: 4px; }
