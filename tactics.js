@@ -40,7 +40,7 @@ function getUnavailableLabel(player) {
     return "";
 }
 
-// Prüft, ob genug Spieler aufgestellt sind (11 bzw. alle verfügbaren, falls weniger als 11 fit sind)
+// Genug Spieler aufgestellt? (11 bzw. alle verfügbaren, falls weniger als 11 fit sind)
 function getLineupStatus() {
     const squad = getClubPlayers();
     const avail = squad.filter(p => !isPlayerUnavailable(p)).length;
@@ -382,7 +382,7 @@ function renderTacticsView(viewport) {
     const lineupWarningHtml = !lineupStatus.ok ? `
         <div class="locked-banner">
             <strong>⚠️ STARTELF UNVOLLSTÄNDIG (${lineupStatus.onPitch}/${lineupStatus.required})</strong>
-            <p style="font-size:0.7rem; margin-top:2px;">Der nächste Spieltag kann erst angepfiffen werden, wenn ${lineupStatus.required} Spieler auf dem Platz stehen. Ziehe Ersatzspieler von Bank oder Tribüne auf die freien Positionen.</p>
+            <p style="font-size:0.7rem; margin-top:2px;">Das nächste Pflichtspiel kann erst angepfiffen werden, wenn ${lineupStatus.required} Spieler auf dem Platz stehen. Ziehe Ersatzspieler von Bank oder Tribüne auf die freien Positionen.</p>
         </div>
     ` : '';
     const unavailableHtml = unavailableList.length > 0 ? `

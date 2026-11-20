@@ -21,7 +21,6 @@ function ensurePreseasonInitialized(forceReset = false) {
     };
 }
 
-// Aktive Pause: Sommer-Vorbereitung oder Winterpause
 function getActiveBreak() {
     if (GameState.meta.phase === 'winter' && GameState.winterBreak) {
         return {
@@ -90,9 +89,7 @@ function getFriendlyOptionsForClub(isWinter = false) {
         const picked = otherClubs[Math.floor(Math.random() * otherClubs.length)];
         leagueOppName = picked.name;
         const sq = getClubPlayers(picked.id);
-        leagueOppStr = sq.length > 0
-            ? parseFloat((sq.reduce((s, p) => s + p.rating, 0) / sq.length).toFixed(1))
-            : 6.5;
+        leagueOppStr = sq.length > 0 ? parseFloat((sq.reduce((s, p) => s + p.rating, 0) / sq.length).toFixed(1)) : 6.5;
     }
     const topPool = INTERNATIONAL_TOP_CLUBS.filter(c => c.name !== myName);
     const topOpp = topPool[Math.floor(Math.random() * topPool.length)] || INTERNATIONAL_TOP_CLUBS[0];
@@ -137,7 +134,7 @@ function bookPreseasonActivity(weekNum, item) {
         alert(`Nicht genügend Budget! Benötigt werden ${formatMoneyShort(item.cost)}.`);
         return;
     }
-    if (item.cost > 0) club.budget -= item.cost;
+    if (item.cost > 0) bookMoney('preseason', -item.cost);
     weekObj.booking = { ...item };
     bookingDialogState = null;
     saveGame();
@@ -151,7 +148,7 @@ function cancelPreseasonBooking(weekNum) {
     const club = GameState.clubs[GameState.activeClubId];
     const weekObj = brk.data.weeks.find(w => w.week === weekNum);
     if (!club || !weekObj || weekObj.completed || !weekObj.booking) return;
-    if (weekObj.booking.cost > 0) club.budget += weekObj.booking.cost;
+    if (weekObj.booking.cost > 0) bookMoney('preseason', weekObj.booking.cost);
     const oldTitle = weekObj.booking.title;
     weekObj.booking = null;
     saveGame();
@@ -174,7 +171,7 @@ function autoPlanPreseason() {
         if (!w.completed && !w.booking && w.week >= brk.curWeek) {
             const candidate = planTemplates[idx];
             if (candidate && club.budget >= (candidate.cost || 0)) {
-                if (candidate.cost > 0) club.budget -= candidate.cost;
+                if (candidate.cost > 0) bookMoney('preseason', -candidate.cost);
                 w.booking = { ...candidate };
                 bookedCount++;
             }
@@ -208,14 +205,8 @@ function advanceBreakWeek() {
             const myStr = calculateClubMatchStrength(club.id, true);
             const oppStr = b.oppStrength || 6.0;
             const diff = myStr - oppStr;
-            const sampleGoals = (lambda) => {
-                const L = Math.exp(-Math.max(0.25, Math.min(4.5, lambda)));
-                let k = 0, p = 1.0;
-                do { k++; p *= Math.random(); } while (p > L && k < 7);
-                return k - 1;
-            };
-            const myGoals = sampleGoals(1.55 + diff * 0.55);
-            const oppGoals = sampleGoals(1.10 - diff * 0.50);
+            const myGoals = samplePoisson(1.55 + diff * 0.55);
+            const oppGoals = samplePoisson(1.10 - diff * 0.50);
             const goalLines = [];
             for (let g = 0; g < myGoals; g++) {
                 const sc = pickScorerForClub(club.id);
@@ -240,7 +231,7 @@ function advanceBreakWeek() {
                 }
             });
             const rev = b.revenue || 0;
-            club.budget += rev;
+            bookMoney('preseason', rev);
             netFinance = rev - (b.cost || 0);
             reportTitle = `⚽ TESTSPIEL: ${club.name} ${myGoals}:${oppGoals} ${b.oppName}`;
             details.push(goalLines.length > 0 ? `Torschützen: ${goalLines.join(', ')}` : 'Keine eigenen Tore im Testspiel');
@@ -282,7 +273,7 @@ function advanceBreakWeek() {
                     }
                 });
             }
-            if (b.revenue > 0) club.budget += b.revenue;
+            if (b.revenue > 0) bookMoney('preseason', b.revenue);
             if (b.youthScout) ensureYouthPool(true);
             netFinance = (b.revenue || 0) - (b.cost || 0);
             reportTitle = `${b.icon} ${b.title.toUpperCase()}`;
@@ -305,7 +296,6 @@ function advanceBreakWeek() {
     }
     if (weekObj) weekObj.completed = true;
 
-    // Verletzungen heilen mit der Zeit, Postfach-Ereignisse
     healInjuriesOneStep();
     generateRoutineEvents();
     GameState.meta.tick = (GameState.meta.tick || 0) + 1;
@@ -357,7 +347,6 @@ function advanceBreakWeek() {
     switchToView('calendar');
 }
 
-// Kompatibilität mit älterem Code
 function advancePreseasonWeek() {
     advanceBreakWeek();
 }
@@ -416,11 +405,14 @@ function buildBreakWeeksHtml(brk, isActive) {
 }
 
 function buildSeasonCalendarHtml(club, isPreseason) {
+    const uid = club.id;
     const userSched = GameState.schedule[club.leagueId];
     const mds = userSched ? userSched.matchdays : [];
     const half = getFirstHalfLastMatchday(club.leagueId);
     const wbWeeks = getWinterBreakWeeks(club.leagueId);
     const curWeek = GameState.meta.preseasonWeek || 1;
+    const nextEv = getNextUserEvent();
+    const nextDate = nextEv ? nextEv.date : null;
 
     const preseasonWeeksRows = GameState.preseason.weeks.map(w => `
         <div class="fixture-row ${isPreseason && w.week === curWeek ? 'user-match' : ''}">
@@ -440,61 +432,92 @@ function buildSeasonCalendarHtml(club, isPreseason) {
         ${preseasonCollapsedInSeason ? '' : `<div style="margin-bottom:8px;">${preseasonWeeksRows}</div>`}
     `;
 
+    // Alle Termine sammeln (Liga, Nachholspiele, Pokal & Europapokal) und nach Datum sortieren
+    const rows = [];
     const userCatchUps = (GameState.catchUps || []).filter(c => isUserCatchUp(c));
-    const rows = mds.map(md => {
-        const idx = md.matches.findIndex(m => m.homeId === club.id || m.awayId === club.id);
-        if (idx === -1) return `
-            <div class="fixture-row"><span style="width:18%; font-weight:bold;">ST ${md.matchday}</span><span style="flex:1; color:#666;">${formatGameDate(md.date)} • spielfrei</span></div>`;
-        const myMatch = md.matches[idx];
-        const isHome = myMatch.homeId === club.id;
-        const oppId = isHome ? myMatch.awayId : myMatch.homeId;
-        const oppName = GameState.clubs[oppId]?.name || oppId;
-        const isNext = GameState.meta.phase === 'season' && md.matchday === GameState.meta.matchday;
-        let resText = (myMatch.homeGoals !== null && myMatch.awayGoals !== null) ? `${myMatch.homeGoals}:${myMatch.awayGoals}` : 'offen';
-        let extra = "";
-        if (myMatch.postponed) {
-            const cu = userCatchUps.find(c => c.md === md.matchday && c.idx === idx);
-            resText = 'ABG.';
-            extra = `<div style="font-size:0.60rem; color:#a82424;">${getWeather(myMatch.weather).icon} Abgesagt (${getWeather(myMatch.weather).label}) • Nachholtermin ${cu ? formatGameDate(cu.date) : 'offen'}</div>`;
-        } else if (myMatch.wasPostponed) {
-            extra = `<div style="font-size:0.60rem; color:#184d25;">📅 Nachgeholt</div>`;
+    mds.forEach(md => {
+        const idx = md.matches.findIndex(m => m.homeId === uid || m.awayId === uid);
+        if (idx === -1) {
+            rows.push({ date: md.date, order: 1, html: `<div class="fixture-row"><span style="width:18%; font-weight:bold;">ST ${md.matchday}</span><span style="flex:1; color:#666;">${formatGameDate(md.date)} • spielfrei</span></div>` });
+        } else {
+            const myMatch = md.matches[idx];
+            const isHome = myMatch.homeId === uid;
+            const oppName = getAnyClubName(isHome ? myMatch.awayId : myMatch.homeId);
+            const isNext = nextDate === md.date && nextEv.type === 'league';
+            let resText = (myMatch.homeGoals !== null && myMatch.awayGoals !== null) ? `${myMatch.homeGoals}:${myMatch.awayGoals}` : 'offen';
+            let extra = "";
+            if (myMatch.postponed) {
+                const cu = userCatchUps.find(c => c.md === md.matchday && c.idx === idx);
+                resText = 'ABG.';
+                extra = `<div style="font-size:0.60rem; color:#a82424;">${getWeather(myMatch.weather).icon} Abgesagt (${getWeather(myMatch.weather).label}) • Nachholtermin ${cu ? formatGameDate(cu.date) : 'offen'}</div>`;
+            } else if (myMatch.wasPostponed) {
+                extra = `<div style="font-size:0.60rem; color:#184d25;">📅 Nachgeholt</div>`;
+            }
+            const wIcon = myMatch.weather && !myMatch.postponed ? getWeather(myMatch.weather).icon : '';
+            rows.push({ date: md.date, order: 1, html: `
+                <div class="fixture-row ${isNext ? 'user-match' : ''}" style="flex-wrap:wrap;">
+                    <span style="width:18%; font-weight:bold;">ST ${md.matchday}</span>
+                    <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                        <span style="font-size:0.62rem; color:#444;">${formatGameDate(md.date)}</span> ${isHome ? '🏟️' : '🚌'} ${oppName}
+                    </span>
+                    <span style="font-size:0.7rem; width:16px; text-align:center;">${wIcon}</span>
+                    <span class="fixture-score ${myMatch.homeGoals === null ? 'unplayed' : ''}">${resText}</span>
+                    ${extra ? `<div style="width:100%;">${extra}</div>` : ''}
+                </div>
+            ` });
         }
-        const wIcon = myMatch.weather && !myMatch.postponed ? getWeather(myMatch.weather).icon : '';
-        let row = `
-            <div class="fixture-row ${isNext ? 'user-match' : ''}" style="flex-wrap:wrap;">
-                <span style="width:18%; font-weight:bold;">ST ${md.matchday}</span>
-                <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                    <span style="font-size:0.62rem; color:#444;">${formatGameDate(md.date)}</span> ${isHome ? '🏟️' : '🚌'} ${oppName}
-                </span>
-                <span style="font-size:0.7rem; width:16px; text-align:center;">${wIcon}</span>
-                <span class="fixture-score ${myMatch.homeGoals === null ? 'unplayed' : ''}">${resText}</span>
-                ${extra ? `<div style="width:100%;">${extra}</div>` : ''}
-            </div>
-        `;
         if (md.matchday === half) {
+            const wDate = toISODate(addDaysDate(fromISODate(md.date), 1));
             if (wbWeeks > 0) {
                 const wb = GameState.winterBreak && GameState.winterBreak.season === GameState.meta.season ? GameState.winterBreak : null;
-                row += `
+                rows.push({ date: wDate, order: 2, html: `
                     <div class="fixture-row" style="background:#dbe4ff; font-weight:bold; flex-wrap:wrap;">
                         <span style="flex:1;">❄️ WINTERPAUSE (${wbWeeks} ${wbWeeks === 1 ? 'Woche' : 'Wochen'})</span>
                         <span style="font-size:0.64rem;">${wb ? (wb.done ? '✅' : '⏳') : ''}</span>
                         ${wb ? `<div style="width:100%; font-size:0.62rem; font-weight:normal;">${wb.weeks.map(w => `W${w.week}: ${w.booking ? w.booking.icon + ' ' + w.booking.title : '🏃 Training'}`).join(' • ')}</div>` : ''}
                     </div>
-                `;
+                ` });
             } else {
-                row += `<div class="fixture-row" style="background:#fff3bf; font-size:0.66rem;"><span>🎄 Keine Winterpause in ${COUNTRY_LABELS[getLeagueCountry(club.leagueId)] || 'diesem Land'} – Spielbetrieb läuft durch</span></div>`;
+                rows.push({ date: wDate, order: 2, html: `<div class="fixture-row" style="background:#fff3bf; font-size:0.66rem;"><span>🎄 Keine Winterpause in ${COUNTRY_LABELS[getLeagueCountry(club.leagueId)] || 'diesem Land'} – Spielbetrieb läuft durch</span></div>` });
             }
         }
-        return row;
-    }).join('');
+    });
+    userCatchUps.forEach(cu => {
+        const isHome = cu.homeId === uid;
+        rows.push({ date: cu.date, order: 0, html: `
+            <div class="fixture-row ${nextEv && nextEv.type === 'catchup' && nextEv.ref === cu ? 'user-match' : ''}" style="background:#fff9db;">
+                <span style="width:18%; font-weight:bold;">📅 NH</span>
+                <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><span style="font-size:0.62rem; color:#444;">${formatGameDate(cu.date)}</span> ${isHome ? '🏟️' : '🚌'} ${getAnyClubName(isHome ? cu.awayId : cu.homeId)} (ST ${cu.md})</span>
+                <span class="fixture-score unplayed">offen</span>
+            </div>
+        ` });
+    });
+    getUserCupCalendarEntries().forEach(e => {
+        const m = e.match;
+        const isNext = nextEv && nextEv.type === 'cup' && nextEv.compId === e.comp.id && nextEv.date === e.date;
+        const res = m ? formatCupScore(m) : 'offen';
+        const shortRound = e.round.name.replace(' (Hinspiel)', ' (H)').replace(' (Rückspiel)', ' (R)');
+        rows.push({ date: e.date, order: 0, html: `
+            <div class="fixture-row ${isNext ? 'user-match' : ''}" style="background:#f3f0ff; flex-wrap:wrap;">
+                <span style="width:18%; font-weight:bold;">${e.comp.icon} ${e.comp.short}</span>
+                <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                    <span style="font-size:0.62rem; color:#444;">${formatGameDate(e.date)}</span> ${e.isHome === null ? '⚖️' : (e.isHome ? '🏟️' : '🚌')} ${e.opp || '<em>Auslosung folgt</em>'}
+                </span>
+                <span class="fixture-score ${!m || !m.played ? 'unplayed' : ''}" style="min-width:44px;">${res}</span>
+                <div style="width:100%; font-size:0.58rem; color:#5f3dc4;">${shortRound}</div>
+            </div>
+        ` });
+    });
+    rows.sort((a, b) => a.date.localeCompare(b.date) || a.order - b.order);
 
     return `
         <div class="bmh-box" style="padding:8px;">
             <h3 style="font-size:0.84rem; color:#184d25; margin-bottom:6px;">📅 SAISONKALENDER (${GameState.meta.season})</h3>
             ${GameState.meta.harshWinter ? `<p style="font-size:0.64rem; color:#1c4f8a; margin-bottom:4px;">🌨️ Wetterdienst: Für diesen Winter wird ein strenger Winter erwartet – Spielabsagen sind wahrscheinlicher.</p>` : ''}
+            <p style="font-size:0.60rem; color:#444; margin-bottom:4px;">⚽ Liga • 📅 Nachholspiel • 🏆 Pokal • ⭐ CL • 🟠 EL • 🟢 ECL</p>
             ${preseasonSectionHtml}
-            <p style="font-size:0.68rem; color:#444; margin:4px 0 4px 0;"><strong>LIGA-SPIELBETRIEB</strong></p>
-            ${rows}
+            <p style="font-size:0.68rem; color:#444; margin:4px 0 4px 0;"><strong>PFLICHTSPIELE</strong></p>
+            ${rows.map(r => r.html).join('')}
         </div>
     `;
 }
@@ -504,6 +527,7 @@ function renderCalendarView(viewport) {
     if (!club) return;
     ensurePreseasonInitialized(false);
     ensureAllSchedulesInitialized(false);
+    ensureCompetitionsInitialized();
     const phase = GameState.meta.phase;
     const isPreseason = phase === 'preseason';
     const isWinter = phase === 'winter' && GameState.winterBreak;
@@ -511,7 +535,6 @@ function renderCalendarView(viewport) {
     const brk = isBreak ? getActiveBreak() : null;
     if (!isBreak && calendarSubTab === 'preseason') calendarSubTab = 'season_cal';
 
-    // 1. Bericht der letzten Pausen-Woche
     let weekReportHtml = "";
     const rep = GameState.lastBreakReport;
     if (rep && (isBreak || (rep.showUntilMd || 0) >= GameState.meta.matchday)) {
@@ -519,9 +542,7 @@ function renderCalendarView(viewport) {
             <div class="match-report-card">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <span style="color:#e5b822; font-weight:bold;">📋 BERICHT ${rep.breakKey === 'winter' ? 'WINTERPAUSE' : 'VORBEREITUNG'} W${rep.week}</span>
-                    <span style="font-size:0.68rem; color:${rep.netFinance >= 0 ? '#6ee787' : '#ff8787'};">
-                        ${rep.netFinance >= 0 ? '+' : ''}${formatMoneyShort(rep.netFinance)}
-                    </span>
+                    <span style="font-size:0.68rem; color:${rep.netFinance >= 0 ? '#6ee787' : '#ff8787'};">${rep.netFinance >= 0 ? '+' : ''}${formatMoneyShort(rep.netFinance)}</span>
                 </div>
                 <p style="font-weight:bold; margin:4px 0; font-size:0.8rem;">${rep.title}</p>
                 <div class="match-events-list">${rep.details.map(d => `• ${d}`).join('<br>')}</div>
@@ -530,7 +551,6 @@ function renderCalendarView(viewport) {
         `;
     }
 
-    // 2. Stärkeentwicklung nach Saisonwechsel
     let devReportHtml = "";
     if (GameState.lastSeasonDevelopmentReport) {
         const dev = GameState.lastSeasonDevelopmentReport;
@@ -541,7 +561,7 @@ function renderCalendarView(viewport) {
                     <button id="btn-hide-dev-report" type="button" class="bmh-btn danger small-btn" style="padding:2px 6px;">✕</button>
                 </div>
                 <p style="font-size:0.7rem; color:#d3f9d8; margin-bottom:6px;">
-                    Abschlussplatz: <strong>${dev.rank}. Platz</strong> • TV-Prämie: <strong>+${formatMoneyShort(dev.tvPrize)}</strong>${dev.promoRelMsg}
+                    Abschlussplatz: <strong>${dev.rank}. Platz</strong> • TV-Gelder Saison: <strong>+${formatMoneyShort(dev.tvPrize)}</strong>${dev.promoRelMsg}
                 </p>
                 <div style="max-height:210px; overflow-y:auto; background:#e9ecea; color:#111; padding:4px; border:1px solid #246b35;">
                     <table class="bmh-table">
@@ -566,7 +586,6 @@ function renderCalendarView(viewport) {
         `;
     }
 
-    // 3. Buchungs-Dialog
     let bookingModalHtml = "";
     if (isBreak && bookingDialogState) {
         const { week, category } = bookingDialogState;
@@ -590,9 +609,7 @@ function renderCalendarView(viewport) {
                 </div>
                 ${options.map((opt, i) => {
                     const canAfford = club.budget >= (opt.cost || 0);
-                    const priceLabel = opt.cost > 0
-                        ? `Kosten: -${formatMoneyShort(opt.cost)}`
-                        : (opt.revenue > 0 ? `Erlös: +${formatMoneyShort(opt.revenue)}` : 'Kostenlos');
+                    const priceLabel = opt.cost > 0 ? `Kosten: -${formatMoneyShort(opt.cost)}` : (opt.revenue > 0 ? `Erlös: +${formatMoneyShort(opt.revenue)}` : 'Kostenlos');
                     return `
                         <div style="background:#0e2e16; border:1px solid #246b35; padding:7px; margin-bottom:6px;">
                             <div style="display:flex; justify-content:space-between; align-items:center; gap:4px;">
@@ -611,22 +628,16 @@ function renderCalendarView(viewport) {
         bookingDialogState.currentOptions = options;
     }
 
-    // 4. Status-Banner
     let phaseBannerHtml;
     if (isBreak) {
-        const title = brk.key === 'winter'
-            ? `❄️ WINTERPAUSE • WOCHE ${brk.curWeek} / ${brk.total}`
-            : `🗓️ SAISONVORBEREITUNG • WOCHE ${brk.curWeek} / 4`;
+        const title = brk.key === 'winter' ? `❄️ WINTERPAUSE • WOCHE ${brk.curWeek} / ${brk.total}` : `🗓️ SAISONVORBEREITUNG • WOCHE ${brk.curWeek} / 4`;
         const hint = brk.key === 'winter'
             ? `Buche ein Wintertrainingslager oder Testspiele. Rückrundenstart: ${formatGameDate(getMatchdayDate(club.leagueId, GameState.meta.matchday), true)}.`
             : 'Plane Testspiele, Trainingslager & Events, verhandle Sponsoren und stelle deinen Trainerstab ein!';
         phaseBannerHtml = `
             <div class="open-window-banner">
                 <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
-                    <div>
-                        <strong>${title}</strong><br>
-                        <span style="font-size:0.68rem;">${hint}</span>
-                    </div>
+                    <div><strong>${title}</strong><br><span style="font-size:0.68rem;">${hint}</span></div>
                     <button id="btn-sim-preseason-week" type="button" class="bmh-btn primary small-btn">WOCHE ${brk.curWeek} ▶</button>
                 </div>
                 <div style="display:flex; gap:6px; margin-top:6px;">
@@ -637,17 +648,10 @@ function renderCalendarView(viewport) {
             </div>
         `;
     } else {
-        phaseBannerHtml = `
-            <div class="bmh-box" style="padding:8px; background:#d7eadc; border-color:#246b35; font-size:0.74rem;">
-                <strong>⚽ LAUFENDE SAISON ${GameState.meta.season} • ${formatGameDate(GameState.meta.currentDate || getCurrentGameDate(), true)}</strong><br>
-                <span style="font-size:0.68rem;">Nächstes Ereignis: ${getDueUserCatchUp() ? 'Nachholspiel' : 'Spieltag ' + GameState.meta.matchday}.</span>
-            </div>
-        `;
+        phaseBannerHtml = buildNextEventBannerHtml(true);
     }
 
-    const tabBodyHtml = (isBreak && calendarSubTab === 'preseason')
-        ? buildBreakWeeksHtml(brk, true)
-        : buildSeasonCalendarHtml(club, isPreseason);
+    const tabBodyHtml = (isBreak && calendarSubTab === 'preseason') ? buildBreakWeeksHtml(brk, true) : buildSeasonCalendarHtml(club, isPreseason);
 
     viewport.innerHTML = `
         <h2 class="section-title">📅 KALENDER • ${formatGameDate(GameState.meta.currentDate || getCurrentGameDate(), true).toUpperCase()}</h2>
@@ -664,14 +668,9 @@ function renderCalendarView(viewport) {
         ${tabBodyHtml}
     `;
 
+    bindNextEventBanner();
     const hideDevBtn = document.getElementById('btn-hide-dev-report');
-    if (hideDevBtn) {
-        hideDevBtn.addEventListener('click', () => {
-            GameState.lastSeasonDevelopmentReport = null;
-            saveGame();
-            renderCalendarView(viewport);
-        });
-    }
+    if (hideDevBtn) hideDevBtn.addEventListener('click', () => { GameState.lastSeasonDevelopmentReport = null; saveGame(); renderCalendarView(viewport); });
     const simPreBtn = document.getElementById('btn-sim-preseason-week');
     if (simPreBtn) simPreBtn.addEventListener('click', () => advanceBreakWeek());
     const gotoSpBtn = document.getElementById('btn-goto-sponsors-pre');
@@ -681,46 +680,27 @@ function renderCalendarView(viewport) {
     const autoPreBtn = document.getElementById('btn-auto-preseason');
     if (autoPreBtn) autoPreBtn.addEventListener('click', () => autoPlanPreseason());
     const togglePreCollapse = document.getElementById('btn-toggle-preseason-collapse');
-    if (togglePreCollapse) {
-        togglePreCollapse.addEventListener('click', () => {
-            preseasonCollapsedInSeason = !preseasonCollapsedInSeason;
-            renderCalendarView(viewport);
-        });
-    }
+    if (togglePreCollapse) togglePreCollapse.addEventListener('click', () => { preseasonCollapsedInSeason = !preseasonCollapsedInSeason; renderCalendarView(viewport); });
     viewport.querySelectorAll('[data-calsub]').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            calendarSubTab = e.currentTarget.dataset.calsub;
-            renderCalendarView(viewport);
-        });
+        btn.addEventListener('click', (e) => { calendarSubTab = e.currentTarget.dataset.calsub; renderCalendarView(viewport); });
     });
     viewport.querySelectorAll('.btn-open-booking').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            bookingDialogState = {
-                week: parseInt(e.currentTarget.dataset.week, 10),
-                category: e.currentTarget.dataset.cat
-            };
+            bookingDialogState = { week: parseInt(e.currentTarget.dataset.week, 10), category: e.currentTarget.dataset.cat };
             renderCalendarView(viewport);
             document.getElementById('main-viewport').scrollTop = 0;
         });
     });
     const closeBookBtn = document.getElementById('btn-close-booking');
-    if (closeBookBtn) {
-        closeBookBtn.addEventListener('click', () => {
-            bookingDialogState = null;
-            renderCalendarView(viewport);
-        });
-    }
+    if (closeBookBtn) closeBookBtn.addEventListener('click', () => { bookingDialogState = null; renderCalendarView(viewport); });
     viewport.querySelectorAll('.btn-confirm-booking').forEach(btn => {
         btn.addEventListener('click', (e) => {
             if (!bookingDialogState || !bookingDialogState.currentOptions) return;
-            const idx = parseInt(e.currentTarget.dataset.idx, 10);
-            const chosen = bookingDialogState.currentOptions[idx];
+            const chosen = bookingDialogState.currentOptions[parseInt(e.currentTarget.dataset.idx, 10)];
             if (chosen) bookPreseasonActivity(bookingDialogState.week, chosen);
         });
     });
     viewport.querySelectorAll('.btn-cancel-booking').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            cancelPreseasonBooking(parseInt(e.currentTarget.dataset.week, 10));
-        });
+        btn.addEventListener('click', (e) => cancelPreseasonBooking(parseInt(e.currentTarget.dataset.week, 10)));
     });
 }

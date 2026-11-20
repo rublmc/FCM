@@ -7,8 +7,21 @@ document.addEventListener('DOMContentLoaded', () => {
         window.location.href = 'start.html';
         return;
     }
+    initGameWorld();
+    setupNavigation();
+    renderHeader();
+    if (GameState.meta.phase === 'preseason' || GameState.meta.phase === 'winter') {
+        switchToView('calendar');
+    } else {
+        switchToView('office');
+    }
+});
+
+// Alle Initialisierungen (auch für alte Spielstände)
+function initGameWorld() {
     ensurePlayerStatsInitialized();
     ensureFreeAgentsInitialized();
+    ensureSalaryCalibration();
     ensureWorldInitialized();
     ensureYouthPool();
     ensureSponsorOffersInitialized();
@@ -17,93 +30,75 @@ document.addEventListener('DOMContentLoaded', () => {
     ensureAllSchedulesInitialized();
     ensurePreseasonInitialized();
     ensureStaffOffersInitialized();
+    ensureCompetitionsInitialized();
     syncGameClock();
-    if (GameState.inbox.length === 0) {
+    if (GameState.inbox.filter(m => m.cat === 'board').length === 0) {
         const club = GameState.clubs[GameState.activeClubId];
         addInbox('🤝', 'Willkommen beim Verein!', `Hallo ${GameState.meta.managerName}, der Vorstand von ${club ? club.name : 'deinem neuen Verein'} heißt dich herzlich willkommen! In der Saisonvorbereitung kannst du Testspiele, Trainingslager und Events buchen, Sponsoren verhandeln und deinen Trainerstab (✍️ VERTR. → TRAINERSTAB) zusammenstellen. Viel Erfolg!`, 'board');
     }
     saveGame();
-    setupNavigation();
-    renderHeader();
-    // Bei Vorbereitung / Winterpause direkt in den Kalender starten
-    if (GameState.meta.phase === 'preseason' || GameState.meta.phase === 'winter') {
-        switchToView('calendar');
-    } else {
-        switchToView('office');
-    }
-});
+}
 
 // ==========================================
 // SPEICHER-SYSTEM (LOCAL STORAGE)
 // ==========================================
 function saveGame() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(GameState));
-    setStatus("Spielstand gespeichert.");
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(GameState));
+        setStatus("Spielstand gespeichert.");
+    } catch (e) {
+        setStatus("⚠️ Speichern fehlgeschlagen (Speicher voll?)");
+    }
 }
 
 function loadGame() {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-        try {
-            const parsed = JSON.parse(saved);
-            GameState = { ...GameState, ...parsed };
-            GameState.meta = { ...GameState.meta, ...(parsed.meta || {}) };
-            if (!GameState.meta.phase) {
-                GameState.meta.phase = (GameState.meta.matchday && GameState.meta.matchday > 1) ? 'season' : 'preseason';
-            }
-            if (!GameState.meta.preseasonWeek) {
-                GameState.meta.preseasonWeek = 1;
-            }
-            GameState.schedule = parsed.schedule || {};
-            GameState.preseason = parsed.preseason || null;
-            GameState.lastMatchReport = parsed.lastMatchReport || null;
-            GameState.lastSeasonDevelopmentReport = parsed.lastSeasonDevelopmentReport || null;
-            GameState.tactics = {
-                formation: "4-4-2",
-                mentality: "normal",
-                aggression: "normal",
-                lineup: [],
-                bench: [],
-                ...(parsed.tactics || {})
-            };
-            GameState.youthAcademy = {
-                clubId: null,
-                players: [],
-                ...(parsed.youthAcademy || {})
-            };
-            GameState.sponsors = {
-                clubId: null,
-                main: null,
-                boards: null,
-                offersMain: [],
-                offersBoards: [],
-                ...(parsed.sponsors || {})
-            };
-            GameState.stadiumProject = parsed.stadiumProject || null;
-            GameState.inbox = Array.isArray(parsed.inbox) ? parsed.inbox : [];
-            GameState.catchUps = Array.isArray(parsed.catchUps) ? parsed.catchUps : [];
-            GameState.staff = parsed.staff || {};
-            GameState.staffOffers = Array.isArray(parsed.staffOffers) ? parsed.staffOffers : [];
-            GameState.negoBlocks = parsed.negoBlocks || {};
-            GameState.winterBreak = parsed.winterBreak || null;
-            GameState.lastBreakReport = parsed.lastBreakReport || null;
-            setStatus("Spielstand geladen.");
-        } catch (e) {
-            console.error("Fehler beim Laden:", e);
+    if (!saved) return;
+    try {
+        const parsed = JSON.parse(saved);
+        GameState = { ...GameState, ...parsed };
+        GameState.meta = { ...GameState.meta, ...(parsed.meta || {}) };
+        if (!GameState.meta.phase) {
+            GameState.meta.phase = (GameState.meta.matchday && GameState.meta.matchday > 1) ? 'season' : 'preseason';
         }
+        if (!GameState.meta.preseasonWeek) GameState.meta.preseasonWeek = 1;
+        GameState.schedule = parsed.schedule || {};
+        GameState.preseason = parsed.preseason || null;
+        GameState.lastMatchReport = parsed.lastMatchReport || null;
+        GameState.lastSeasonDevelopmentReport = parsed.lastSeasonDevelopmentReport || null;
+        GameState.tactics = { formation: "4-4-2", mentality: "normal", aggression: "normal", lineup: [], bench: [], ...(parsed.tactics || {}) };
+        GameState.youthAcademy = { clubId: null, players: [], ...(parsed.youthAcademy || {}) };
+        GameState.sponsors = { clubId: null, main: null, boards: null, offersMain: [], offersBoards: [], ...(parsed.sponsors || {}) };
+        GameState.stadiumProject = parsed.stadiumProject || null;
+        GameState.inbox = Array.isArray(parsed.inbox) ? parsed.inbox : [];
+        GameState.catchUps = Array.isArray(parsed.catchUps) ? parsed.catchUps : [];
+        GameState.staff = parsed.staff || {};
+        GameState.staffOffers = Array.isArray(parsed.staffOffers) ? parsed.staffOffers : [];
+        GameState.negoBlocks = parsed.negoBlocks || {};
+        GameState.winterBreak = parsed.winterBreak || null;
+        GameState.lastBreakReport = parsed.lastBreakReport || null;
+        GameState.cups = parsed.cups || null;
+        GameState.prevStandings = parsed.prevStandings || {};
+        GameState.cupHistory = parsed.cupHistory || {};
+        GameState.finance = parsed.finance || null;
+        setStatus("Spielstand geladen.");
+    } catch (e) {
+        console.error("Fehler beim Laden:", e);
     }
 }
 
 function resetGame() {
     if (confirm("Wirklich kompletten Spielstand und alle eingespielten Updates löschen?")) {
         localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(DB_STORAGE_KEY);
         window.location.href = 'start.html';
     }
 }
 
 function switchToView(viewName) {
+    const navView = viewName === 'cups' ? 'league' : viewName;
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-    const targetBtn = document.querySelector(`.nav-btn[data-view="${viewName}"]`);
+    const targetBtn = document.querySelector(`.nav-btn[data-view="${navView}"]`);
     if (targetBtn) targetBtn.classList.add('active');
     selectedSwapSource = null;
     activeTransferTargetId = null;
@@ -116,7 +111,7 @@ function switchToView(viewName) {
 }
 
 // ==========================================
-// SPIELER-STATISTIKEN, MOTIVATION & TALENT (v0.9)
+// SPIELER-STATISTIKEN, MOTIVATION & TALENT
 // ==========================================
 function computeDefaultTalent(player) {
     const age = player.age || 25;
@@ -135,6 +130,7 @@ function ensurePlayerStatsInitialized() {
         if (typeof p.seasonMinutes !== 'number') p.seasonMinutes = 0;
         if (typeof p.seasonGoals !== 'number') p.seasonGoals = 0;
         if (typeof p.seasonCleanSheets !== 'number') p.seasonCleanSheets = 0;
+        if (typeof p.cupGoals !== 'number') p.cupGoals = 0;
         if (typeof p.motivation !== 'number') p.motivation = 78;
         if (typeof p.talent !== 'number') p.talent = computeDefaultTalent(p);
         if (typeof p.campDevBonus !== 'number') p.campDevBonus = 0;
@@ -166,10 +162,8 @@ function applyUpdatePackage(updateData) {
         alert("Ungültiges Update-Paket! 'updateId' oder 'type' fehlt.");
         return false;
     }
-
     if (updateData.leagues) Object.assign(GameState.leagues, updateData.leagues);
     if (updateData.clubs) Object.assign(GameState.clubs, updateData.clubs);
-
     if (Array.isArray(updateData.players)) {
         updateData.players.forEach(newPlayer => {
             newPlayer.rating = Math.max(0.0, Math.min(10.0, parseFloat(newPlayer.rating.toFixed(1))));
@@ -178,18 +172,18 @@ function applyUpdatePackage(updateData) {
             else GameState.players.push(newPlayer);
         });
     }
-
     if (updateData.competitions) Object.assign(GameState.competitions, updateData.competitions);
-
+    applyPackageToDatabaseSnapshot(updateData);
     GameState.meta.installedUpdates.push({
         id: updateData.updateId,
         name: updateData.name || updateData.updateId,
         type: updateData.type,
         date: new Date().toLocaleString('de-DE')
     });
-
+    GameState.meta.salaryCalib = null;
     ensurePlayerStatsInitialized();
     ensureFreeAgentsInitialized();
+    ensureSalaryCalibration();
     ensureClubStadiumInitialized();
     ensureAllSchedulesInitialized(false);
     saveGame();
@@ -205,7 +199,7 @@ function setupNavigation() {
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             if (liveMatchState) {
-                setStatus("🔴 Live-Spieltag läuft! Schließe erst das Spiel ab.");
+                setStatus("🔴 Live-Spiel läuft! Schließe erst das Spiel ab.");
                 switchToView('liveticker');
                 return;
             }
@@ -226,13 +220,9 @@ function setupNavigation() {
 
     document.getElementById('btn-next-day').addEventListener('click', () => {
         if (liveMatchState) {
-            if (liveMatchState.phase === 'FULLTIME') {
-                finalizeLiveMatchday();
-            } else if (liveMatchState.phase === 'HALFTIME') {
-                startSecondHalf();
-            } else {
-                toggleLivePause();
-            }
+            if (liveMatchState.phase === 'FULLTIME') finalizeLiveMatchday();
+            else if (liveMatchState.phase === 'HALFTIME') startSecondHalf();
+            else toggleLivePause();
             return;
         }
         if (GameState.meta.phase === 'preseason' || GameState.meta.phase === 'winter') {
@@ -254,8 +244,9 @@ function renderHeader() {
     const phase = GameState.meta.phase;
     const dateISO = (liveMatchState && liveMatchState.dateISO) || GameState.meta.currentDate || getCurrentGameDate();
     if (phaseLabelEl) phaseLabelEl.textContent = formatGameDate(dateISO).toUpperCase();
+
     if (liveMatchState) {
-        dateEl.textContent = liveMatchState.isCatchUp ? `🔴 NACHHOL.` : `🔴 ST ${liveMatchState.matchday}`;
+        dateEl.textContent = `🔴 ${liveMatchState.shortLabel || 'ST ' + liveMatchState.matchday}`;
         if (nextBtn) {
             if (liveMatchState.phase === 'FULLTIME') nextBtn.textContent = "🏢 INS BÜRO ▶";
             else if (liveMatchState.phase === 'HALFTIME') nextBtn.textContent = "▶ 2. HZ";
@@ -269,23 +260,25 @@ function renderHeader() {
         dateEl.textContent = `❄️ WP W${GameState.winterBreak.currentWeek}/${GameState.winterBreak.totalWeeks}`;
         if (nextBtn) nextBtn.textContent = `WOCHE ${GameState.winterBreak.currentWeek} ▶`;
     } else {
-        const maxMd = club ? getLeagueTotalMatchdays(club.leagueId) : 34;
-        const userCU = getDueUserCatchUp();
-        if (userCU) {
-            dateEl.textContent = `NACHHOLSPIEL`;
-            if (nextBtn) nextBtn.textContent = "NACHHOLSPIEL ▶";
+        const ev = getNextUserEvent();
+        const desc = describeUserEvent(ev);
+        if (desc) {
+            dateEl.textContent = desc.short;
+            if (nextBtn) nextBtn.textContent = ev.type === 'league' ? "SPIELTAG ▶" : `${desc.short} ▶`;
         } else {
-            dateEl.textContent = GameState.meta.matchday > maxMd ? "SAISONENDE" : `ST ${GameState.meta.matchday}/${maxMd}`;
-            if (nextBtn) nextBtn.textContent = "SPIELTAG ▶";
+            const pending = getPendingEvents().length;
+            dateEl.textContent = pending > 0 ? "RESTSPIELE" : "SAISONENDE";
+            if (nextBtn) nextBtn.textContent = pending > 0 ? "WEITER ▶" : "ABSCHLUSS ▶";
         }
     }
+
     if (club) {
         const league = GameState.leagues[club.leagueId];
         clubNameEl.textContent = club.name.toUpperCase();
         leagueInfoEl.textContent = `${league ? league.name : ''} • Mgr: ${GameState.meta.managerName}`;
         budgetEl.textContent = formatMoneyShort(club.budget);
     }
-    // Postfach-Badge am Büro-Button
+
     const officeBtn = document.querySelector('.nav-btn[data-view="office"]');
     if (officeBtn) {
         let badge = officeBtn.querySelector('.nav-badge');
@@ -305,50 +298,19 @@ function renderHeader() {
 
 function renderView(viewName) {
     const viewport = document.getElementById('main-viewport');
-
     switch (viewName) {
-        case 'office':
-            renderOfficeView(viewport);
-            break;
-
-        case 'calendar':
-            renderCalendarView(viewport);
-            break;
-
-        case 'squad':
-            renderSquadAndMarketView(viewport);
-            break;
-
-        case 'tactics':
-            renderTacticsView(viewport);
-            break;
-
-        case 'contracts':
-            renderContractsView(viewport);
-            break;
-
-        case 'sponsors':
-            renderSponsorsView(viewport);
-            break;
-
-        case 'stadium':
-            renderStadiumView(viewport);
-            break;
-
-        case 'liveticker':
-            renderLiveTickerView(viewport);
-            break;
-
-        case 'league':
-            renderLeagueView(viewport);
-            break;
-
-        case 'admin':
-            renderAdminView(viewport);
-            break;
-
-        default:
-            renderOfficeView(viewport);
+        case 'office': renderOfficeView(viewport); break;
+        case 'calendar': renderCalendarView(viewport); break;
+        case 'squad': renderSquadAndMarketView(viewport); break;
+        case 'tactics': renderTacticsView(viewport); break;
+        case 'contracts': renderContractsView(viewport); break;
+        case 'sponsors': renderSponsorsView(viewport); break;
+        case 'stadium': renderStadiumView(viewport); break;
+        case 'liveticker': renderLiveTickerView(viewport); break;
+        case 'league': renderLeagueView(viewport); break;
+        case 'cups': renderCupsView(viewport); break;
+        case 'admin': renderAdminView(viewport); break;
+        default: renderOfficeView(viewport);
     }
 }
 
@@ -356,16 +318,17 @@ function renderView(viewName) {
 // HILFSFUNKTIONEN
 // ==========================================
 function formatMoneyShort(amount) {
+    // Mio-Beträge mit 1 Nachkommastelle – oder 2, wenn sonst zwei verschiedene Beträge gleich aussähen (z. B. 8,15 Mio)
     if (Math.abs(amount) >= 1000000) {
-        return (amount / 1000000).toFixed(1).replace('.', ',') + ' Mio';
+        const v = amount / 1000000;
+        const oneDec = Math.abs(v * 10 - Math.round(v * 10)) < 1e-6;
+        return v.toFixed(oneDec ? 1 : 2).replace('.', ',') + ' Mio';
     }
-    if (Math.abs(amount) >= 1000) {
-        return Math.round(amount / 1000) + 'k €';
-    }
-    return amount + ' €';
+    if (Math.abs(amount) >= 1000) return Math.round(amount / 1000) + 'k €';
+    return Math.round(amount) + ' €';
 }
 
 function setStatus(msg) {
-    document.getElementById('status-message').textContent = msg;
+    const el = document.getElementById('status-message');
+    if (el) el.textContent = msg;
 }
-

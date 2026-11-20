@@ -35,19 +35,18 @@ function ensureFreeAgentsInitialized() {
     if (added) saveGame();
 }
 
+// Marktwert: steile Kurve (Top-Spieler sehr teuer, Zweitliga-Spieler 1–3 Mio)
 function calculateMarketValue(player) {
     if (!player) return 0;
     const r = Math.max(0.0, Math.min(10.0, player.rating || 5.0));
-    let base = Math.pow(r / 10, 4.3) * 125000000;
-    if (base < 150000) base = 150000;
-
+    let base = Math.pow(r / 10, 9) * 150000000;
     const age = player.age || 25;
     if (age <= 20) base *= 1.30;
     else if (age <= 23) base *= 1.15;
     else if (age >= 34) base *= 0.40;
     else if (age >= 31) base *= 0.62;
     else if (age >= 28) base *= 0.85;
-
+    if (base < 100000) base = 100000;
     if (base >= 10000000) return Math.round(base / 500000) * 500000;
     if (base >= 1000000) return Math.round(base / 100000) * 100000;
     return Math.round(base / 50000) * 50000;
@@ -72,15 +71,35 @@ function calculateSellPrice(player) {
     return Math.max(100000, Math.round((val * 0.80) / 50000) * 50000);
 }
 
-function calculateExpectedSalary(player) {
+// Rohformel Gehalt (vor Kalibrierung)
+function rawExpectedSalary(player) {
     const r = Math.max(0.0, Math.min(10.0, player.rating || 5.0));
-    let sal = Math.pow(r / 10, 4.0) * 24000000;
+    let sal = Math.pow(r / 10, 8.5) * 40000000;
     const age = player.age || 25;
     if (age >= 34) sal *= 0.72;
     else if (age >= 31) sal *= 0.86;
-    if (sal < 180000) sal = 180000;
-    if (sal >= 1000000) return Math.round(sal / 100000) * 100000;
-    return Math.round(sal / 25000) * 25000;
+    return sal;
+}
+
+// Gehaltsniveau einmalig an der eingespielten Datenbank ausrichten (Median der echten Gehälter)
+function ensureSalaryCalibration() {
+    if (typeof GameState.meta.salaryCalib === 'number') return;
+    const ratios = GameState.players
+        .filter(p => p.clubId && p.clubId !== 'free' && (p.salary || 0) > 0 && !String(p.id).startsWith('gen_') && !String(p.id).startsWith('pro_'))
+        .map(p => p.salary / Math.max(1, rawExpectedSalary(p)))
+        .sort((a, b) => a - b);
+    let calib = 1;
+    if (ratios.length >= 5) calib = ratios[Math.floor(ratios.length / 2)];
+    GameState.meta.salaryCalib = Math.max(0.3, Math.min(3, calib));
+}
+
+// Marktübliches Jahresgehalt
+function calculateExpectedSalary(player) {
+    const calib = typeof GameState.meta.salaryCalib === 'number' ? GameState.meta.salaryCalib : 1;
+    let sal = rawExpectedSalary(player) * calib;
+    if (sal < 120000) sal = 120000;
+    if (sal >= 1000000) return Math.round(sal / 50000) * 50000;
+    return Math.round(sal / 10000) * 10000;
 }
 
 function ensureYouthPool(forceRegenerate = false) {
@@ -138,24 +157,39 @@ function ensureYouthPool(forceRegenerate = false) {
 // ==========================================
 // MODUL: VERTRÄGE (SPIELER & TRAINERSTAB) – VERHANDLUNG PER KLICK
 // ==========================================
+
+// Referenzgehalt = marktübliches Gehalt (Basis der Gehaltsstufen)
+function getPlayerReferenceSalary(player) {
+    return calculateExpectedSalary(player);
+}
+
+function salaryForStep(player, step) {
+    const v = getPlayerReferenceSalary(player) * step;
+    return v >= 1000000 ? Math.round(v / 50000) * 50000 : Math.round(v / 10000) * 10000;
+}
+
 function computePlayerReservation(player, kind) {
-    let r = negoRandomReservation(0.92, 1.10);
+    let r = negoRandomReservation(0.95, 1.08);
     const mot = player.motivation || 78;
+    const ref = getPlayerReferenceSalary(player);
     if (kind === 'contract') {
         if (mot >= 85) r -= 0.05;
         else if (mot < 55) r += 0.08;
         if (player.isYouthProduct) r -= 0.03;
+        // Wer aktuell mehr verdient als marktüblich, will keine großen Einbußen
+        if ((player.salary || 0) > ref) r += Math.min(0.15, ((player.salary / ref) - 1) * 0.5);
     } else {
         const myAvg = getClubAverageRating(GameState.activeClubId);
-        if (player.rating > myAvg + 0.8) r += 0.06; // Star will mehr bei einem kleineren Verein
+        if (player.rating > myAvg + 0.8) r += 0.06;
         if (player.clubId === 'free') r -= 0.03;
     }
     return r;
 }
 
-function playerOfferScore(player, salaryMult, years, bonus) {
-    const expected = calculateExpectedSalary(player);
-    let score = salaryMult + (bonus / Math.max(1, expected * years)) * 0.9;
+// Score eines Angebots (1.0 = marktüblich). Ohne Zufall -> Tipps sind exakt reproduzierbar.
+function playerOfferScore(player, salaryStep, years, bonus) {
+    const ref = getPlayerReferenceSalary(player);
+    let score = salaryStep + (bonus / Math.max(1, ref * years)) * 0.9;
     const age = player.age || 25;
     if (age >= 30) score += 0.03 * (years - 2);   // Ältere wollen Sicherheit
     if (age <= 22) score -= 0.01 * Math.max(0, years - 3);
@@ -165,13 +199,12 @@ function playerOfferScore(player, salaryMult, years, bonus) {
 function buildPlayerNegoOptions(player, kind) {
     const n = activeNegotiation;
     const seasonEnd = getCurrentSeasonEndYear();
-    const expected = calculateExpectedSalary(player);
     const yearOpts = (kind === 'contract' ? [1, 2, 3, 4] : [2, 3, 4]).map(y => ({
         value: y,
         label: kind === 'contract' ? `+${y} J. (bis ${seasonEnd + y})` : `${y} Jahre (bis ${seasonEnd + y})`
     }));
-    const salOpts = SALARY_STEPS.map(s => ({ value: s.value, label: `${formatMoneyShort(Math.round(expected * s.value))} (${s.label})` }));
-    const bonusOpts = [0, 250000, 750000, 1500000].map(b => ({ value: b, label: b === 0 ? 'Kein Handgeld' : `${formatMoneyShort(b)} Handgeld` }));
+    const salOpts = SALARY_STEPS.map(s => ({ value: s.value, label: `${formatMoneyShort(salaryForStep(player, s.value))} (${s.label})` }));
+    const bonusOpts = [0, 250000, 750000, 1500000, 3000000].map(b => ({ value: b, label: b === 0 ? 'Kein Handgeld' : `${formatMoneyShort(b)} Handgeld` }));
     return `
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
             ${negoSelectHtml('nego-years', 'LAUFZEIT', yearOpts, n.sel.years ?? (kind === 'contract' ? 2 : 3))}
@@ -189,11 +222,19 @@ function readPlayerNegoSelection() {
     };
 }
 
-function playerHintBuilder(player) {
-    const expected = calculateExpectedSalary(player);
-    return (res, mood) => mood === 'positive'
-        ? `Sein Berater deutet an: ca. ${formatMoneyShort(Math.round(expected * res / 10000) * 10000)}/J. würden reichen.`
-        : (mood === 'skeptical' ? 'Er erwartet spürbar mehr (Gehalt, Handgeld oder längere Laufzeit).' : 'Das Angebot liegt weit unter seinen Vorstellungen!');
+// Berater-Tipp: bezieht sich auf die AKTUELL gewählte Laufzeit + Handgeld und nennt die kleinste
+// Gehaltsstufe, die wirklich reicht. Diese liegt immer über dem gerade abgelehnten Angebot.
+function playerHintBuilder(player, sel) {
+    return (res, mood) => {
+        const step = findSufficientStep(SALARY_STEPS, v => playerOfferScore(player, v, sel.years, sel.bonus), res);
+        if (mood === 'positive' || mood === 'skeptical') {
+            if (step) return `Berater-Tipp: Bei ${sel.years} J. Laufzeit${sel.bonus > 0 ? ' und gleichem Handgeld' : ''} würden ${formatMoneyShort(salaryForStep(player, step.value))}/J. reichen.`;
+            return 'Berater-Tipp: Mit dieser Laufzeit reicht selbst das Höchstgehalt nicht – biete Handgeld an oder ändere die Laufzeit.';
+        }
+        return step && step.value <= 1.15
+            ? 'Das Angebot liegt weit unter seinen Vorstellungen – er erwartet mindestens ein marktübliches Gehalt.'
+            : 'Das Angebot liegt weit unter seinen Vorstellungen!';
+    };
 }
 
 function renderContractsView(viewport) {
@@ -211,14 +252,9 @@ function renderContractsView(viewport) {
         bodyHtml = buildStaffTabHtml();
     } else {
         let filtered = [...squad];
-        if (contractFilter === 'EXPIRING') {
-            filtered = filtered.filter(p => (p.contractUntil || seasonEnd) <= seasonEnd);
-        }
-        if (contractFilter === 'TOP') {
-            filtered.sort((a, b) => (b.salary || 0) - (a.salary || 0));
-        } else {
-            filtered.sort((a, b) => (a.contractUntil - b.contractUntil) || (b.rating - a.rating));
-        }
+        if (contractFilter === 'EXPIRING') filtered = filtered.filter(p => (p.contractUntil || seasonEnd) <= seasonEnd);
+        if (contractFilter === 'TOP') filtered.sort((a, b) => (b.salary || 0) - (a.salary || 0));
+        else filtered.sort((a, b) => (a.contractUntil - b.contractUntil) || (b.rating - a.rating));
 
         let negotiationHtml = "";
         if (activeNegotiation && activeNegotiation.kind === 'contract') {
@@ -227,10 +263,10 @@ function renderContractsView(viewport) {
                 negotiationHtml = buildNegotiationPanelHtml({
                     title: `✍️ VERLÄNGERUNG: ${player.name}`,
                     infoHtml: `<p>Pos: <strong>${player.pos}</strong> | Alter: <strong>${player.age}</strong> | Stärke: <strong>${player.rating.toFixed(1)}</strong> | ${getMotivationIcon(player.motivation)} <strong>${player.motivation || 78}%</strong></p>
-                               <p>Aktuell: <strong>${formatMoneyShort(player.salary)}/J.</strong> bis <strong>${player.contractUntil}</strong> • Marktübliches Gehalt: <strong>${formatMoneyShort(calculateExpectedSalary(player))}</strong></p>`,
+                               <p>Aktuell: <strong>${formatMoneyShort(player.salary)}/J.</strong> bis <strong>${player.contractUntil}</strong> • Marktüblich: <strong>${formatMoneyShort(getPlayerReferenceSalary(player))}/J.</strong></p>`,
                     optionsHtml: buildPlayerNegoOptions(player, 'contract'),
                     successText: `${player.name} hat verlängert – bis ${player.contractUntil} für ${formatMoneyShort(player.salary)}/J.`,
-                    abortText: `${player.name} hat die Gespräche abgebrochen. Ein neuer Anlauf ist frühestens in 3 Wochen/Spieltagen möglich.`
+                    abortText: `${player.name} hat die Gespräche abgebrochen. Ein neuer Anlauf ist frühestens in 3 Wochen/Spielen möglich.`
                 });
             }
         }
@@ -250,16 +286,7 @@ function renderContractsView(viewport) {
                 </div>
                 ${filtered.length === 0 ? '<p style="font-size:0.76rem;">Keine Spieler in dieser Filteransicht.</p>' : `
                 <table class="bmh-table">
-                    <thead>
-                        <tr>
-                            <th style="width:11%;">POS</th>
-                            <th style="width:33%;">SPIELER</th>
-                            <th style="width:11%;">STÄ</th>
-                            <th style="width:17%;">GEHALT</th>
-                            <th style="width:13%;">BIS</th>
-                            <th style="width:15%;">AKT.</th>
-                        </tr>
-                    </thead>
+                    <thead><tr><th style="width:11%;">POS</th><th style="width:33%;">SPIELER</th><th style="width:11%;">STÄ</th><th style="width:17%;">GEHALT</th><th style="width:13%;">BIS</th><th style="width:15%;">AKT.</th></tr></thead>
                     <tbody>
                         ${filtered.map(p => {
                             const yrsLeft = (p.contractUntil || seasonEnd) - seasonEnd;
@@ -270,16 +297,12 @@ function renderContractsView(viewport) {
                             return `
                             <tr>
                                 <td><strong>${p.pos}</strong></td>
-                                <td title="${p.name} (${p.age} J.)">
-                                    <strong>${p.name}</strong><br>
-                                    <span style="font-size:0.62rem; color:#444;">${p.age} Jahre • ${getMotivationIcon(p.motivation)}${p.motivation || 78}%</span>
-                                </td>
+                                <td title="${p.name} (${p.age} J.)"><strong>${p.name}</strong><br><span style="font-size:0.62rem; color:#444;">${p.age} Jahre • ${getMotivationIcon(p.motivation)}${p.motivation || 78}%</span></td>
                                 <td><strong>${p.rating.toFixed(1)}</strong></td>
                                 <td>${formatMoneyShort(p.salary)}</td>
                                 <td><span class="contract-pill ${pillClass}">'${String(p.contractUntil).slice(-2)}</span></td>
                                 <td><button type="button" class="mini-action-btn btn-open-contract" data-pid="${p.id}" ${blocked ? 'disabled style="opacity:0.5;" title="Gesprächssperre"' : ''}>${blocked ? '🔒' : 'VERL.'}</button></td>
-                            </tr>
-                        `;
+                            </tr>`;
                         }).join('')}
                     </tbody>
                 </table>`}
@@ -290,14 +313,8 @@ function renderContractsView(viewport) {
     viewport.innerHTML = `
         <h2 class="section-title">✍️ VERTRÄGE & TRAINERSTAB</h2>
         <div class="kpi-grid">
-            <div class="kpi-card">
-                <span class="kpi-label">GEHÄLTER SPIELER / STAB</span>
-                <span class="kpi-value">${formatMoneyShort(totalAnnualSalary)} / ${formatMoneyShort(staffCost)}</span>
-            </div>
-            <div class="kpi-card">
-                <span class="kpi-label">KOSTEN PRO SPIELTAG</span>
-                <span class="kpi-value">${formatMoneyShort(perMatchSalary)}</span>
-            </div>
+            <div class="kpi-card"><span class="kpi-label">GEHÄLTER SPIELER / STAB</span><span class="kpi-value">${formatMoneyShort(totalAnnualSalary)} / ${formatMoneyShort(staffCost)}</span></div>
+            <div class="kpi-card"><span class="kpi-label">KOSTEN PRO LIGA-SPIELTAG</span><span class="kpi-value">${formatMoneyShort(perMatchSalary)}</span></div>
         </div>
         <div class="sub-tab-bar two-tabs">
             <button type="button" class="sub-tab-btn ${contractsSubTab === 'players' ? 'active' : ''}" data-ctab="players">👥 SPIELER</button>
@@ -320,10 +337,7 @@ function renderContractsView(viewport) {
     }
 
     viewport.querySelectorAll('[data-cfilter]').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            contractFilter = e.currentTarget.dataset.cfilter;
-            renderContractsView(viewport);
-        });
+        btn.addEventListener('click', (e) => { contractFilter = e.currentTarget.dataset.cfilter; renderContractsView(viewport); });
     });
     viewport.querySelectorAll('.btn-open-contract').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -356,20 +370,19 @@ function renderContractsView(viewport) {
                     alert(`${player.name} (${player.age} J.): "In meinem Alter unterschreibe ich maximal für 1 oder 2 Jahre!" (kein Versuch verbraucht)`);
                     return;
                 }
-                const expected = calculateExpectedSalary(player);
-                const newSalary = Math.round(expected * sel.salary / 10000) * 10000;
+                const newSalary = salaryForStep(player, sel.salary);
                 const offerLabel = `${formatMoneyShort(newSalary)}/J., +${sel.years} J.${sel.bonus > 0 ? ', ' + formatMoneyShort(sel.bonus) + ' HG' : ''}`;
-                const n = negoSubmit(playerOfferScore(player, sel.salary, sel.years, sel.bonus), offerLabel, playerHintBuilder(player));
+                const n = negoSubmit(playerOfferScore(player, sel.salary, sel.years, sel.bonus), offerLabel, playerHintBuilder(player, sel));
                 const mood = n.log[n.log.length - 1].mood;
                 if (n.status === 'accepted') {
-                    club.budget -= sel.bonus;
+                    bookMoney('transfersOut', -sel.bonus);
                     player.salary = newSalary;
                     player.contractUntil = seasonEnd + sel.years;
                     adjustPlayerMotivation(player, 6);
                     setStatus(`✍️ ${player.name} verlängert bis ${player.contractUntil} (${formatMoneyShort(newSalary)}/J.)!`);
                 } else if (n.status === 'aborted') {
                     adjustPlayerMotivation(player, -6);
-                    addInbox('🚪', `Vertragsgespräche mit ${player.name} gescheitert`, `${player.name} hat die Verhandlungen über eine Vertragsverlängerung abgebrochen und ist enttäuscht (-6% Motivation). Ein neuer Versuch ist frühestens in 3 Wochen/Spieltagen möglich.`, 'contract');
+                    addInbox('🚪', `Vertragsgespräche mit ${player.name} gescheitert`, `${player.name} hat die Verhandlungen über eine Vertragsverlängerung abgebrochen und ist enttäuscht (-6% Motivation). Ein neuer Versuch ist frühestens in 3 Wochen/Spielen möglich.`, 'contract');
                 } else if (mood === 'angry') {
                     adjustPlayerMotivation(player, -2);
                 }
@@ -384,6 +397,9 @@ function renderContractsView(viewport) {
 // ==========================================
 // TRAINERSTAB
 // ==========================================
+const STAFF_SALARY_STEPS = [0.85, 0.90, 0.95, 1.00, 1.05, 1.10, 1.15, 1.20, 1.30].map(v => ({ value: v, label: v === 1 ? 'Forderung' : `${v > 1 ? '+' : '-'}${Math.round(Math.abs(v - 1) * 100)}%` }));
+const staffScore = (step, years) => step + 0.02 * (years - 1);
+
 function buildStaffTabHtml() {
     ensureStaffOffersInitialized(false);
     const isPreseason = GameState.meta.phase === 'preseason';
@@ -394,7 +410,7 @@ function buildStaffTabHtml() {
         if (cand) {
             const role = STAFF_ROLES[cand.role];
             const n = activeNegotiation;
-            const salOpts = [0.85, 0.95, 1.0, 1.1, 1.2].map(m => ({ value: m, label: `${formatMoneyShort(Math.round(cand.salary * m))} (${m === 1 ? 'Forderung' : (m < 1 ? '-' : '+') + Math.round(Math.abs(m - 1) * 100) + '%'})` }));
+            const salOpts = STAFF_SALARY_STEPS.map(s => ({ value: s.value, label: `${formatMoneyShort(Math.round(cand.salary * s.value / 10000) * 10000)} (${s.label})` }));
             const yearOpts = [1, 2, 3].map(y => ({ value: y, label: `${y} ${y === 1 ? 'Jahr' : 'Jahre'} (bis ${seasonEnd + y - 1})` }));
             negotiationHtml = buildNegotiationPanelHtml({
                 title: `${role.icon} ${role.title.toUpperCase()}: ${cand.name}`,
@@ -415,10 +431,7 @@ function buildStaffTabHtml() {
         const offers = GameState.staffOffers.filter(o => o.role === roleKey);
         return `
             <div class="sponsor-card ${cur ? 'active-deal' : ''}">
-                <div class="sponsor-card-header">
-                    <strong>${role.icon} ${role.title}</strong>
-                    <span class="sponsor-tag">${cur ? 'BESETZT' : 'VAKANT'}</span>
-                </div>
+                <div class="sponsor-card-header"><strong>${role.icon} ${role.title}</strong><span class="sponsor-tag">${cur ? 'BESETZT' : 'VAKANT'}</span></div>
                 <p style="font-size:0.66rem; color:#444;">${role.desc}</p>
                 ${cur ? `
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-top:4px; font-size:0.72rem;">
@@ -455,10 +468,7 @@ function bindStaffTabEvents(viewport) {
             const sid = e.currentTarget.dataset.sid;
             const cand = GameState.staffOffers.find(o => o.id === sid);
             if (!cand) return;
-            negoStart({
-                kind: 'staff', voice: 'staff', key: 'staff:' + sid, targetId: sid, name: cand.name,
-                reservation: negoRandomReservation(0.88, 1.08) + 0.03 * (cand.quality - 3)
-            });
+            negoStart({ kind: 'staff', voice: 'staff', key: 'staff:' + sid, targetId: sid, name: cand.name, reservation: negoRandomReservation(0.90, 1.08) + 0.02 * (cand.quality - 3) });
             renderContractsView(viewport);
             document.getElementById('main-viewport').scrollTop = 0;
         });
@@ -470,7 +480,7 @@ function bindStaffTabEvents(viewport) {
             if (!cur || !club) return;
             const severance = Math.round(cur.salary * 0.5 / 10000) * 10000;
             if (!confirm(`${cur.name} wirklich entlassen? Abfindung: ${formatMoneyShort(severance)}`)) return;
-            club.budget -= severance;
+            bookMoney('staff', -severance);
             GameState.staff[roleKey] = null;
             addInbox(STAFF_ROLES[roleKey].icon, `${STAFF_ROLES[roleKey].title} entlassen`, `${cur.name} wurde freigestellt. Abfindung: ${formatMoneyShort(severance)}.`, 'staff');
             saveGame();
@@ -488,12 +498,14 @@ function bindStaffTabEvents(viewport) {
                 const years = parseInt(document.getElementById('nego-staff-years').value, 10) || 2;
                 activeNegotiation.sel = { salary: salMult, years };
                 const salary = Math.round(cand.salary * salMult / 10000) * 10000;
-                const score = salMult + 0.02 * (years - 1);
-                const n = negoSubmit(score, `${formatMoneyShort(salary)}/J., ${years} J.`, (res, mood) =>
-                    mood === 'positive' ? `Mit ca. ${formatMoneyShort(Math.round(cand.salary * res / 10000) * 10000)}/J. wäre er dabei.` : '');
+                const n = negoSubmit(staffScore(salMult, years), `${formatMoneyShort(salary)}/J., ${years} J.`, (res, mood) => {
+                    if (mood === 'angry') return '';
+                    const step = findSufficientStep(STAFF_SALARY_STEPS, v => staffScore(v, years), res);
+                    return step ? `Bei ${years} J. Laufzeit wäre er mit ${formatMoneyShort(Math.round(cand.salary * step.value / 10000) * 10000)}/J. dabei.` : 'Er erwartet mehr, als du maximal bieten kannst – versuche eine längere Laufzeit.';
+                });
                 if (n.status === 'accepted') {
                     GameState.staff[cand.role] = { ...cand, salary, untilYear: getCurrentSeasonEndYear() + years - 1 };
-                    GameState.staffOffers = GameState.staffOffers.filter(o => o.role !== cand.role || o.id === cand.id).filter(o => o.id !== cand.id);
+                    GameState.staffOffers = GameState.staffOffers.filter(o => o.id !== cand.id);
                     addInbox(STAFF_ROLES[cand.role].icon, `Neuer ${STAFF_ROLES[cand.role].title}`, `${cand.name} (${'★'.repeat(cand.quality)}) hat unterschrieben: ${formatMoneyShort(salary)}/J. bis ${getCurrentSeasonEndYear() + years - 1}.`, 'staff');
                     setStatus(`🤝 ${cand.name} eingestellt!`);
                 } else if (n.status === 'aborted') {
@@ -532,7 +544,7 @@ function renderSquadAndMarketView(viewport) {
 
         <div class="sub-tab-bar">
             <button class="sub-tab-btn ${squadSubTab === 'roster' ? 'active' : ''}" data-subtab="roster">
-                👥 KADER (${mySquad.length})
+                👥 KADER (${mySquad.length}/${MAX_SQUAD_SIZE})
             </button>
             <button class="sub-tab-btn ${squadSubTab === 'market' ? 'active' : ''}" data-subtab="market">
                 💰 TRANSFERMARKT
@@ -699,8 +711,8 @@ function bindRosterTabEvents(viewport) {
         btn.addEventListener('click', (e) => {
             const pid = e.currentTarget.dataset.pid;
             const mySquad = getClubPlayers();
-            if (mySquad.length <= 13) {
-                alert("Dein Kader darf nicht unter 13 Spieler fallen! Verpflichte erst Ersatz.");
+            if (mySquad.length <= MIN_SQUAD_SIZE) {
+                alert(`Dein Kader darf nicht unter ${MIN_SQUAD_SIZE} Spieler fallen! Verpflichte erst Ersatz.`);
                 return;
             }
             activeSellTargetId = pid;
@@ -724,7 +736,7 @@ function bindRosterTabEvents(viewport) {
             if (!club || !player) return;
 
             const sellPrice = calculateSellPrice(player);
-            club.budget += sellPrice;
+            bookMoney('transfersIn', sellPrice);
             player.clubId = "free";
             player.contractUntil = getCurrentSeasonEndYear();
 
@@ -778,10 +790,10 @@ function buildTransferMarketTabHtml() {
                 title: `✍️ TRANSFER: ${target.name}`,
                 infoHtml: `<p>Pos: <strong>${target.pos}</strong> | Stärke: <strong>${target.rating.toFixed(1)}</strong> | Alter: <strong>${target.age}</strong> | Verein: <strong>${sellerName}</strong></p>
                            <p>Ablöse (mit Verein vereinbart): <strong style="color:${canAfford ? '#6ee787' : '#ff8787'};">${fee === 0 ? '0 € (Ablösefrei)' : formatMoneyShort(fee)}</strong> • Budget: ${formatMoneyShort(club.budget)}</p>
-                           <p style="font-size:0.66rem; color:#d3f9d8;">Jetzt verhandelst du mit dem Spieler über seinen persönlichen Vertrag.</p>`,
+                           <p>Aktuelles Gehalt: ${formatMoneyShort(target.salary || 0)}/J. • Marktüblich: <strong>${formatMoneyShort(getPlayerReferenceSalary(target))}/J.</strong> • Kader: ${getClubPlayers().length}/${MAX_SQUAD_SIZE}</p>`,
                 optionsHtml: buildPlayerNegoOptions(target, 'transfer'),
                 successText: `Transfer perfekt! ${target.name} wechselt zu ${club.name}.`,
-                abortText: `${target.name} hat abgesagt. Ein neuer Versuch ist frühestens in 3 Wochen/Spieltagen möglich.`
+                abortText: `${target.name} hat abgesagt. Ein neuer Versuch ist frühestens in 3 Wochen/Spielen möglich.`
             });
         }
     }
@@ -856,6 +868,10 @@ function bindTransferMarketEvents(viewport) {
             const pid = e.currentTarget.dataset.pid;
             const target = GameState.players.find(p => p.id === pid);
             if (!target) return;
+            if (getClubPlayers().length >= MAX_SQUAD_SIZE) {
+                alert(`Dein Kader ist voll (${MAX_SQUAD_SIZE} Spieler). Verkaufe zuerst einen Spieler!`);
+                return;
+            }
             if (isNegoBlocked('player:' + pid)) {
                 alert(`${target.name} ist vorerst nicht gesprächsbereit.`);
                 return;
@@ -872,20 +888,23 @@ function bindTransferMarketEvents(viewport) {
                 const club = GameState.clubs[GameState.activeClubId];
                 const target = GameState.players.find(p => p.id === activeNegotiation.targetId);
                 if (!club || !target) return;
+                if (getClubPlayers().length >= MAX_SQUAD_SIZE) {
+                    alert(`Dein Kader ist voll (${MAX_SQUAD_SIZE} Spieler).`);
+                    return;
+                }
                 const sel = readPlayerNegoSelection();
                 activeNegotiation.sel = sel;
                 const fee = calculateTransferFee(target);
                 if (club.budget < fee + sel.bonus) {
-                    alert(`Nicht genügend Budget! Benötigt: ${formatMoneyShort(fee + sel.bonus)} (Ablöse + Handgeld).`);
+                    alert(`Nicht genügend Budget! Benötigt: ${formatMoneyShort(fee + sel.bonus)} (Ablöse + Handgeld). (kein Versuch verbraucht)`);
                     return;
                 }
-                const expected = calculateExpectedSalary(target);
-                const salary = Math.round(expected * sel.salary / 10000) * 10000;
+                const salary = salaryForStep(target, sel.salary);
                 const offerLabel = `${formatMoneyShort(salary)}/J., ${sel.years} J.${sel.bonus > 0 ? ', ' + formatMoneyShort(sel.bonus) + ' HG' : ''}`;
-                const n = negoSubmit(playerOfferScore(target, sel.salary, sel.years, sel.bonus), offerLabel, playerHintBuilder(target));
+                const n = negoSubmit(playerOfferScore(target, sel.salary, sel.years, sel.bonus), offerLabel, playerHintBuilder(target, sel));
                 if (n.status === 'accepted') {
                     const oldClubName = target.clubId === 'free' ? 'vereinslos' : (GameState.clubs[target.clubId]?.name || '');
-                    club.budget -= fee + sel.bonus;
+                    bookMoney('transfersOut', -(fee + sel.bonus));
                     if (target.clubId && target.clubId !== 'free' && GameState.clubs[target.clubId]) {
                         GameState.clubs[target.clubId].budget += fee;
                     }
@@ -967,7 +986,7 @@ function bindYouthCampEvents(viewport) {
                 alert("Nicht genügend Budget für eine Scouting-Runde (250k € benötigt)!");
                 return;
             }
-            club.budget -= 250000;
+            bookMoney('youth', -250000);
             ensureYouthPool(true);
             renderHeader();
             setStatus("Neue Jugendtalente gescoutet (-250k €)!");
@@ -983,12 +1002,16 @@ function bindYouthCampEvents(viewport) {
             if (!club || yIndex === -1) return;
 
             const talent = GameState.youthAcademy.players[yIndex];
+            if (getClubPlayers().length >= MAX_SQUAD_SIZE) {
+                alert(`Dein Kader ist voll (${MAX_SQUAD_SIZE} Spieler). Verkaufe zuerst einen Spieler!`);
+                return;
+            }
             if (club.budget < talent.fee) {
                 alert(`Nicht genügend Budget für die Ausbildungsgebühr (${formatMoneyShort(talent.fee)})!`);
                 return;
             }
 
-            club.budget -= talent.fee;
+            bookMoney('youth', -talent.fee);
             GameState.players.push({
                 id: `pro_${talent.id}`,
                 clubId: GameState.activeClubId,

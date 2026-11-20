@@ -13,6 +13,7 @@ function renderLiveTickerView(viewport) {
     const st = liveMatchState;
     const um = st.userMatch;
     const leagueName = GameState.leagues[st.userLeagueId]?.name || "Liga";
+    const isCup = st.mode === 'cup';
 
     // Spieluhr-Anzeige
     let clockDisplay = `${st.minute}'`;
@@ -36,7 +37,7 @@ function renderLiveTickerView(viewport) {
     const scoreboardHtml = `
         <div class="live-scoreboard-card" style="padding:7px 9px; margin-bottom:6px;">
             <div class="live-clock-bar" style="margin-bottom:4px;">
-                <span style="color:#99b8a1; font-weight:bold; font-size:0.68rem;">${st.isCatchUp ? '📅 NACHHOLSPIEL • ' : ''}${leagueName.toUpperCase()} • ST ${st.matchday}/${st.totalMds}</span>
+                <span style="color:#99b8a1; font-weight:bold; font-size:0.68rem;">${(st.label || leagueName).toUpperCase()}</span>
                 <span class="live-minute-pill ${pillClass}">${clockDisplay}</span>
             </div>
 
@@ -46,6 +47,7 @@ function renderLiveTickerView(viewport) {
                     <span class="live-score-digits">${um.homeGoals} : ${um.awayGoals}</span>
                     <span class="live-team-name away" title="${um.awayName}">${um.awayName}</span>
                 </div>
+                ${um.pens || um.et ? `<div style="text-align:center; font-size:0.66rem; color:#ffe066;">${um.pens ? 'i.E. ' + um.pens : 'n.V.'}</div>` : ''}
                 <div style="display:flex; justify-content:space-between; font-size:0.62rem; color:#c3dec9; margin-top:3px;">
                     <span>📅 ${formatGameDate(st.dateISO, true)}</span>
                     <span>${getWeather(um.weather).icon} ${getWeather(um.weather).label}</span>
@@ -154,7 +156,7 @@ function renderLiveTickerView(viewport) {
     if (st.phase === 'FULLTIME') {
         fulltimeHtml = `
             <div class="bmh-box" style="background:#184d25; color:#fff; border-color:#e5b822; text-align:center; padding:9px; margin-bottom:6px;">
-                <p style="font-size:0.82rem; color:#e5b822; font-weight:bold;">🏁 SCHLUSSPFIFF • ${st.matchday}. SPIELTAG BEENDET</p>
+                <p style="font-size:0.82rem; color:#e5b822; font-weight:bold;">🏁 SCHLUSSPFIFF • ${st.mode === 'league' ? st.matchday + '. SPIELTAG' : 'SPIEL'} BEENDET</p>
                 <p style="font-size:0.68rem; margin:3px 0 7px 0;">
                     Wechsel: ${st.subsUsed}/${st.maxSubs} • Verletzungen: ${st.injuredIds.length} • Platzverweise: ${st.sentOffIds.length}
                 </p>
@@ -187,10 +189,10 @@ function renderLiveTickerView(viewport) {
             </div>
         `;
     } else if (st.activeSubTab === 'conference') {
-        const leagueMatches = st.leaguesMatches[st.userLeagueId] || [];
+        const leagueMatches = st.leaguesMatches[st.confKey || st.userLeagueId] || [];
         subContentHtml = `
             <div class="bmh-box" style="padding:8px;">
-                <h3 style="font-size:0.82rem; color:#184d25; margin-bottom:6px;">📻 KONFERENZ • ${leagueName.toUpperCase()} (ST ${st.matchday})</h3>
+                <h3 style="font-size:0.82rem; color:#184d25; margin-bottom:6px;">📻 KONFERENZ • ${(st.label || leagueName).toUpperCase()}</h3>
                 ${leagueMatches.map(m => {
                     const lastEv = m.events.length > 0 ? m.events[m.events.length - 1] : null;
                     const lastTxt = lastEv ? `⚽ ${lastEv.minute}' ${lastEv.playerName}` : '';
@@ -207,6 +209,21 @@ function renderLiveTickerView(viewport) {
                 }).join('')}
             </div>
         `;
+    } else if (st.activeSubTab === 'livetable' && isCup) {
+        const comp = GameState.cups.comps[st.cupCtx.compId];
+        const round = comp.rounds[st.cupCtx.roundIdx];
+        if (round.stage === 'league') {
+            const t = computeEuroTable(comp, st.leaguesMatches[comp.id]);
+            subContentHtml = `
+                <div class="bmh-box" style="padding:6px;">
+                    <h3 style="font-size:0.80rem; color:#184d25; margin-bottom:6px;">📊 LIVE-TABELLE LIGAPHASE (${comp.short})</h3>
+                    <table class="bmh-table"><thead><tr><th style="width:14%;">PL</th><th style="width:56%;">VEREIN</th><th style="width:15%;">DIFF</th><th style="width:15%;">PKT</th></tr></thead><tbody>
+                    ${t.map((r, i) => `<tr class="${r.clubId === GameState.activeClubId ? 'table-row-user' : ''}"><td><span class="rank-badge ${i < 8 ? 'cl' : (i < 24 ? 'el' : 'down')}">${i + 1}</span></td><td>${r.name}</td><td>${r.gd > 0 ? '+' + r.gd : r.gd}</td><td><strong>${r.points}</strong></td></tr>`).join('')}
+                    </tbody></table>
+                </div>`;
+        } else {
+            subContentHtml = `<div class="bmh-box" style="font-size:0.74rem;">K.o.-Runde – keine Tabelle. Das Weiterkommen entscheidet sich ${round.stage === 'leg1' ? 'im Rückspiel' : 'heute (ggf. Verlängerung & Elfmeterschießen)'}.</div>`;
+        }
     } else if (st.activeSubTab === 'livetable') {
         const blitz = computeLiveBlitzStandings(st.userLeagueId);
         const league = GameState.leagues[st.userLeagueId];

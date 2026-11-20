@@ -1,14 +1,13 @@
 // ==========================================
 // FC MANAGER 27 - MODUL: WELT
-// Datum & Kalender, Wetter & Spielabsagen, Nachholspiele,
-// Postfach, Geburtstage, Trainerstab, KI-Kader
+// Datum & Kalender, Spielwochen-Slots, Wetter & Spielabsagen,
+// Nachholspiele, Postfach, Geburtstage, Trainerstab, KI-Kader, Finanzen
 // ==========================================
 
 // ==========================================
 // DATUM & SPIELUHR
 // ==========================================
 const WEEKDAYS_DE = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
-const MONTHS_DE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 function toISODate(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
@@ -39,7 +38,7 @@ function getSeasonStartYear() {
 }
 
 function getPreseasonStartDate() {
-    let d = new Date(getSeasonStartYear(), 6, 6); // ab 6. Juli, erster Montag
+    let d = new Date(getSeasonStartYear(), 6, 6);
     while (d.getDay() !== 1) d = addDaysDate(d, 1);
     return d;
 }
@@ -61,7 +60,12 @@ function getFirstHalfLastMatchday(leagueId) {
     return Math.ceil(getLeagueTotalMatchdays(leagueId) / 2);
 }
 
-// Weist jedem Spieltag ein Kalenderdatum zu (Samstag), inkl. Winterpause je nach Land
+function getUserLeagueId() {
+    const club = GameState.clubs[GameState.activeClubId];
+    return club ? club.leagueId : Object.keys(GameState.leagues)[0];
+}
+
+// Jedem Spieltag ein Datum (Samstag) zuweisen – inkl. Winterpause & Länderspielpausen
 function ensureScheduleDates(leagueId) {
     const sched = GameState.schedule[leagueId];
     if (!sched || !Array.isArray(sched.matchdays) || sched.matchdays.length === 0) return;
@@ -69,7 +73,6 @@ function ensureScheduleDates(leagueId) {
     const total = sched.matchdays.length;
     const half = Math.ceil(total / 2);
     const wb = getWinterBreakWeeks(leagueId);
-    // Länderspielpausen (spielfreie Wochenenden)
     const intlBreaks = total <= 34 ? [3, 7, 11] : [4, 12];
     let d = addDaysDate(getPreseasonStartDate(), 33);
     while (d.getDay() !== 6) d = addDaysDate(d, 1);
@@ -93,38 +96,55 @@ function getMatchdayDate(leagueId, md) {
     return toISODate(addDaysDate(fromISODate(last.date), 7 * (md - last.matchday)));
 }
 
+// ==========================================
+// SPIELWOCHEN-SLOTS (englische Wochen)
+// Slot k = Woche VOR Liga-Spieltag k (unter der Woche).
+// Slots > letzter Spieltag = Wochen nach Saisonende (Finals, Nachholspiele).
+// ==========================================
+function getSlotDate(slot, weekdayOffset = -3) {
+    const lid = getUserLeagueId();
+    const total = getLeagueTotalMatchdays(lid);
+    if (slot <= total) return toISODate(addDaysDate(fromISODate(getMatchdayDate(lid, slot)), weekdayOffset));
+    const last = fromISODate(getMatchdayDate(lid, total));
+    return toISODate(addDaysDate(last, 7 * (slot - total) + weekdayOffset));
+}
+
+// Gesperrter Slot: erste Woche nach der Winterpause (fällt in die Pause)
+function isBlockedSlot(slot) {
+    const lid = getUserLeagueId();
+    const half = getFirstHalfLastMatchday(lid);
+    return slot <= 1 || (getWinterBreakWeeks(lid) > 0 && slot === half + 1);
+}
+
 function getWinterWeekDate(week) {
     const wb = GameState.winterBreak;
     if (!wb) return getPreseasonWeekDate(1);
     return toISODate(addDaysDate(fromISODate(wb.startISO), 7 * ((week || 1) - 1)));
 }
 
-// Datum des NÄCHSTEN Ereignisses (Vorbereitungswoche, Spieltag oder Nachholspiel)
+// Datum des NÄCHSTEN eigenen Ereignisses
 function getCurrentGameDate() {
     const club = GameState.clubs[GameState.activeClubId];
     const ph = GameState.meta.phase;
     if (ph === 'preseason') return getPreseasonWeekDate(GameState.meta.preseasonWeek || 1);
     if (ph === 'winter' && GameState.winterBreak) return getWinterWeekDate(GameState.winterBreak.currentWeek || 1);
     if (!club) return getPreseasonWeekDate(1);
-    const userCU = getDueUserCatchUp();
-    if (userCU) return userCU.date;
+    const ev = getNextUserEvent();
+    if (ev && ev.type !== 'league') return ev.date;
     const lid = club.leagueId;
     const total = getLeagueTotalMatchdays(lid);
     const md = GameState.meta.matchday;
     if (md <= total) return getMatchdayDate(lid, md);
+    const pending = getPendingEvents();
+    if (pending.length > 0) return pending[0].date;
     return toISODate(addDaysDate(fromISODate(getMatchdayDate(lid, total)), 2));
 }
 
-// Spieluhr vorstellen: verarbeitet Geburtstage zwischen altem und neuem Datum
 function syncGameClock() {
     const newISO = getCurrentGameDate();
     const oldISO = GameState.meta.currentDate;
-    if (oldISO && newISO > oldISO) {
-        processBirthdays(oldISO, newISO);
-    }
-    if (!oldISO || newISO > oldISO) {
-        GameState.meta.currentDate = newISO;
-    }
+    if (oldISO && newISO > oldISO) processBirthdays(oldISO, newISO);
+    if (!oldISO || newISO > oldISO) GameState.meta.currentDate = newISO;
 }
 
 // ==========================================
@@ -133,9 +153,7 @@ function syncGameClock() {
 function generateBirthday(id) {
     let h = 0;
     for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    const m = 1 + (h % 12);
-    const d = 1 + ((h >>> 5) % 28);
-    return `${pad2(m)}-${pad2(d)}`;
+    return `${pad2(1 + (h % 12))}-${pad2(1 + ((h >>> 5) % 28))}`;
 }
 
 function processBirthdays(oldISO, newISO) {
@@ -178,6 +196,27 @@ function getUnreadInboxCount() {
 }
 
 // ==========================================
+// FINANZEN: ZENTRALE BUCHUNG (Budget + Saison-Buchhaltung)
+// ==========================================
+function ensureFinanceLedger() {
+    if (!GameState.finance || GameState.finance.season !== GameState.meta.season) {
+        const prev = GameState.finance && GameState.finance.season ? GameState.finance : null;
+        GameState.finance = { season: GameState.meta.season, items: {}, lastSeason: prev ? { season: prev.season, items: prev.items } : (GameState.finance?.lastSeason || null) };
+    }
+    return GameState.finance;
+}
+
+function bookMoney(cat, amount, clubId = GameState.activeClubId) {
+    const club = GameState.clubs[clubId];
+    if (!club || !amount) return;
+    club.budget = Math.round((club.budget || 0) + amount);
+    if (clubId !== GameState.activeClubId) return;
+    const f = ensureFinanceLedger();
+    const key = FINANCE_CATEGORIES[cat] ? cat : 'other';
+    f.items[key] = (f.items[key] || 0) + Math.round(amount);
+}
+
+// ==========================================
 // INITIALISIERUNG ALTER SPIELSTÄNDE & NEUER FELDER
 // ==========================================
 function ensureWorldInitialized() {
@@ -186,6 +225,8 @@ function ensureWorldInitialized() {
     if (!GameState.staff || typeof GameState.staff !== 'object') GameState.staff = {};
     if (!Array.isArray(GameState.staffOffers)) GameState.staffOffers = [];
     if (!GameState.negoBlocks || typeof GameState.negoBlocks !== 'object') GameState.negoBlocks = {};
+    if (!GameState.prevStandings) GameState.prevStandings = {};
+    if (!GameState.cupHistory) GameState.cupHistory = {};
     if (typeof GameState.meta.tick !== 'number') GameState.meta.tick = 0;
     if (GameState.meta.weatherSeason !== GameState.meta.season) {
         GameState.meta.harshWinter = Math.random() < 0.2;
@@ -195,10 +236,14 @@ function ensureWorldInitialized() {
         if (!p.birthday) p.birthday = generateBirthday(p.id);
         if (typeof p.injuredMatches !== 'number') p.injuredMatches = 0;
     });
+    // Alte Nachholspiele (v1.3) auf Slot-Logik umstellen
+    GameState.catchUps.forEach(cu => {
+        if (typeof cu.slot !== 'number') cu.slot = cu.dueMd || 1;
+    });
+    ensureFinanceLedger();
     ensureSquadsPlayable();
 }
 
-// Sehr kleine Kader (z. B. Mini-Demo) mit generierten Spielern auffüllen
 function ensureSquadsPlayable() {
     const seasonEnd = getCurrentSeasonEndYear();
     let userFilled = 0;
@@ -241,7 +286,7 @@ function weightedPick(weights) {
     return entries[0] ? entries[0][0] : 'cloudy';
 }
 
-function rollWeather(iso, country) {
+function rollWeather(iso, country, allowExtreme = true) {
     const m = fromISODate(iso).getMonth() + 1;
     const snowF = ({ DE: 1, AT: 1.6, CH: 1.6, EN: 0.4, ES: 0.15, IT: 0.35, FR: 0.6, NL: 0.7 })[country] ?? 1;
     const rainF = ({ EN: 1.4, NL: 1.2, ES: 0.6, IT: 0.8 })[country] ?? 1;
@@ -249,19 +294,18 @@ function rollWeather(iso, country) {
     const harsh = GameState.meta.harshWinter ? 3 : 1;
     const isWinter = [12, 1, 2].includes(m);
 
-    // 1. Seltenes Extremwetter
-    const ext = [];
-    if (isWinter) ext.push(['blizzard', 0.006 * snowF * harsh], ['icy', 0.006 * snowF * harsh], ['storm', 0.003]);
-    else if ([3, 11].includes(m)) ext.push(['icy', 0.003 * snowF * harsh], ['storm', 0.005]);
-    else if (m === 10) ext.push(['storm', 0.004]);
-    else if (m >= 5 && m <= 9) ext.push(['thunder', 0.007]);
-    let r = Math.random();
-    for (const [k, p] of ext) {
-        if (r < p) return k;
-        r -= p;
+    if (allowExtreme) {
+        const ext = [];
+        if (isWinter) ext.push(['blizzard', 0.006 * snowF * harsh], ['icy', 0.006 * snowF * harsh], ['storm', 0.003]);
+        else if ([3, 11].includes(m)) ext.push(['icy', 0.003 * snowF * harsh], ['storm', 0.005]);
+        else if (m === 10) ext.push(['storm', 0.004]);
+        else if (m >= 5 && m <= 9) ext.push(['thunder', 0.007]);
+        let r = Math.random();
+        for (const [k, p] of ext) {
+            if (r < p) return k;
+            r -= p;
+        }
     }
-
-    // 2. Normales Wetter nach Jahreszeit
     if (isWinter) return weightedPick({ sunny: 10 * sunF, cloudy: 28, rain: 18 * rainF, fog: 12, wind: 6, snow: 14 * snowF, frost: 12 * snowF });
     if ([3, 11].includes(m)) return weightedPick({ sunny: 14 * sunF, cloudy: 28, rain: 24 * rainF, heavyrain: 7 * rainF, fog: 10, wind: 7, snow: 4 * snowF, frost: 4 * snowF });
     if ([4, 10].includes(m)) return weightedPick({ sunny: 28 * sunF, cloudy: 30, rain: 22 * rainF, heavyrain: 6 * rainF, fog: 6, wind: 5 });
@@ -272,7 +316,6 @@ function getWeather(key) {
     return WEATHER_TYPES[key] || WEATHER_TYPES.cloudy;
 }
 
-// Top-Stadion = Rasenheizung (Ausbau) oder großes Stadion ab 40.000 Plätzen
 function clubHasTopPitch(club) {
     const st = (club && club.stadium) || {};
     return Boolean(st.heating) || (st.capacity || 0) >= 40000;
@@ -288,8 +331,23 @@ function shouldCancelMatch(weatherKey, homeClub) {
 }
 
 // ==========================================
-// NACHHOLSPIELE
+// NACHHOLSPIELE – ohne Überschneidung mit Pokal / Europapokal
 // ==========================================
+function isClubBusyInSlot(clubId, slot) {
+    if ((GameState.catchUps || []).some(c => c.slot === slot && (c.homeId === clubId || c.awayId === clubId))) return true;
+    return isClubInCupSlot(clubId, slot);
+}
+
+function findCatchUpSlot(homeId, awayId, fromMd) {
+    const total = getLeagueTotalMatchdays(getUserLeagueId());
+    for (let k = fromMd + 2; k < total + 30; k++) {
+        if (isBlockedSlot(k)) continue;
+        if (isClubBusyInSlot(homeId, k) || isClubBusyInSlot(awayId, k)) continue;
+        return k;
+    }
+    return total + 30;
+}
+
 function postponeMatch(leagueId, md, idx, weatherKey) {
     const sched = GameState.schedule[leagueId];
     const mdObj = sched && sched.matchdays.find(x => x.matchday === md);
@@ -299,31 +357,14 @@ function postponeMatch(leagueId, md, idx, weatherKey) {
     m.weather = weatherKey;
     m.homeGoals = null;
     m.awayGoals = null;
-    const total = sched.matchdays.length;
-    let dueMd = md + 3;
-    let dateISO;
-    if (dueMd <= total) {
-        dateISO = toISODate(addDaysDate(fromISODate(getMatchdayDate(leagueId, dueMd)), -3)); // Mittwoch vor dem Spieltag
-    } else {
-        dueMd = total + 1;
-        dateISO = toISODate(addDaysDate(fromISODate(getMatchdayDate(leagueId, total)), 4));
-    }
-    const cu = { leagueId, md, idx, dueMd, date: dateISO, homeId: m.homeId, awayId: m.awayId, reason: weatherKey };
+    const slot = findCatchUpSlot(m.homeId, m.awayId, md);
+    const cu = { leagueId, md, idx, slot, date: getSlotDate(slot, -3), homeId: m.homeId, awayId: m.awayId, reason: weatherKey };
     GameState.catchUps.push(cu);
     return cu;
 }
 
 function isUserCatchUp(cu) {
     return cu.homeId === GameState.activeClubId || cu.awayId === GameState.activeClubId;
-}
-
-function isCatchUpDue(cu) {
-    return cu.dueMd <= GameState.meta.matchday;
-}
-
-function getDueUserCatchUp() {
-    if (GameState.meta.phase !== 'season') return null;
-    return (GameState.catchUps || []).filter(c => isUserCatchUp(c) && isCatchUpDue(c)).sort((a, b) => a.date.localeCompare(b.date))[0] || null;
 }
 
 function getCatchUpMatch(cu) {
@@ -343,24 +384,6 @@ function resolveCatchUpSilently(cu) {
     return m;
 }
 
-// Fällige Nachholspiele ohne eigene Beteiligung sofort simulieren
-function processDueAiCatchUps(forceAll = false) {
-    const due = (GameState.catchUps || []).filter(c => !isUserCatchUp(c) && (forceAll || isCatchUpDue(c)));
-    if (due.length === 0) return;
-    const userLeague = GameState.clubs[GameState.activeClubId]?.leagueId;
-    const lines = [];
-    due.forEach(cu => {
-        const m = resolveCatchUpSilently(cu);
-        if (m && cu.leagueId === userLeague) {
-            lines.push(`${GameState.clubs[m.homeId]?.name || m.homeId} ${m.homeGoals}:${m.awayGoals} ${GameState.clubs[m.awayId]?.name || m.awayId} (ST ${cu.md})`);
-        }
-    });
-    if (lines.length > 0) {
-        addInbox('📅', 'Nachholspiele ausgetragen', `Folgende abgesagte Partien wurden unter der Woche nachgeholt:\n${lines.join('\n')}`, 'league');
-    }
-}
-
-// Am Saisonende: alle noch offenen Nachholspiele abwickeln (Sicherheitsnetz)
 function flushAllCatchUps() {
     [...(GameState.catchUps || [])].forEach(cu => resolveCatchUpSilently(cu));
 }
@@ -392,7 +415,7 @@ function removePlayerFromMatchSquad(playerId) {
 }
 
 // ==========================================
-// ROUTINE-EREIGNISSE (POSTFACH) NACH JEDER WOCHE / JEDEM SPIELTAG
+// ROUTINE-EREIGNISSE (POSTFACH)
 // ==========================================
 function generateRoutineEvents() {
     const squad = getClubPlayers();
@@ -400,7 +423,6 @@ function generateRoutineEvents() {
     const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
     const lineupSet = new Set(GameState.tactics.lineup.filter(Boolean));
 
-    // 1. Spieler trainiert besonders hart
     if (Math.random() < 0.33) {
         const cand = squad.filter(p => !isPlayerUnavailable(p) && (p.motivation || 78) >= 72);
         if (cand.length > 0) {
@@ -411,7 +433,6 @@ function generateRoutineEvents() {
         }
     }
 
-    // 2. Unmotivierter Spieler
     const low = squad.filter(p => (p.motivation || 78) < 58);
     if (low.length > 0 && Math.random() < 0.45) {
         const p = pick(low);
@@ -422,7 +443,6 @@ function generateRoutineEvents() {
         addInbox('😒', `${p.name} wirkt unmotiviert`, `${p.name} (${p.pos}, Motivation ${p.motivation}%) ${reason}. Mehr Einsatzzeit, ein Testspiel/Event oder eine Vertragsverlängerung könnten helfen.`, 'mood');
     }
 
-    // 3. Seltene Trainingsverletzung
     const fit = getStaffQuality('fitness');
     if (Math.random() < 0.05 * (1 - 0.1 * fit)) {
         const pool = squad.filter(p => !isPlayerUnavailable(p));
@@ -432,7 +452,7 @@ function generateRoutineEvents() {
             p.injuredMatches = n;
             p.injuryReason = "Trainingsverletzung";
             const wasIn = removePlayerFromMatchSquad(p.id);
-            addInbox('🚑', `Trainingsverletzung: ${p.name}`, `${p.name} (${p.pos}) hat sich im Training verletzt und fällt voraussichtlich ${n} ${n === 1 ? 'Spiel/Woche' : 'Spiele/Wochen'} aus.${wasIn ? ' Er wurde aus der Startelf genommen – bitte stelle einen Ersatz auf!' : ''}`, 'injury');
+            addInbox('🚑', `Trainingsverletzung: ${p.name}`, `${p.name} (${p.pos}) hat sich im Training verletzt und fällt voraussichtlich ${n} ${n === 1 ? 'Spiel' : 'Spiele'} aus.${wasIn ? ' Er wurde aus der Startelf genommen – bitte stelle einen Ersatz auf!' : ''}`, 'injury');
         }
     }
 }
@@ -524,12 +544,14 @@ function computeSquadNeeds(sq) {
     const targets = { TW: 2, DEF: 7, MID: 7, FWD: 4 };
     const fillPos = { TW: ['TW'], DEF: ['IV', 'LV', 'RV', 'IV'], MID: ['ZM', 'DM', 'LM', 'RM', 'OM'], FWD: ['ST', 'LA', 'RA'] };
     const needs = [];
+    let total = sq.length;
     Object.keys(targets).forEach(g => {
         let have = sq.filter(p => groups[g].includes(p.pos)).length;
         let i = 0;
-        while (have < targets[g]) {
+        while (have < targets[g] && total < MAX_SQUAD_SIZE) {
             needs.push(fillPos[g][i % fillPos[g].length]);
             have++;
+            total++;
             i++;
         }
     });
@@ -538,8 +560,6 @@ function computeSquadNeeds(sq) {
 
 function maintainAiSquadsAtSeasonEnd(seasonEnd) {
     const newSeasonEnd = seasonEnd + 1;
-
-    // 1. Karriereende
     const retiredUser = [];
     let retiredCount = 0;
     GameState.players = GameState.players.filter(p => {
@@ -557,7 +577,6 @@ function maintainAiSquadsAtSeasonEnd(seasonEnd) {
         addInbox('👋', `Karriereende: ${p.name}`, `${p.name} (${p.age} J.) beendet seine aktive Laufbahn. Danke für alles!`, 'squad');
     });
 
-    // 2. KI-Vereine füllen Lücken (Vereinslose oder Nachwuchs/Neuzugänge)
     const signings = [];
     Object.values(GameState.clubs).forEach(club => {
         if (club.id === GameState.activeClubId) return;
@@ -583,4 +602,48 @@ function maintainAiSquadsAtSeasonEnd(seasonEnd) {
         const top = signings.slice(0, 6).join('\n');
         addInbox('📰', 'Transfer-Ticker der Konkurrenz', `Sommerpause bei der Konkurrenz: ${retiredCount} Karriereenden, ${signings.length} Verpflichtungen vereinsloser Spieler.${top ? '\nAuswahl:\n' + top : ''}`, 'transfer');
     }
+}
+
+// ==========================================
+// TV-GELD & VERMARKTUNG (Raten je Liga-Spieltag)
+// ==========================================
+function getAnnualTvMoney(leagueId, rank) {
+    const tier = GameState.leagues[leagueId]?.tier || 1;
+    const n = Math.max(2, Object.values(GameState.clubs).filter(c => c.leagueId === leagueId).length);
+    const pos = Math.max(0, Math.min(1, (n - rank) / (n - 1)));
+    if (tier === 1) return 20000000 + 46000000 * pos;
+    if (tier === 2) return 9000000 + 12000000 * pos;
+    return 2500000 + 3000000 * pos;
+}
+
+function getAnnualMerchMoney(clubId) {
+    const club = GameState.clubs[clubId];
+    const tier = GameState.leagues[club?.leagueId]?.tier || 1;
+    const avg = getClubAverageRating(clubId);
+    const base = tier === 1 ? 12000000 : (tier === 2 ? 2500000 : 800000);
+    return base * Math.pow(avg / 7.0, 9);
+}
+
+// Wird nach jedem eigenen Liga-Spieltag gebucht
+function bookLeagueMatchdayIncome(leagueId, totalMds) {
+    const uid = GameState.activeClubId;
+    const st = computeLeagueStandings(leagueId);
+    const rank = Math.max(1, st.findIndex(r => r.clubId === uid) + 1);
+    const tv = Math.round(getAnnualTvMoney(leagueId, rank) / Math.max(1, totalMds));
+    const merch = Math.round(getAnnualMerchMoney(uid) / Math.max(1, totalMds));
+    const ops = Math.round(getAnnualOperatingCosts(uid) / Math.max(1, totalMds));
+    bookMoney('tv', tv);
+    bookMoney('merch', merch);
+    bookMoney('operations', -ops);
+    return { tv, merch, ops };
+}
+
+// Laufende Betriebskosten (Geschäftsstelle, Infrastruktur, Nachwuchsleistungszentrum)
+function getAnnualOperatingCosts(clubId) {
+    const club = GameState.clubs[clubId];
+    const tier = GameState.leagues[club?.leagueId]?.tier || 1;
+    const cap = club?.stadium?.capacity || 20000;
+    if (tier === 1) return 8000000 + cap * 150;
+    if (tier === 2) return 2500000 + cap * 60;
+    return 800000 + cap * 25;
 }

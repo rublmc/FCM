@@ -227,7 +227,7 @@ const CLUB_EVENTS = [
 
 let GameState = {
     meta: {
-        coreVersion: "1.3.0",
+        coreVersion: "1.4.0",
         season: "2026/27",
         phase: "preseason", // 'preseason' | 'season' | 'winter'
         preseasonWeek: 1,   // 1..4
@@ -235,11 +235,12 @@ let GameState = {
         installedUpdates: [],
         managerName: "",
         selectedCountry: "",
-        currentDate: null,  // ISO-Datum (YYYY-MM-DD) des aktuellen Spieltags/der aktuellen Woche
-        tick: 0,            // Zeit-Zähler (Woche / Spieltag) für Verhandlungssperren
+        currentDate: null,  // ISO-Datum (YYYY-MM-DD)
+        tick: 0,            // Zeit-Zähler (Woche / Spiel) für Verhandlungssperren
         harshWinter: false,
         weatherSeason: null,
-        freeAgentsSeeded: false
+        freeAgentsSeeded: false,
+        salaryCalib: null
     },
     activeClubId: null,
     leagues: {},
@@ -248,13 +249,17 @@ let GameState = {
     competitions: {},
     schedule: {},
     catchUps: [],          // Nachholspiele nach wetterbedingten Absagen
+    cups: null,            // Pokal & Europapokal der laufenden Saison
+    prevStandings: {},     // Abschlusstabellen der Vorsaison (Europapokal-Qualifikation)
+    cupHistory: {},        // Pokalsieger der Vorsaison
+    finance: null,         // Saison-Buchhaltung des eigenen Vereins
     preseason: null,
     winterBreak: null,
     lastBreakReport: null,
     lastMatchReport: null,
     lastSeasonDevelopmentReport: null,
     inbox: [],
-    staff: {},             // { co, fitness, gk, physio, youth }
+    staff: {},
     staffOffers: [],
     staffOffersSeason: null,
     negoBlocks: {},
@@ -279,7 +284,7 @@ let GameState = {
     stadiumProject: null
 };
 
-// Setzt alle karrierebezogenen Felder für ein neues Spiel zurück (Ligen/Vereine/Spieler bleiben erhalten)
+// Setzt alle karrierebezogenen Felder für ein neues Spiel zurück
 function resetCareerFields(clubId) {
     GameState.activeClubId = clubId;
     Object.assign(GameState.meta, {
@@ -288,6 +293,10 @@ function resetCareerFields(clubId) {
     });
     GameState.schedule = {};
     GameState.catchUps = [];
+    GameState.cups = null;
+    GameState.prevStandings = {};
+    GameState.cupHistory = {};
+    GameState.finance = null;
     GameState.preseason = null;
     GameState.winterBreak = null;
     GameState.lastBreakReport = null;
@@ -329,7 +338,7 @@ let selectedLeagueViewId = null;
 let selectedFixtureMatchday = null;
 
 // Temporärer UI-State für Kalender & Saisonvorbereitung (v0.9)
-let calendarSubTab = 'preseason'; // 'preseason' (aktuelle Pause) | 'season_cal'
+let calendarSubTab = 'preseason'; // 'preseason' | 'season_cal'
 let preseasonCollapsedInSeason = true;
 let bookingDialogState = null;    // { week: 1..4, category: 'friendly'|'camp'|'event' }
 
@@ -337,29 +346,91 @@ let bookingDialogState = null;    // { week: 1..4, category: 'friendly'|'camp'|'
 let liveMatchState = null;
 let liveTickerTimer = null;
 let liveSelectedPitchSlot = null;
-let liveTacticsDisplayMode = 'pitch'; // 'pitch' | 'list' 
+let liveTacticsDisplayMode = 'pitch'; // 'pitch' | 'list'
 
-
-// Temporärer UI-State für Verhandlungen, Postfach & Trainerstab (v1.3)
+// Temporärer UI-State für Verhandlungen, Postfach, Trainerstab & Wettbewerbe (v1.4)
 let activeNegotiation = null;
 let contractsSubTab = 'players'; // 'players' | 'staff'
 let openInboxMsgId = null;
 let inboxShowAll = false;
+let officeFinanceOpen = false;
+let selectedCupViewId = null;
+let selectedCupRoundIdx = null;
+
+// Maximale Kadergröße (Profikader)
+const MAX_SQUAD_SIZE = 25;
+const MIN_SQUAD_SIZE = 13;
+
+// ==========================================
+// ORIGINAL-DATENBANK (für "Neues Spiel" -> Datenbank zurücksetzen)
+// ==========================================
+const DB_STORAGE_KEY = 'fcm_database_v1';
+
+function deepCopy(obj) {
+    return JSON.parse(JSON.stringify(obj));
+}
+
+function loadDatabaseSnapshot() {
+    try {
+        const raw = localStorage.getItem(DB_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function saveDatabaseSnapshot(db) {
+    try {
+        localStorage.setItem(DB_STORAGE_KEY, JSON.stringify(db));
+        return true;
+    } catch (e) {
+        alert("Speicher voll: Die Original-Datenbank konnte nicht gesichert werden.");
+        return false;
+    }
+}
+
+// Ein Update-Paket zusätzlich in die unveränderte Original-Datenbank übernehmen
+function applyPackageToDatabaseSnapshot(pkg) {
+    const db = loadDatabaseSnapshot() || { leagues: {}, clubs: {}, players: [], updates: [] };
+    if (pkg.leagues) Object.assign(db.leagues, deepCopy(pkg.leagues));
+    if (pkg.clubs) Object.assign(db.clubs, deepCopy(pkg.clubs));
+    if (Array.isArray(pkg.players)) {
+        const idx = new Map(db.players.map((p, i) => [p.id, i]));
+        pkg.players.forEach(np => {
+            const copy = deepCopy(np);
+            if (typeof copy.rating === 'number') copy.rating = Math.max(0, Math.min(10, parseFloat(copy.rating.toFixed(1))));
+            if (idx.has(copy.id)) db.players[idx.get(copy.id)] = { ...db.players[idx.get(copy.id)], ...copy };
+            else {
+                idx.set(copy.id, db.players.length);
+                db.players.push(copy);
+            }
+        });
+    }
+    db.updates = db.updates || [];
+    db.updates.push(pkg.updateId || 'update');
+    saveDatabaseSnapshot(db);
+}
+
+// Datenbank für ein neues Spiel auf den Original-Stand zurücksetzen
+function restoreDatabaseFromSnapshot() {
+    const db = loadDatabaseSnapshot();
+    if (!db || !Array.isArray(db.players) || db.players.length === 0) return false;
+    GameState.leagues = deepCopy(db.leagues || {});
+    GameState.clubs = deepCopy(db.clubs || {});
+    GameState.players = deepCopy(db.players);
+    GameState.meta.freeAgentsSeeded = false;
+    GameState.meta.salaryCalib = null;
+    return true;
+}
 
 // ==========================================
 // WINTERPAUSE JE LAND (Wochen ohne Ligaspiel)
 // ==========================================
 const WINTER_BREAK_WEEKS = {
-    DE: 3,  // Bundesliga: ca. 3 Wochen
-    AT: 4,  // Österreich: lange Pause (im Spiel auf 4 Wochen begrenzt)
-    CH: 4,  // Schweiz: lange Pause (im Spiel auf 4 Wochen begrenzt)
-    FR: 2,
-    NL: 2,
-    IT: 1,
-    ES: 1,
+    DE: 3, AT: 4, CH: 4, FR: 2, NL: 2, IT: 1, ES: 1,
     EN: 0   // England: keine Winterpause (Boxing Day!)
 };
-const COUNTRY_LABELS = { DE: "Deutschland", AT: "Österreich", CH: "Schweiz", FR: "Frankreich", NL: "Niederlande", IT: "Italien", ES: "Spanien", EN: "England" };
+const COUNTRY_LABELS = { DE: "Deutschland", AT: "Österreich", CH: "Schweiz", FR: "Frankreich", NL: "Niederlande", IT: "Italien", ES: "Spanien", EN: "England", PT: "Portugal", BE: "Belgien", TR: "Türkei", SC: "Schottland" };
 
 const WINTER_CAMPS = [
     {
@@ -386,11 +457,11 @@ const WINTER_CAMPS = [
 // TRAINERSTAB
 // ==========================================
 const STAFF_ROLES = {
-    co:      { title: "Co-Trainer",          icon: "🧑‍🏫", baseSalary: 420000, desc: "Taktik-Coaching: +Teamstärke in Pflichtspielen" },
-    fitness: { title: "Konditionstrainer",   icon: "🏃",   baseSalary: 260000, desc: "Weniger Verletzungen & bessere Saisonentwicklung" },
-    gk:      { title: "Torwarttrainer",      icon: "🧤",   baseSalary: 220000, desc: "Bessere Entwicklung der Torhüter" },
-    physio:  { title: "Physio / Teamarzt",   icon: "🩺",   baseSalary: 240000, desc: "Kürzere Verletzungspausen" },
-    youth:   { title: "Jugendtrainer",       icon: "🌱",   baseSalary: 180000, desc: "Stärkere Talente im Nachwuchs-Camp" }
+    co:      { title: "Co-Trainer",        icon: "🧑‍🏫", baseSalary: 420000, desc: "Taktik-Coaching: +Teamstärke in Pflichtspielen" },
+    fitness: { title: "Konditionstrainer", icon: "🏃",   baseSalary: 260000, desc: "Weniger Verletzungen & bessere Saisonentwicklung" },
+    gk:      { title: "Torwarttrainer",    icon: "🧤",   baseSalary: 220000, desc: "Bessere Entwicklung der Torhüter" },
+    physio:  { title: "Physio / Teamarzt", icon: "🩺",   baseSalary: 240000, desc: "Kürzere Verletzungspausen" },
+    youth:   { title: "Jugendtrainer",     icon: "🌱",   baseSalary: 180000, desc: "Stärkere Talente im Nachwuchs-Camp" }
 };
 const STAFF_FIRST_NAMES = ["Markus", "Thomas", "Andreas", "Stefan", "Michael", "Frank", "Peter", "Jürgen", "Christian", "Daniel", "Sven", "Uwe", "Rainer", "Holger", "Dirk", "Carlos", "Marco", "Luca", "Pierre", "Jan"];
 const STAFF_LAST_NAMES = ["Hoffmann", "Brandt", "Vogt", "Kessler", "Lorenz", "Pfeiffer", "Seidel", "Winkler", "Busch", "Haas", "Graf", "Ziegler", "Kuhn", "Engel", "Arnold", "Ruiz", "Bianchi", "Dubois", "de Vries", "Novak"];
@@ -408,7 +479,6 @@ const WEATHER_TYPES = {
     wind:      { icon: "💨",  label: "Sturmböen",          goalMult: 0.93, diffMult: 0.86, injuryMult: 1.03, cardMult: 1.03, crowd: -0.06 },
     snow:      { icon: "🌨️", label: "Schneefall",         goalMult: 0.86, diffMult: 0.78, injuryMult: 1.22, cardMult: 1.08, crowd: -0.12 },
     frost:     { icon: "🥶",  label: "Frost (-6°C)",       goalMult: 0.95, diffMult: 0.92, injuryMult: 1.30, cardMult: 1.00, crowd: -0.08 },
-    // Extremwetter – kann zur Spielabsage führen
     blizzard:  { icon: "❄️",  label: "Schneechaos",        goalMult: 0.80, diffMult: 0.70, injuryMult: 1.35, cardMult: 1.10, crowd: -0.25, extreme: true, pitch: true },
     icy:       { icon: "🧊",  label: "Gefrorener Platz",   goalMult: 0.88, diffMult: 0.80, injuryMult: 1.45, cardMult: 1.05, crowd: -0.15, extreme: true, pitch: true },
     storm:     { icon: "🌪️", label: "Orkanwarnung",       goalMult: 0.85, diffMult: 0.75, injuryMult: 1.10, cardMult: 1.05, crowd: -0.20, extreme: true, pitch: false },
@@ -426,4 +496,24 @@ const WEATHER_COMMENTS = {
     icy: ["Spieler rutschen auf dem harten Untergrund weg!"],
     storm: ["Werbebanden wackeln im Sturm!"],
     thunder: ["Donnergrollen über dem Stadion!"]
+};
+
+// ==========================================
+// FINANZEN: BUCHUNGSKATEGORIEN
+// ==========================================
+const FINANCE_CATEGORIES = {
+    tickets:   { label: "Zuschauereinnahmen", icon: "🎟️" },
+    sponsors:  { label: "Sponsoren", icon: "💼" },
+    tv:        { label: "TV-Gelder (Raten je Spieltag)", icon: "📺" },
+    merch:     { label: "Merchandising & Vermarktung", icon: "👕" },
+    prizes:    { label: "Pokal- & Europapokal-Prämien", icon: "🏆" },
+    transfersIn:  { label: "Spielerverkäufe", icon: "📤" },
+    transfersOut: { label: "Ablösen & Handgelder", icon: "📥" },
+    salaries:  { label: "Spielergehälter", icon: "💶" },
+    staff:     { label: "Trainerstab", icon: "🧑‍🏫" },
+    stadium:   { label: "Stadionausbau", icon: "🏗️" },
+    operations: { label: "Betriebskosten (Geschäftsstelle, Infrastruktur)", icon: "🏢" },
+    preseason: { label: "Testspiele, Camps & Events", icon: "📅" },
+    youth:     { label: "Nachwuchs & Scouting", icon: "🌱" },
+    other:     { label: "Sonstiges", icon: "📎" }
 };

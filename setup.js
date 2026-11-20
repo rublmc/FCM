@@ -2,7 +2,7 @@
 // FC MANAGER - STARTBILDSCHIRM & SETUP-WIZARD
 // ==========================================
 
-// GameState, STORAGE_KEY & resetCareerFields() kommen aus data.js (wird in start.html vorher geladen)
+// GameState, STORAGE_KEY & Datenbank-Funktionen kommen aus data.js (wird in start.html vorher geladen)
 let setupStep = 0; // 0 = Titelbildschirm, 1 = Managername, 2 = Land, 3 = Verein, 99 = Daten-Import
 
 const COUNTRY_NAMES = {
@@ -17,6 +17,10 @@ const COUNTRY_NAMES = {
 
 document.addEventListener('DOMContentLoaded', () => {
     loadGameState();
+    // Alte Installationen: Original-Datenbank einmalig sichern, solange noch keine Karriere läuft
+    if (!loadDatabaseSnapshot() && GameState.players.length > 0 && !GameState.activeClubId) {
+        saveDatabaseSnapshot({ leagues: GameState.leagues, clubs: GameState.clubs, players: GameState.players, updates: [] });
+    }
     document.getElementById('btn-setup-admin').addEventListener('click', () => {
         setupStep = 99;
         renderSetup();
@@ -97,6 +101,10 @@ function renderSetup() {
                 setupStep = 99;
                 renderSetup();
                 return;
+            }
+            // Neues Spiel: Datenbank auf den Original-Stand zurücksetzen (nur im Speicher, gespeichert wird bei der Vereinswahl)
+            if (!restoreDatabaseFromSnapshot()) {
+                alert("Hinweis: Es ist noch keine Original-Datenbank gesichert. Bitte spiele dein Datenpaket einmal über „Ligen-Update einlesen“ neu ein – danach wird die Datenbank bei jedem neuen Spiel automatisch zurückgesetzt.");
             }
             setupStep = 1;
             renderSetup();
@@ -311,6 +319,7 @@ function applyUpdateOnStart(updateData) {
         alert("Ungültiges Update-Paket!");
         return false;
     }
+    applyPackageToDatabaseSnapshot(updateData);
     if (updateData.leagues) Object.assign(GameState.leagues, updateData.leagues);
     if (updateData.clubs) Object.assign(GameState.clubs, updateData.clubs);
     if (Array.isArray(updateData.players)) {
@@ -333,7 +342,12 @@ function applyUpdateOnStart(updateData) {
 }
 
 function formatMoneyShort(amount) {
-    if (Math.abs(amount) >= 1000000) return (amount / 1000000).toFixed(1).replace('.', ',') + ' Mio';
+    // Mio-Beträge mit 1 Nachkommastelle – oder 2, wenn sonst zwei verschiedene Beträge gleich aussähen (z. B. 8,15 Mio)
+    if (Math.abs(amount) >= 1000000) {
+        const v = amount / 1000000;
+        const oneDec = Math.abs(v * 10 - Math.round(v * 10)) < 1e-6;
+        return v.toFixed(oneDec ? 1 : 2).replace('.', ',') + ' Mio';
+    }
     if (Math.abs(amount) >= 1000) return Math.round(amount / 1000) + 'k €';
-    return amount + ' €';
+    return Math.round(amount) + ' €';
 }

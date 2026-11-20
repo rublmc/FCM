@@ -1,7 +1,15 @@
 // ==========================================
 // FC MANAGER 27 - MODUL: VERHANDLUNGEN (Spieler, Trainerstab, Sponsoren)
-// Max. 3 Runden pro Verhandlung, Reaktion nach jedem Angebot,
-// Abbruchrisiko bei schwachen Angeboten.
+// Max. 3 Runden, Reaktion nach jedem Angebot, Abbruchrisiko.
+//
+// Logik (v1.4):
+// - Jedes Angebot wird in einen "Score" umgerechnet (1.0 = marktübliches Angebot).
+// - Die Gegenseite hat eine verdeckte Mindestanforderung ("reservation").
+// - Score >= reservation  -> Zusage.
+// - Knapp darunter        -> Gegenseite kommt etwas entgegen (reservation -2%).
+//   Reicht das Angebot danach, gibt es sofort die Zusage.
+// - Tipps des Beraters beziehen sich immer auf die aktuell gewählten Optionen
+//   und nennen die kleinste Angebotsstufe, die WIRKLICH reicht (immer > aktuelles Angebot).
 // ==========================================
 
 const NEGO_MOODS = {
@@ -15,6 +23,7 @@ const NEGO_MOODS = {
 const NEGO_QUOTES = {
     player: {
         happy: ["Das klingt hervorragend – ich bin dabei!", "Perfekt, wo soll ich unterschreiben?", "Danke für das Vertrauen, Trainer! Deal!"],
+        concede: ["Na gut – Sie haben mich überzeugt. Wir sind uns einig!", "Okay, mein Berater ist einverstanden. Deal!"],
         positive: ["Wir sind nah dran – ein kleines bisschen mehr und wir haben einen Deal.", "Das gefällt mir schon ganz gut, aber mein Berater hätte gern noch etwas mehr."],
         skeptical: ["Hm … das ist nicht ganz das, was ich mir vorgestellt habe.", "Mein Berater runzelt die Stirn. Da muss mehr kommen."],
         angry: ["Ist das ein Witz? So wenig bin ich nicht wert!", "Das empfinde ich als respektlos. Überleg dir das gut!"],
@@ -22,6 +31,7 @@ const NEGO_QUOTES = {
     },
     staff: {
         happy: ["Abgemacht! Ich freue mich auf die Arbeit mit der Mannschaft.", "Sehr gern – wann ist das erste Training?"],
+        concede: ["In Ordnung – ich komme Ihnen entgegen. Abgemacht!"],
         positive: ["Die Aufgabe reizt mich, beim Gehalt müssten wir uns aber noch annähern.", "Fast – legen Sie noch eine Schippe drauf?"],
         skeptical: ["Ich habe auch andere Angebote auf dem Tisch …", "Für meine Erfahrung ist das etwas wenig."],
         angry: ["Dafür stehe ich nicht morgens um sieben auf dem Platz!", "Das ist weit unter meinem Marktwert."],
@@ -29,6 +39,7 @@ const NEGO_QUOTES = {
     },
     sponsor: {
         happy: ["Einverstanden – auf eine erfolgreiche Partnerschaft!", "Unser Vorstand hat zugestimmt. Wir sind dabei!"],
+        concede: ["Gut, wir legen noch etwas drauf – einverstanden!"],
         positive: ["Das ist sportlich – ein kleines Stück müssen Sie uns noch entgegenkommen.", "Wir sind fast beieinander."],
         skeptical: ["Unsere Marketingabteilung hält das für überzogen.", "Das sprengt unser Budget ein wenig."],
         angry: ["Diese Forderung ist völlig unrealistisch!", "So verhandeln wir nicht weiter, wenn Sie nicht nachgeben!"],
@@ -39,34 +50,59 @@ const NEGO_QUOTES = {
 function negoStart(cfg) {
     activeNegotiation = {
         kind: cfg.kind,                 // 'transfer' | 'contract' | 'staff' | 'sponsor'
-        voice: cfg.voice || 'player',   // Zitat-Set
-        key: cfg.key,                   // Sperr-Schlüssel, z. B. 'player:p_001'
+        voice: cfg.voice || 'player',
+        key: cfg.key,
         targetId: cfg.targetId,
         name: cfg.name,
-        reservation: cfg.reservation,   // versteckte Mindestanforderung (Score-Einheit)
+        reservation: cfg.reservation,
+        maxReservation: cfg.maxReservation || null, // Obergrenze (z. B. Sponsor: eigenes Angebot ist immer annehmbar)
         round: 0,
         maxRounds: 3,
         log: [],
-        status: 'open',                 // 'open' | 'accepted' | 'aborted'
+        status: 'open',
         lastMood: null,
-        sel: cfg.sel || {},             // zuletzt gewählte Optionen
+        sel: cfg.sel || {},
         extra: cfg.extra || {}
     };
     return activeNegotiation;
 }
 
-// score: Attraktivität des Angebots für die Gegenseite (1.0 = fair / Basis)
+function pickQuote(voice, key) {
+    const set = (NEGO_QUOTES[voice] || NEGO_QUOTES.player)[key] || NEGO_QUOTES.player[key];
+    return set[Math.floor(Math.random() * set.length)];
+}
+
+// score: Attraktivität des Angebots (1.0 = marktüblich)
+// hintBuilder(reservation, mood) -> Text (wird nur bei offenem Ausgang aufgerufen)
 function negoSubmit(score, offerLabel, hintBuilder) {
     const n = activeNegotiation;
     if (!n || n.status !== 'open') return n;
     n.round++;
-    const ratio = score / n.reservation;
+    let ratio = score / n.reservation;
     let mood;
     let accepted = false;
-    if (ratio >= 1) { mood = 'happy'; accepted = true; }
-    else if (ratio >= 0.94) mood = 'positive';
-    else if (ratio >= 0.84) mood = 'skeptical';
-    else mood = 'angry';
+    let quoteKey;
+
+    if (ratio >= 1) {
+        mood = 'happy';
+        accepted = true;
+        quoteKey = 'happy';
+    } else if (ratio >= 0.94) {
+        // Gegenseite kommt entgegen – reicht das Angebot danach, wird sofort zugesagt
+        n.reservation *= 0.98;
+        ratio = score / n.reservation;
+        if (ratio >= 1) {
+            mood = 'happy';
+            accepted = true;
+            quoteKey = 'concede';
+        } else {
+            mood = 'positive';
+        }
+    } else if (ratio >= 0.84) {
+        mood = 'skeptical';
+    } else {
+        mood = 'angry';
+    }
 
     let hint = "";
     if (!accepted) {
@@ -76,19 +112,13 @@ function negoSubmit(score, offerLabel, hintBuilder) {
         if (Math.random() < quitChance) {
             mood = 'quit';
         } else {
-            if (mood === 'positive') n.reservation *= 0.98;   // kommt etwas entgegen
-            if (mood === 'angry') n.reservation *= 1.02;      // wird fordernder
+            if (mood === 'angry') n.reservation *= 1.02;
+            if (n.maxReservation) n.reservation = Math.min(n.reservation, n.maxReservation);
             if (typeof hintBuilder === 'function') hint = hintBuilder(n.reservation, mood) || "";
         }
+        quoteKey = mood;
     }
-    const quotes = (NEGO_QUOTES[n.voice] || NEGO_QUOTES.player)[mood];
-    n.log.push({
-        round: n.round,
-        mood,
-        offer: offerLabel,
-        quote: quotes[Math.floor(Math.random() * quotes.length)],
-        hint
-    });
+    n.log.push({ round: n.round, mood, offer: offerLabel, quote: pickQuote(n.voice, quoteKey), hint });
     n.lastMood = mood;
     n.status = accepted ? 'accepted' : (mood === 'quit' ? 'aborted' : 'open');
     if (n.status === 'aborted' && n.key) blockNego(n.key, 3);
@@ -109,7 +139,16 @@ function negoRandomReservation(min, max) {
     return min + Math.random() * (max - min);
 }
 
-// Einheitliches Verhandlungs-Panel
+// Kleinste Stufe aus "steps", deren Score die Anforderung erfüllt (scoreFn(stepValue) >= res)
+function findSufficientStep(steps, scoreFn, res) {
+    return steps.find(s => scoreFn(s.value) >= res - 1e-9) || null;
+}
+// Größte Stufe, die noch akzeptiert wird (für Forderungen, z. B. Sponsor)
+function findMaxAcceptableStep(steps, scoreFn, res) {
+    const ok = steps.filter(s => scoreFn(s.value) >= res - 1e-9);
+    return ok.length ? ok[ok.length - 1] : null;
+}
+
 function buildNegotiationPanelHtml(opts) {
     const n = activeNegotiation;
     if (!n) return "";
@@ -188,11 +227,8 @@ function negoSelectHtml(id, label, options, selectedValue) {
     `;
 }
 
-const SALARY_STEPS = [
-    { value: 0.85, label: "-15%" },
-    { value: 0.92, label: "-8%" },
-    { value: 1.00, label: "fair" },
-    { value: 1.08, label: "+8%" },
-    { value: 1.18, label: "+18%" },
-    { value: 1.30, label: "+30%" }
-];
+// Gehaltsstufen relativ zum Referenzgehalt (5%-Schritte)
+const SALARY_STEPS = [0.80, 0.85, 0.90, 0.95, 1.00, 1.05, 1.10, 1.15, 1.20, 1.25, 1.30, 1.35, 1.40].map(v => ({
+    value: v,
+    label: v === 1 ? "marktüblich" : `${v > 1 ? '+' : '-'}${Math.round(Math.abs(v - 1) * 100)}%`
+}));

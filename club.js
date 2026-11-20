@@ -22,7 +22,8 @@ function ensureSponsorOffersInitialized(forceRegenerate = false) {
         : (isTopTier ? 7.2 : 6.2);
 
     const galaMult = GameState.preseason?.sponsorBonusMult || 1.0;
-    const scale = (isTopTier ? Math.max(0.8, (avgStrength / 7.5) * 1.4) : Math.max(0.3, (avgStrength / 6.5) * 0.45)) * galaMult;
+    // Größere / stärkere Vereine sind für Sponsoren deutlich attraktiver
+    const scale = (isTopTier ? Math.max(0.8, Math.pow(avgStrength / 7.0, 6) * 1.2) : Math.max(0.3, (avgStrength / 6.5) * 0.45)) * galaMult;
     const pickThree = (pool) => [...pool].sort(() => Math.random() - 0.5).slice(0, 3);
 
     const mainBrands = pickThree(SPONSOR_BRANDS_MAIN);
@@ -138,7 +139,8 @@ function ensureClubStadiumInitialized() {
     }
 }
 
-function calculateStadiumForecast(club, weatherKey = null) {
+// weatherKey: Wetter am Spieltag • compId: Pokal/Europapokal (mehr Nachfrage, höhere Preise)
+function calculateStadiumForecast(club, weatherKey = null, compId = null) {
     ensureClubStadiumInitialized();
     const st = club.stadium;
     const league = GameState.leagues[club.leagueId];
@@ -151,21 +153,22 @@ function calculateStadiumForecast(club, weatherKey = null) {
     if (st.roof) occupancy += 0.06;
     if (st.vipLevel > 0) occupancy += st.vipLevel * 0.015;
     occupancy -= priceDiff * 0.018;
-    if (weatherKey) {
-        const w = getWeather(weatherKey);
-        occupancy += w.crowd * (st.roof ? 0.4 : 1.0);
-    }
+    if (weatherKey) occupancy += getWeather(weatherKey).crowd * (st.roof ? 0.4 : 1.0);
+    const compBoost = { cl: 0.12, el: 0.06, ecl: 0.03, national: 0.05 }[compId] || 0;
+    occupancy += compBoost;
     occupancy = Math.max(0.25, Math.min(1.0, occupancy));
 
     const expectedStanding = Math.round((st.standing || 0) * occupancy);
     const expectedSeated = Math.round((st.seated || 0) * occupancy);
     const totalVisitors = expectedStanding + expectedSeated;
 
-    const basePrice = st.ticketPrice || 24;
+    const basePrice = (st.ticketPrice || 24) * ({ cl: 1.6, el: 1.3, ecl: 1.15, national: 1.1 }[compId] || 1);
     const vipMult = 1 + (st.vipLevel || 0) * 0.15;
     const standingRev = expectedStanding * (basePrice * 0.65);
     const seatedRev = expectedSeated * (basePrice * 1.30 * vipMult);
-    const totalMatchRevenue = Math.round((standingRev + seatedRev) / 1000) * 1000;
+    // Catering, Parken & Fanartikel am Spieltag
+    const cateringRev = totalVisitors * (isTopTier ? 9 : 6);
+    const totalMatchRevenue = Math.round((standingRev + seatedRev + cateringRev) / 1000) * 1000;
 
     return {
         occupancyPct: Math.round(occupancy * 100),
@@ -175,15 +178,16 @@ function calculateStadiumForecast(club, weatherKey = null) {
 }
 
 // ==========================================
-// MODUL: MANAGER-BÜRO (ÜBERSICHT, POSTFACH & SPIELBERICHT)
+// MODUL: MANAGER-BÜRO (ÜBERSICHT, POSTFACH, SPIELBERICHT & FINANZEN)
 // ==========================================
 function buildLastMatchReportHtml() {
     const rep = GameState.lastMatchReport;
     if (!rep) return "";
     const sign = rep.netBalance >= 0 ? '+' : '';
+    const title = rep.mode === 'cup' ? (rep.label || 'POKALSPIEL') : (rep.isCatchUp ? `NACHHOLSPIEL (ST ${rep.matchday})` : `LETZTER SPIELTAG (ST ${rep.matchday})`);
     const header = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; gap:6px;">
-            <strong style="font-size:0.74rem; color:#e5b822;">📋 ${rep.isCatchUp ? 'NACHHOLSPIEL' : 'LETZTER SPIELTAG'} (ST ${rep.matchday})${rep.date ? ' • ' + formatGameDate(rep.date) : ''}</strong>
+            <strong style="font-size:0.72rem; color:#e5b822;">📋 ${title}${rep.date ? ' • ' + formatGameDate(rep.date) : ''}</strong>
             <span style="font-size:0.72rem; font-weight:bold; color:${rep.netBalance >= 0 ? '#6ee787' : '#ff8787'};">${sign}${formatMoneyShort(rep.netBalance)}</span>
         </div>
     `;
@@ -194,19 +198,28 @@ function buildLastMatchReportHtml() {
                 ${header}
                 <p style="font-size:0.78rem; font-weight:bold;">${c ? `${c.icon} SPIEL ABGESAGT: ${c.line}` : 'Spielfrei'}</p>
                 ${c ? `<p style="font-size:0.68rem; color:#d3f9d8;">Grund: ${c.label} • Nachholtermin: ${c.catchUpDate ? formatGameDate(c.catchUpDate, true) : 'offen'}</p>` : ''}
-                <p style="font-size:0.66rem; color:#d3f9d8; margin-top:4px;">Gehälter: -${formatMoneyShort(rep.salaryCost)}</p>
+                <p style="font-size:0.66rem; color:#d3f9d8; margin-top:4px;">Gehälter & Stab: -${formatMoneyShort(rep.salaryCost)}</p>
             </div>
         `;
     }
     const m = rep.match;
     const w = m.weather ? getWeather(m.weather) : null;
-    const goals = (m.events || []).filter(ev => ev.type === 'goal');
+    const goals = (m.events || []).filter(ev => ev.type === 'goal').sort((a, b) => a.minute - b.minute);
     const homeGoals = goals.filter(g => g.side === 'home').map(g => `${g.minute}' ${g.playerName}`);
     const awayGoals = goals.filter(g => g.side === 'away').map(g => `${g.minute}' ${g.playerName}`);
     const hl = Array.isArray(rep.highlights) ? rep.highlights.filter(h => h.type !== 'goal' && h.type !== 'opp-goal') : [];
     const iconFor = (t) => ({ 'card-yellow': '🟨', 'card-red': '🟥', 'injury': '🚑', 'sub': '🔄' })[t] || '•';
     const stats = rep.stats || null;
     const possH = stats ? stats.homePossession : null;
+    const finance = [];
+    if (m.isHome && !m.neutral) finance.push(`👥 ${rep.visitors.toLocaleString('de-DE')} Zuschauer (+${formatMoneyShort(rep.ticketIncome)})`);
+    else finance.push(m.neutral ? '⚖️ Neutraler Ort' : '🚌 Auswärtsspiel');
+    if (rep.sponsorIncome) finance.push(`Sponsoren +${formatMoneyShort(rep.sponsorIncome)}`);
+    if (rep.prizeIncome) finance.push(`Prämie +${formatMoneyShort(rep.prizeIncome)}`);
+    if (rep.tvIncome) finance.push(`TV +${formatMoneyShort(rep.tvIncome)}`);
+    if (rep.merchIncome) finance.push(`Vermarktung +${formatMoneyShort(rep.merchIncome)}`);
+    if (rep.salaryCost) finance.push(`Gehälter & Stab -${formatMoneyShort(rep.salaryCost)}`);
+    if (rep.opsCost) finance.push(`Betriebskosten -${formatMoneyShort(rep.opsCost)}`);
     return `
         <div class="match-report-card">
             ${header}
@@ -215,6 +228,7 @@ function buildLastMatchReportHtml() {
                 <span class="match-report-result">${m.homeGoals} : ${m.awayGoals}</span>
                 <span class="match-report-team away">${m.awayName}</span>
             </div>
+            ${m.pens || m.et ? `<p style="text-align:center; font-size:0.68rem; color:#ffe066; margin:-2px 0 4px 0;">${m.pens ? 'nach Elfmeterschießen ' + m.pens : 'nach Verlängerung'}</p>` : ''}
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; font-size:0.66rem; color:#d3f9d8; margin-bottom:4px;">
                 <div>${homeGoals.length ? homeGoals.map(g => '⚽ ' + g).join('<br>') : '–'}</div>
                 <div style="text-align:right;">${awayGoals.length ? awayGoals.map(g => g + ' ⚽').join('<br>') : '–'}</div>
@@ -233,8 +247,7 @@ function buildLastMatchReportHtml() {
                 ${rep.teamTalk ? `<br>🗣️ Halbzeit: ${rep.teamTalk}` : ''}
             </div>
             <div class="finance-recap">
-                ${w ? `${w.icon} ${w.label} • ` : ''}${m.isHome ? `👥 ${rep.visitors.toLocaleString('de-DE')} Zuschauer (+${formatMoneyShort(rep.ticketIncome)}) • ` : '🚌 Auswärtsspiel • '}
-                Sponsoren +${formatMoneyShort(rep.sponsorIncome)} • Gehälter -${formatMoneyShort(rep.salaryCost)}${rep.buildStatusMsg ? `<br><span style="color:#e5b822;">${rep.buildStatusMsg}</span>` : ''}
+                ${w ? `${w.icon} ${w.label} • ` : ''}${finance.join(' • ')}${rep.buildStatusMsg ? `<br><span style="color:#e5b822;">${rep.buildStatusMsg}</span>` : ''}
             </div>
         </div>
     `;
@@ -271,17 +284,60 @@ function buildInboxHtml() {
     `;
 }
 
+function sumFinanceItems(items) {
+    return Object.values(items || {}).reduce((s, v) => s + v, 0);
+}
+
+function buildFinanceDetailHtml() {
+    const f = ensureFinanceLedger();
+    const row = (key, items) => {
+        const v = (items || {})[key] || 0;
+        if (!v) return '';
+        const cat = FINANCE_CATEGORIES[key];
+        return `<tr><td>${cat.icon} ${cat.label}</td><td style="text-align:right; color:${v >= 0 ? '#184d25' : '#a82424'}; font-weight:bold;">${v >= 0 ? '+' : ''}${formatMoneyShort(v)}</td></tr>`;
+    };
+    const keys = Object.keys(FINANCE_CATEGORIES);
+    const total = sumFinanceItems(f.items);
+    const squad = getClubPlayers();
+    const club = GameState.clubs[GameState.activeClubId];
+    const mds = getLeagueTotalMatchdays(club.leagueId);
+    const salaryYear = squad.reduce((s, p) => s + (p.salary || 0), 0) + getStaffAnnualCost();
+    const homeGames = Math.ceil(mds / 2);
+    const forecast = calculateStadiumForecast(club);
+    const sp = (GameState.sponsors.main ? GameState.sponsors.main.perMatch * mds : 0) + (GameState.sponsors.boards ? GameState.sponsors.boards.perMatch * homeGames : 0);
+    const prev = f.lastSeason;
+    return `
+        <div class="bmh-box" style="padding:8px;">
+            <h3 style="font-size:0.80rem; color:#184d25; margin-bottom:4px;">💶 FINANZEN SAISON ${f.season}</h3>
+            <table class="bmh-table finance-table">
+                <tbody>
+                    ${keys.map(k => row(k, f.items)).join('') || '<tr><td colspan="2">Noch keine Buchungen.</td></tr>'}
+                    <tr style="border-top:2px solid #184d25;"><td><strong>SALDO BISHER</strong></td><td style="text-align:right;"><strong style="color:${total >= 0 ? '#184d25' : '#a82424'};">${total >= 0 ? '+' : ''}${formatMoneyShort(total)}</strong></td></tr>
+                </tbody>
+            </table>
+            <p style="font-size:0.66rem; color:#333; margin-top:6px;"><strong>Hochrechnung ganze Saison (Liga):</strong><br>
+                🎟️ ${homeGames} Heimspiele × ${formatMoneyShort(forecast.totalMatchRevenue)} = +${formatMoneyShort(homeGames * forecast.totalMatchRevenue)}<br>
+                💼 Sponsoren-Fixum: +${formatMoneyShort(sp)} (ohne Siegprämien)<br>
+                💶 Gehälter Spieler + Stab: -${formatMoneyShort(salaryYear)} (je Liga-Spieltag ${formatMoneyShort(Math.round(salaryYear / Math.max(1, mds)))})<br>
+                📺 TV-Geld je nach Tabellenplatz: ${formatMoneyShort(getAnnualTvMoney(club.leagueId, Math.max(1, computeLeagueStandings(club.leagueId).findIndex(r => r.clubId === club.id) + 1)))} (aktueller Platz)<br>
+                👕 Merchandising & Vermarktung: ca. +${formatMoneyShort(getAnnualMerchMoney(club.id))}<br>
+                🏢 Betriebskosten: -${formatMoneyShort(getAnnualOperatingCosts(club.id))}
+            </p>
+            ${prev ? `<p style="font-size:0.62rem; color:#555; margin-top:4px;">Vorsaison ${prev.season}: Saldo ${sumFinanceItems(prev.items) >= 0 ? '+' : ''}${formatMoneyShort(sumFinanceItems(prev.items))}</p>` : ''}
+        </div>
+    `;
+}
+
 function renderOfficeView(viewport) {
     const club = GameState.clubs[GameState.activeClubId];
     ensureClubStadiumInitialized();
+    ensureCompetitionsInitialized();
     const squad = getClubPlayers();
     const seasonEnd = getCurrentSeasonEndYear();
     const totalSalary = squad.reduce((sum, p) => sum + (p.salary || 0), 0);
     const expiringCount = squad.filter(p => (p.contractUntil || seasonEnd) <= seasonEnd).length;
     const forecast = club ? calculateStadiumForecast(club) : { occupancyPct: 0, totalMatchRevenue: 0 };
-    const avgMotivation = squad.length > 0
-        ? Math.round(squad.reduce((s, p) => s + (p.motivation || 78), 0) / squad.length)
-        : 78;
+    const avgMotivation = squad.length > 0 ? Math.round(squad.reduce((s, p) => s + (p.motivation || 78), 0) / squad.length) : 78;
     const phase = GameState.meta.phase;
     const isPreseason = phase === 'preseason';
     const isWinter = phase === 'winter';
@@ -292,15 +348,26 @@ function renderOfficeView(viewport) {
     const ls = getLineupStatus();
     const staffCount = Object.values(GameState.staff || {}).filter(Boolean).length;
     const dateISO = GameState.meta.currentDate || getCurrentGameDate();
+    const f = ensureFinanceLedger();
+    const financeTotal = sumFinanceItems(f.items);
+
+    const myComps = GameState.cups ? Object.values(GameState.cups.comps).filter(c => c.teams.includes(GameState.activeClubId)) : [];
+    const compText = myComps.length ? myComps.map(c => `${c.icon} ${getUserCompStatus(c).text.replace('Dabei: ', '')}`).join('<br>') : '–';
+
+    const kpi = (goto, label, value, cls = '', extra = '') => `
+        <div class="kpi-card clickable" data-goto="${goto}" ${extra} role="button" tabindex="0" title="Öffnen">
+            <span class="kpi-label">${label} ›</span>
+            <span class="kpi-value ${cls}">${value}</span>
+        </div>`;
 
     viewport.innerHTML = `
         <h2 class="section-title">🏢 MANAGER-BÜRO • ${formatGameDate(dateISO, true).toUpperCase()}</h2>
-        <div class="bmh-box">
+        <div class="bmh-box clickable" data-goto="league" role="button" tabindex="0">
             <p><strong>Willkommen im Chefbüro, ${GameState.meta.managerName}!</strong></p>
             <p style="font-size:0.76rem; color:#333; margin-top:2px;">
                 ${club ? club.name : '-'} • ${club && GameState.leagues[club.leagueId] ? GameState.leagues[club.leagueId].name : '-'}
                 ${isPreseason ? `• <strong>Vorbereitung W${GameState.meta.preseasonWeek}/4</strong>` : (isWinter ? `• <strong>❄️ Winterpause</strong>` : '')}
-                ${!isPreseason && myRank > 0 ? `• <strong>${myRank}. Platz (${myPoints} Pkt)</strong>` : ''}
+                ${!isPreseason && myRank > 0 ? `• <strong>${myRank}. Platz (${myPoints} Pkt) ›</strong>` : ''}
             </p>
         </div>
         ${(!ls.ok && phase === 'season') ? `
@@ -310,6 +377,7 @@ function renderOfficeView(viewport) {
                 <button id="btn-office-tactics" type="button" class="bmh-btn danger small-btn" style="width:100%;">📋 ZUR AUFSTELLUNG</button>
             </div>
         ` : ''}
+        ${buildNextEventBannerHtml(true)}
         ${!isPreseason ? buildLastMatchReportHtml() : ''}
         ${(isPreseason || isWinter) ? `
             <div class="open-window-banner">
@@ -324,37 +392,22 @@ function renderOfficeView(viewport) {
         ` : ''}
         ${buildInboxHtml()}
         <div class="kpi-grid">
-            <div class="kpi-card">
-                <span class="kpi-label">KADER & TEAM-Ø</span>
-                <span class="kpi-value">${squad.length} Sp. • Ø ${calculateTeamStrength()}</span>
-            </div>
-            <div class="kpi-card">
-                <span class="kpi-label">STIMMUNG / MOTIVATION</span>
-                <span class="kpi-value">${getMotivationIcon(avgMotivation)} ${avgMotivation}%</span>
-            </div>
-            <div class="kpi-card">
-                <span class="kpi-label">VERTRÄGE '${String(seasonEnd).slice(-2)}</span>
-                <span class="kpi-value ${expiringCount > 0 ? 'warn' : ''}">${expiringCount > 0 ? '⚠️ ' + expiringCount + ' laufen aus' : '✅ Alle gesichert'}</span>
-            </div>
-            <div class="kpi-card">
-                <span class="kpi-label">VERLETZT / GESPERRT</span>
-                <span class="kpi-value ${unavailable.length > 0 ? 'warn' : ''}">${unavailable.length > 0 ? `🚑 ${unavailable.filter(isPlayerInjured).length} • 🟥 ${unavailable.filter(isPlayerSuspended).length}` : '✅ Alle fit'}</span>
-            </div>
-            <div class="kpi-card">
-                <span class="kpi-label">STADION-PROGNOSE</span>
-                <span class="kpi-value">${forecast.occupancyPct}% (${formatMoneyShort(forecast.totalMatchRevenue)})</span>
-            </div>
-            <div class="kpi-card">
-                <span class="kpi-label">TRAINERSTAB</span>
-                <span class="kpi-value ${staffCount === 0 ? 'warn' : ''}">${staffCount}/${Object.keys(STAFF_ROLES).length} besetzt</span>
-            </div>
+            ${kpi('squad', 'KADER & TEAM-Ø', `${squad.length}/${MAX_SQUAD_SIZE} • Ø ${calculateTeamStrength()}`)}
+            ${kpi('squad', 'STIMMUNG / MOTIVATION', `${getMotivationIcon(avgMotivation)} ${avgMotivation}%`)}
+            ${kpi('contracts', `VERTRÄGE '${String(seasonEnd).slice(-2)}`, expiringCount > 0 ? '⚠️ ' + expiringCount + ' laufen aus' : '✅ Alle gesichert', expiringCount > 0 ? 'warn' : '', 'data-cfilter="EXPIRING"')}
+            ${kpi('tactics', 'VERLETZT / GESPERRT', unavailable.length > 0 ? `🚑 ${unavailable.filter(isPlayerInjured).length} • 🟥 ${unavailable.filter(isPlayerSuspended).length}` : '✅ Alle fit', unavailable.length > 0 ? 'warn' : '')}
+            ${kpi('stadium', 'STADION-PROGNOSE', `${forecast.occupancyPct}% (${formatMoneyShort(forecast.totalMatchRevenue)})`)}
+            ${kpi('staff', 'TRAINERSTAB', `${staffCount}/${Object.keys(STAFF_ROLES).length} besetzt`, staffCount === 0 ? 'warn' : '')}
+            ${kpi('cups', 'POKAL & EUROPA', `<span style="font-size:0.68rem;">${compText}</span>`)}
+            ${kpi('finance', 'FINANZEN SAISON', `${financeTotal >= 0 ? '+' : ''}${formatMoneyShort(financeTotal)} ${officeFinanceOpen ? '▴' : '▾'}`, financeTotal < 0 ? 'warn' : '')}
         </div>
+        ${officeFinanceOpen ? buildFinanceDetailHtml() : ''}
         <div class="bmh-box" style="font-size:0.78rem;">
-            <p><strong>💼 Trikotsponsor:</strong> ${GameState.sponsors.main ? `${GameState.sponsors.main.name} (${formatMoneyShort(GameState.sponsors.main.perMatch)}/ST)` : `<span style="color:#a82424;">Noch kein Partner! ${isPreseason ? '(Jetzt verhandelbar)' : '(Fenster geschlossen)'}</span>`}</p>
-            <p style="margin-top:4px;"><strong>📺 Bandenwerbung:</strong> ${GameState.sponsors.boards ? `${GameState.sponsors.boards.name} (${formatMoneyShort(GameState.sponsors.boards.perMatch)}/HS)` : `<span style="color:#a82424;">Noch kein Partner! ${isPreseason ? '(Jetzt verhandelbar)' : '(Fenster geschlossen)'}</span>`}</p>
-            <p style="margin-top:4px;"><strong>🏟️ Stadion:</strong> ${club?.stadium?.name || '-'} (${(club?.stadium?.capacity || 0).toLocaleString('de-DE')} Plätze • Ticket ${club?.stadium?.ticketPrice || 24} €${club?.stadium?.heating ? ' • 🔥 Rasenheizung' : ''})</p>
-            <p style="margin-top:4px;"><strong>💶 Gehälter / Saison:</strong> ${formatMoneyShort(totalSalary)} Spieler + ${formatMoneyShort(getStaffAnnualCost())} Stab</p>
-            ${GameState.stadiumProject ? `<p style="margin-top:4px; color:#184d25;"><strong>🏗️ Baustelle:</strong> ${GameState.stadiumProject.title} (noch ${GameState.stadiumProject.remainingMatchdays} ST)</p>` : ''}
+            <p class="clickable" data-goto="sponsors" role="button" tabindex="0"><strong>💼 Trikotsponsor ›</strong> ${GameState.sponsors.main ? `${GameState.sponsors.main.name} (${formatMoneyShort(GameState.sponsors.main.perMatch)}/ST)` : `<span style="color:#a82424;">Noch kein Partner! ${isPreseason ? '(Jetzt verhandelbar)' : '(Fenster geschlossen)'}</span>`}</p>
+            <p class="clickable" data-goto="sponsors" role="button" tabindex="0" style="margin-top:4px;"><strong>📺 Bandenwerbung ›</strong> ${GameState.sponsors.boards ? `${GameState.sponsors.boards.name} (${formatMoneyShort(GameState.sponsors.boards.perMatch)}/HS)` : `<span style="color:#a82424;">Noch kein Partner! ${isPreseason ? '(Jetzt verhandelbar)' : '(Fenster geschlossen)'}</span>`}</p>
+            <p class="clickable" data-goto="stadium" role="button" tabindex="0" style="margin-top:4px;"><strong>🏟️ Stadion ›</strong> ${club?.stadium?.name || '-'} (${(club?.stadium?.capacity || 0).toLocaleString('de-DE')} Plätze • Ticket ${club?.stadium?.ticketPrice || 24} €${club?.stadium?.heating ? ' • 🔥 Rasenheizung' : ''})</p>
+            <p class="clickable" data-goto="contracts" role="button" tabindex="0" style="margin-top:4px;"><strong>💶 Gehälter / Saison ›</strong> ${formatMoneyShort(totalSalary)} Spieler + ${formatMoneyShort(getStaffAnnualCost())} Stab</p>
+            ${GameState.stadiumProject ? `<p class="clickable" data-goto="stadium" role="button" tabindex="0" style="margin-top:4px; color:#184d25;"><strong>🏗️ Baustelle ›</strong> ${GameState.stadiumProject.title} (noch ${GameState.stadiumProject.remainingMatchdays} ST)</p>` : ''}
         </div>
         <div class="bmh-box">
             <button id="btn-back-to-start" type="button" class="bmh-btn" style="width:100%;">🏠 ZUM STARTBILDSCHIRM / NEUES SPIEL</button>
@@ -362,6 +415,7 @@ function renderOfficeView(viewport) {
     `;
 
     const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    bindNextEventBanner();
     bind('btn-office-cal', () => switchToView('calendar'));
     bind('btn-office-spons', () => switchToView('sponsors'));
     bind('btn-office-staff', () => { contractsSubTab = 'staff'; switchToView('contracts'); });
@@ -379,10 +433,33 @@ function renderOfficeView(viewport) {
         saveGame();
         renderOfficeView(viewport);
     });
-    bind('btn-inbox-more', () => {
-        inboxShowAll = !inboxShowAll;
-        renderOfficeView(viewport);
+    bind('btn-inbox-more', () => { inboxShowAll = !inboxShowAll; renderOfficeView(viewport); });
+
+    // Kacheln & Zeilen: Direkt ins jeweilige Modul springen
+    viewport.querySelectorAll('.clickable[data-goto]').forEach(el => {
+        const go = () => {
+            const target = el.dataset.goto;
+            if (target === 'finance') {
+                officeFinanceOpen = !officeFinanceOpen;
+                renderOfficeView(viewport);
+                return;
+            }
+            if (target === 'staff') {
+                contractsSubTab = 'staff';
+                switchToView('contracts');
+                return;
+            }
+            if (target === 'contracts') {
+                contractsSubTab = 'players';
+                contractFilter = el.dataset.cfilter || 'ALL';
+            }
+            if (target === 'squad') squadSubTab = 'roster';
+            switchToView(target);
+        };
+        el.addEventListener('click', go);
+        el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
     });
+
     viewport.querySelectorAll('.inbox-item').forEach(el => {
         const toggle = () => {
             const mid = el.dataset.mid;
@@ -405,11 +482,15 @@ function renderOfficeView(viewport) {
 // ==========================================
 const SPONSOR_DEMAND_STEPS = [
     { value: 1.00, label: "Angebot annehmen (100%)" },
-    { value: 1.08, label: "+8% fordern" },
-    { value: 1.16, label: "+16% fordern" },
+    { value: 1.05, label: "+5% fordern" },
+    { value: 1.10, label: "+10% fordern" },
+    { value: 1.15, label: "+15% fordern" },
+    { value: 1.20, label: "+20% fordern" },
     { value: 1.25, label: "+25% fordern" },
-    { value: 1.35, label: "+35% fordern" }
+    { value: 1.30, label: "+30% fordern" }
 ];
+const sponsorScore = (demand, years) => (1 + 0.03 * (years - 1)) / demand;
+const sponsorYearsMult = (years) => (years === 3 ? 1.16 : (years === 2 ? 1.08 : 1.0));
 
 function renderSponsorsView(viewport) {
     ensureSponsorOffersInitialized(false);
@@ -418,9 +499,7 @@ function renderSponsorsView(viewport) {
     const mainDeal = GameState.sponsors.main;
     const boardsDeal = GameState.sponsors.boards;
     const isPreseason = GameState.meta.phase === 'preseason';
-    if (!isPreseason && activeNegotiation && activeNegotiation.kind === 'sponsor') {
-        activeNegotiation = null;
-    }
+    if (!isPreseason && activeNegotiation && activeNegotiation.kind === 'sponsor') activeNegotiation = null;
 
     const windowBannerHtml = isPreseason ? `
         <div class="open-window-banner">
@@ -442,11 +521,12 @@ function renderSponsorsView(viewport) {
         if (offer) {
             const n = activeNegotiation;
             const slotLabel = offer.slot === 'main' ? 'Trikot- & Hauptsponsor' : 'Bandenwerbung & Stadion';
-            const yearOpts = [1, 2, 3].map(y => ({ value: y, label: `${y} ${y === 1 ? 'Jahr' : 'Jahre'} (bis ${seasonEnd + y - 1})${y > 1 ? ` • +${(y - 1) * 8}% Treue` : ''}` }));
+            const yearOpts = [1, 2, 3].map(y => ({ value: y, label: `${y} ${y === 1 ? 'Jahr' : 'Jahre'} (bis ${seasonEnd + y - 1})${y > 1 ? ` • +${Math.round((sponsorYearsMult(y) - 1) * 100)}% Treue` : ''}` }));
             negotiationHtml = buildNegotiationPanelHtml({
                 title: `💼 ${offer.name}`,
                 infoHtml: `<p>${slotLabel} • ${offer.sector}</p>
-                           <p>Basisangebot: Antritt <strong>${formatMoneyShort(offer.signOnBonus)}</strong> • Fix <strong>${formatMoneyShort(offer.perMatch)}/${offer.slot === 'main' ? 'ST' : 'HS'}</strong> • Sieg <strong>+${formatMoneyShort(offer.winBonus)}</strong></p>`,
+                           <p>Basisangebot: Antritt <strong>${formatMoneyShort(offer.signOnBonus)}</strong> • Fix <strong>${formatMoneyShort(offer.perMatch)}/${offer.slot === 'main' ? 'ST' : 'HS'}</strong> • Sieg <strong>+${formatMoneyShort(offer.winBonus)}</strong></p>
+                           <p style="font-size:0.64rem; color:#d3f9d8;">Das Basisangebot (100%) nimmt der Sponsor immer an.</p>`,
                 optionsHtml: `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
                         ${negoSelectHtml('nego-sp-demand', 'DEINE FORDERUNG', SPONSOR_DEMAND_STEPS, n.sel.demand ?? 1.0)}
                         ${negoSelectHtml('nego-sp-years', 'LAUFZEIT', yearOpts, n.sel.years ?? 2)}
@@ -464,14 +544,9 @@ function renderSponsorsView(viewport) {
                 <div class="bmh-box">
                     <h3 style="font-size:0.84rem; margin-bottom:6px;">${title}</h3>
                     <div class="sponsor-card active-deal">
-                        <div class="sponsor-card-header">
-                            <strong>✅ ${activeDeal.name}</strong>
-                            <span class="sponsor-tag">BIS ${activeDeal.untilYear}</span>
-                        </div>
+                        <div class="sponsor-card-header"><strong>✅ ${activeDeal.name}</strong><span class="sponsor-tag">BIS ${activeDeal.untilYear}</span></div>
                         <p style="font-size:0.72rem; color:#333;">Branche: ${activeDeal.sector} (${activeDeal.years} J. Laufzeit)</p>
-                        <p style="font-size:0.75rem; margin-top:4px;">
-                            Fixum: <strong>${formatMoneyShort(activeDeal.perMatch)}/${unitLabel}</strong> • Siegprämie: <strong>+${formatMoneyShort(activeDeal.winBonus)}</strong>
-                        </p>
+                        <p style="font-size:0.75rem; margin-top:4px;">Fixum: <strong>${formatMoneyShort(activeDeal.perMatch)}/${unitLabel}</strong> • Siegprämie: <strong>+${formatMoneyShort(activeDeal.winBonus)}</strong></p>
                     </div>
                 </div>
             `;
@@ -480,24 +555,18 @@ function renderSponsorsView(viewport) {
             <div class="bmh-box">
                 <h3 style="font-size:0.84rem; margin-bottom:6px;">${title} ${isPreseason ? `(${offersList.length} Angebote)` : '(Unbesetzt)'}</h3>
                 ${offersList.length === 0 ? '<p style="font-size:0.72rem;">Keine Angebote mehr – hol neue Angebote über die Agentur ein.</p>' : ''}
-                ${offersList.map(o => `
+                ${offersList.map(o => {
+                    const blocked = isNegoBlocked('sponsor:' + o.name);
+                    return `
                     <div class="sponsor-card" style="${!isPreseason ? 'opacity:0.72;' : ''}">
-                        <div class="sponsor-card-header">
-                            <strong>${o.name}</strong>
-                            <span class="sponsor-tag">${o.style.toUpperCase()}</span>
-                        </div>
+                        <div class="sponsor-card-header"><strong>${o.name}</strong><span class="sponsor-tag">${o.style.toUpperCase()}</span></div>
                         <p style="font-size:0.68rem; color:#444;">${o.sector}</p>
-                        <p style="font-size:0.73rem; margin-top:4px;">
-                            Antritt: <strong style="color:#184d25;">+${formatMoneyShort(o.signOnBonus)}</strong> | Fix: <strong>${formatMoneyShort(o.perMatch)}/${unitLabel}</strong> | Sieg: <strong>+${formatMoneyShort(o.winBonus)}</strong>
-                        </p>
-                        <button type="button" class="bmh-btn ${isPreseason ? 'primary' : ''} small-btn btn-open-sponsor"
-                                data-slot="${slotKey}" data-oid="${o.id}"
-                                style="width:100%; margin-top:6px;"
-                                ${!isPreseason ? 'disabled' : ''}>
-                            ${isPreseason ? '✍️ VERHANDELN' : '🔒 NUR IN SAISONVORBEREITUNG MÖGLICH'}
+                        <p style="font-size:0.73rem; margin-top:4px;">Antritt: <strong style="color:#184d25;">+${formatMoneyShort(o.signOnBonus)}</strong> | Fix: <strong>${formatMoneyShort(o.perMatch)}/${unitLabel}</strong> | Sieg: <strong>+${formatMoneyShort(o.winBonus)}</strong></p>
+                        <button type="button" class="bmh-btn ${isPreseason ? 'primary' : ''} small-btn btn-open-sponsor" data-slot="${slotKey}" data-oid="${o.id}" style="width:100%; margin-top:6px;" ${!isPreseason || blocked ? 'disabled' : ''}>
+                            ${!isPreseason ? '🔒 NUR IN SAISONVORBEREITUNG MÖGLICH' : (blocked ? '🔒 GESPRÄCHSSPERRE' : '✍️ VERHANDELN')}
                         </button>
-                    </div>
-                `).join('')}
+                    </div>`;
+                }).join('')}
             </div>
         `;
     };
@@ -510,9 +579,7 @@ function renderSponsorsView(viewport) {
         ${renderSlotSection('boards', '📺 BANDENWERBUNG & PARTNER', 'HS', boardsDeal, GameState.sponsors.offersBoards)}
         ${(isPreseason && (!mainDeal || !boardsDeal)) ? `
             <div class="bmh-box">
-                <button id="btn-refresh-sponsors" type="button" class="bmh-btn" style="width:100%; background:#e5b822;">
-                    🔄 NEUE SPONSOREN-ANGEBOTE EINHOLEN (100k €)
-                </button>
+                <button id="btn-refresh-sponsors" type="button" class="bmh-btn" style="width:100%; background:#e5b822;">🔄 NEUE SPONSOREN-ANGEBOTE EINHOLEN (100k €)</button>
             </div>
         ` : ''}
     `;
@@ -527,8 +594,9 @@ function renderSponsorsView(viewport) {
             const pool = slot === 'main' ? GameState.sponsors.offersMain : GameState.sponsors.offersBoards;
             const offer = pool.find(o => o.id === oid);
             if (!offer) return;
-            const maxMult = negoRandomReservation(1.0, 1.26) + (offer.style === 'Erfolg' ? 0.04 : 0);
-            negoStart({ kind: 'sponsor', voice: 'sponsor', key: 'sponsor:' + offer.name, targetId: oid, name: offer.name, reservation: 1 / maxMult, extra: { slot } });
+            const maxMult = negoRandomReservation(1.02, 1.24) + (offer.style === 'Erfolg' ? 0.04 : 0);
+            // reservation <= 1 -> das eigene Basisangebot (100%, 1 Jahr) ist immer annehmbar
+            negoStart({ kind: 'sponsor', voice: 'sponsor', key: 'sponsor:' + offer.name, targetId: oid, name: offer.name, reservation: 1 / maxMult, maxReservation: 1.0, extra: { slot } });
             renderSponsorsView(viewport);
             document.getElementById('main-viewport').scrollTop = 0;
         });
@@ -546,13 +614,15 @@ function renderSponsorsView(viewport) {
                 const demand = parseFloat(document.getElementById('nego-sp-demand').value) || 1.0;
                 const years = parseInt(document.getElementById('nego-sp-years').value, 10) || 2;
                 activeNegotiation.sel = { demand, years };
-                const score = (1 + 0.03 * (years - 1)) / demand; // längere Laufzeit gefällt dem Sponsor
-                const n = negoSubmit(score, `${Math.round(demand * 100)}% • ${years} J.`, (res, mood) =>
-                    mood === 'positive' ? `Der Sponsor signalisiert: ca. ${Math.round((1 / res) * 100)}% wären machbar.` : '');
+                const n = negoSubmit(sponsorScore(demand, years), `${Math.round(demand * 100)}% • ${years} J.`, (res, mood) => {
+                    if (mood === 'angry') return '';
+                    const step = findMaxAcceptableStep(SPONSOR_DEMAND_STEPS, v => sponsorScore(v, years), res);
+                    return step ? `Bei ${years} J. Laufzeit ist höchstens „${step.label}“ drin.` : '';
+                });
                 if (n.status === 'accepted') {
-                    const mult = demand * (years === 3 ? 1.16 : (years === 2 ? 1.08 : 1.0));
+                    const mult = demand * sponsorYearsMult(years);
                     const finalSignOn = Math.round((offer.signOnBonus * mult) / 5000) * 5000;
-                    club.budget += finalSignOn;
+                    bookMoney('sponsors', finalSignOn);
                     GameState.sponsors[slot] = {
                         name: offer.name,
                         sector: offer.sector,
@@ -581,7 +651,7 @@ function renderSponsorsView(viewport) {
                 alert("Nicht genügend Budget für die Agentur-Gebühr (100k €)!");
                 return;
             }
-            club.budget -= 100000;
+            bookMoney('other', -100000);
             activeNegotiation = null;
             ensureSponsorOffersInitialized(true);
             renderHeader();
@@ -778,7 +848,7 @@ function renderStadiumView(viewport) {
                 return;
             }
 
-            club.budget -= cost;
+            bookMoney('stadium', -cost);
             GameState.stadiumProject = {
                 clubId: club.id,
                 type: b.type,
@@ -852,12 +922,14 @@ function renderAdminView(viewport) {
             GameState.sponsors = { clubId: selectedId, main: null, boards: null, offersMain: [], offersBoards: [] };
             GameState.stadiumProject = null;
             GameState.staff = {};
-            GameState.catchUps = GameState.catchUps || [];
+            GameState.cups = null;
+            GameState.finance = null;
             selectedLeagueViewId = GameState.clubs[selectedId]?.leagueId || null;
             ensureValidSquadAssignment();
             ensureYouthPool(true);
             ensureSponsorOffersInitialized(true);
             ensureClubStadiumInitialized();
+            ensureCompetitionsInitialized();
             saveGame();
             renderHeader();
             setStatus(`Verein: ${GameState.clubs[selectedId].name}`);

@@ -11,7 +11,7 @@
     <title>FC Manager - Retro Edition</title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="apple-touch-icon" href="logo.png">
-    <link rel="stylesheet" href="style.css?v=13.0">
+    <link rel="stylesheet" href="style.css?v=14.0">
 </head>
 <body>
     <div id="app-container">
@@ -19,7 +19,7 @@
         <header class="bmh-header">
             <div class="header-top-row">
                 <div class="header-left">
-                    <span class="club-badge">⚽</span>
+                    <img src="logo.png?v=14.0" alt="FC Manager Logo" class="header-logo">
                     <div class="club-title-wrap">
                         <h1 id="header-club-name">KEIN VEREIN</h1>
                         <span id="header-league-info" class="sub-info">Bitte Update laden</span>
@@ -46,7 +46,7 @@
         <!-- Fixierter unterer Bereich: Status/Weiter-Button + 9 Kacheln nebeneinander -->
         <div class="bmh-bottom-dock">
             <div class="bmh-footer">
-                <span id="status-message">Bereit (v1.3.0)</span>
+                <span id="status-message">Bereit (v1.4.0)</span>
                 <button id="btn-next-day" class="bmh-btn primary small-btn">WEITER ▶</button>
             </div>
 
@@ -73,22 +73,23 @@
             if (st) st.textContent = 'Fehler: ' + window.FCM_SCRIPT_ERROR;
         });
     </script>
-    <script src="data.js?v=13.0" onerror="window.FCM_NETWORK_ERROR = 'data.js';"></script>
-    <script src="engine.js?v=13.0" onerror="window.FCM_NETWORK_ERROR = 'engine.js';"></script>
-    <script src="world.js?v=13.0" onerror="window.FCM_NETWORK_ERROR = 'world.js';"></script>
-    <script src="negotiation.js?v=13.0" onerror="window.FCM_NETWORK_ERROR = 'negotiation.js';"></script>
-    <script src="calendar.js?v=13.0" onerror="window.FCM_NETWORK_ERROR = 'calendar.js';"></script>
-    <script src="league.js?v=13.0" onerror="window.FCM_NETWORK_ERROR = 'league.js';"></script>
-    <script src="liveticker_engine.js?v=13.0" onerror="window.FCM_NETWORK_ERROR = 'liveticker_engine.js';"></script>
-    <script src="liveticker_ui.js?v=13.0" onerror="window.FCM_NETWORK_ERROR = 'liveticker_ui.js';"></script>
-    <script src="squad.js?v=13.0" onerror="window.FCM_NETWORK_ERROR = 'squad.js';"></script>
-    <script src="tactics.js?v=13.0" onerror="window.FCM_NETWORK_ERROR = 'tactics.js';"></script>
-    <script src="club.js?v=13.0" onerror="window.FCM_NETWORK_ERROR = 'club.js';"></script>
+    <script src="data.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'data.js';"></script>
+    <script src="engine.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'engine.js';"></script>
+    <script src="world.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'world.js';"></script>
+    <script src="negotiation.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'negotiation.js';"></script>
+    <script src="cups.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'cups.js';"></script>
+    <script src="calendar.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'calendar.js';"></script>
+    <script src="league.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'league.js';"></script>
+    <script src="liveticker_engine.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'liveticker_engine.js';"></script>
+    <script src="liveticker_ui.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'liveticker_ui.js';"></script>
+    <script src="squad.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'squad.js';"></script>
+    <script src="tactics.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'tactics.js';"></script>
+    <script src="club.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'club.js';"></script>
     <script>
         if (!window.FCM_APP_LOADED) {
             var vp = document.getElementById('main-viewport');
             var reason = window.FCM_NETWORK_ERROR
-                ? 'Netzwerk/404-Fehler beim Laden von <code>' + window.FCM_NETWORK_ERROR + '</code> (stelle sicher, dass alle 11 JS-Module im Hauptverzeichnis von GitHub liegen).'
+                ? 'Netzwerk/404-Fehler beim Laden von <code>' + window.FCM_NETWORK_ERROR + '</code> (stelle sicher, dass alle 12 JS-Module im Hauptverzeichnis von GitHub liegen).'
                 : (window.FCM_SCRIPT_ERROR
                     ? 'JavaScript-Syntax-/Laufzeitfehler: <strong>' + window.FCM_SCRIPT_ERROR + '</strong>'
                     : 'Ein Modul wurde nicht vollständig ausgeführt (möglicherweise beschädigte/abgeschnittene Datei auf GitHub).');
