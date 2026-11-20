@@ -1471,9 +1471,7 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
    v1.6.1: BUTTON-REIHEN IN BANNERN (Kalender & Büro) – kein Überlaufen mehr
    ========================================== */
 .open-window-banner { overflow: hidden; }
-.open-window-banner > div[style*="display:flex"] {
-    flex-wrap: wrap;
-}
+.open-window-banner > div[style*="display:flex"] { flex-wrap: wrap; }
 .open-window-banner .bmh-btn.small-btn {
     min-width: 0;
     white-space: normal;
@@ -1481,12 +1479,5 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
     overflow-wrap: anywhere;
     text-align: center;
 }
-/* Untere Button-Reihe: gleichmäßig verteilen, bei Platzmangel umbrechen */
-.open-window-banner > div[style*="margin-top:6px"] > .bmh-btn {
-    flex: 1 1 30%;
-}
-/* "WOCHE x ▶" oben rechts bleibt kompakt in einer Zeile */
-#btn-sim-preseason-week, #btn-banner-calendar {
-    flex-shrink: 0;
-    white-space: nowrap;
-}
+.open-window-banner > div[style*="margin-top:6px"] > .bmh-btn { flex: 1 1 30%; }
+#btn-sim-preseason-week, #btn-banner-calendar { flex-shrink: 0; white-space: nowrap; }

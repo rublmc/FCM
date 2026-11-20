@@ -2,7 +2,7 @@
 // FC MANAGER 27 - MODUL: DATA & KONSTANTEN
 // ==========================================
 window.FCM_APP_STARTED = true;
-const GAME_VERSION = "1.6.0";
+const GAME_VERSION = "1.6.1";
 const GAME_BUILD_DATE = "20.11.2026";
 
 const STORAGE_KEY = 'fcm_savegame_v1';
