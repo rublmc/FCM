@@ -67,8 +67,7 @@ function calculateTransferFee(player) {
 }
 
 function calculateSellPrice(player) {
-    const val = calculateMarketValue(player);
-    return Math.max(100000, Math.round((val * 0.80) / 50000) * 50000);
+    return getQuickSalePrice(player);
 }
 
 // Rohformel Gehalt (vor Kalibrierung)
@@ -562,6 +561,7 @@ function renderSquadAndMarketView(viewport) {
             squadSubTab = e.currentTarget.dataset.subtab;
             activeTransferTargetId = null;
             activeNegotiation = null;
+            playerCardId = null;
             activeSellTargetId = null;
             renderSquadAndMarketView(viewport);
         });
@@ -600,24 +600,8 @@ function buildRosterTabHtml(mySquad) {
         return rosterSortDir === 'asc' ? " ↑" : " ↓";
     };
 
-    let sellDialogHtml = "";
-    if (activeSellTargetId) {
-        const sellPlayer = mySquad.find(p => p.id === activeSellTargetId);
-        if (sellPlayer) {
-            const sellPrice = calculateSellPrice(sellPlayer);
-            sellDialogHtml = `
-                <div class="negotiation-box">
-                    <h3>💸 SPIELER VERKAUFEN: ${sellPlayer.name}</h3>
-                    <p>Position: <strong>${sellPlayer.pos}</strong> | Stärke: <strong>${sellPlayer.rating.toFixed(1)}</strong> | Alter: <strong>${sellPlayer.age}</strong></p>
-                    <p style="margin: 6px 0;">Sofort-Ablöseangebot: <strong style="color:#6ee787;">${formatMoneyShort(sellPrice)}</strong> (spart ${formatMoneyShort(sellPlayer.salary)}/J. Gehalt)</p>
-                    <div style="display:flex; gap:6px; margin-top:8px;">
-                        <button id="btn-confirm-sell" class="bmh-btn primary" style="flex:2;">✅ VERKAUFEN (+${formatMoneyShort(sellPrice)})</button>
-                        <button id="btn-cancel-sell" class="bmh-btn danger" style="flex:1;">ABBRUCH</button>
-                    </div>
-                </div>
-            `;
-        }
-    }
+    const cardPlayer = playerCardId ? mySquad.find(p => p.id === playerCardId) : null;
+    const sellDialogHtml = cardPlayer ? buildPlayerCardHtml(cardPlayer) : (activeNegotiation && activeNegotiation.kind === 'sale' ? buildSaleNegotiationHtml() : '');
 
     return `
         ${sellDialogHtml}
@@ -674,7 +658,7 @@ function buildRosterTabHtml(mySquad) {
                             ? ` • <strong style="color:#a82424;">${getUnavailableLabel(p)}</strong>`
                             : '';
                         return `
-                        <tr style="${rowStyle}">
+                        <tr class="roster-row" data-pid="${p.id}" style="${rowStyle} cursor:pointer;" title="Spielerkarte öffnen">
                             <td>${statusBadge}</td>
                             <td><strong>${p.pos}</strong></td>
                             <td title="${p.name} (${p.age} J. | Mot: ${mot}%)">
@@ -684,7 +668,7 @@ function buildRosterTabHtml(mySquad) {
                             <td><strong>${p.rating.toFixed(1)}</strong></td>
                             <td>${formatMoneyShort(p.salary)}</td>
                             <td style="font-size:0.66rem;">${p.seasonApps || 0}/${p.seasonGoals || 0}</td>
-                            <td><button class="mini-action-btn sell btn-sell-player" data-pid="${p.id}">VK</button></td>
+                            <td><button type="button" class="mini-action-btn ${p.transferListed ? 'sell' : ''} btn-open-card" data-pid="${p.id}">${p.transferListed ? '📋' + (getOpenOffersForPlayer(p.id).length || '') : 'INFO'}</button></td>
                         </tr>
                     `}).join('')}
                 </tbody>
@@ -707,49 +691,17 @@ function bindRosterTabEvents(viewport) {
         });
     });
 
-    document.querySelectorAll('.btn-sell-player').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const pid = e.currentTarget.dataset.pid;
-            const mySquad = getClubPlayers();
-            if (mySquad.length <= MIN_SQUAD_SIZE) {
-                alert(`Dein Kader darf nicht unter ${MIN_SQUAD_SIZE} Spieler fallen! Verpflichte erst Ersatz.`);
-                return;
-            }
-            activeSellTargetId = pid;
+    viewport.querySelectorAll('.roster-row').forEach(row => {
+        row.addEventListener('click', () => {
+            playerCardId = row.dataset.pid;
+            activeNegotiation = null;
             renderSquadAndMarketView(viewport);
+            document.getElementById('main-viewport').scrollTop = 0;
         });
     });
-
-    const cancelSellBtn = document.getElementById('btn-cancel-sell');
-    if (cancelSellBtn) {
-        cancelSellBtn.addEventListener('click', () => {
-            activeSellTargetId = null;
-            renderSquadAndMarketView(viewport);
-        });
-    }
-
-    const confirmSellBtn = document.getElementById('btn-confirm-sell');
-    if (confirmSellBtn) {
-        confirmSellBtn.addEventListener('click', () => {
-            const club = GameState.clubs[GameState.activeClubId];
-            const player = GameState.players.find(p => p.id === activeSellTargetId);
-            if (!club || !player) return;
-
-            const sellPrice = calculateSellPrice(player);
-            bookMoney('transfersIn', sellPrice);
-            player.clubId = "free";
-            player.contractUntil = getCurrentSeasonEndYear();
-
-            GameState.tactics.lineup = GameState.tactics.lineup.map(id => id === player.id ? null : id);
-            GameState.tactics.bench = GameState.tactics.bench.map(id => id === player.id ? null : id);
-
-            activeSellTargetId = null;
-            saveGame();
-            renderHeader();
-            setStatus(`${player.name} für ${formatMoneyShort(sellPrice)} verkauft!`);
-            renderSquadAndMarketView(viewport);
-        });
-    }
+    const cardPlayer = playerCardId ? getClubPlayers().find(p => p.id === playerCardId) : null;
+    if (cardPlayer) bindPlayerCard(viewport, cardPlayer, () => renderSquadAndMarketView(viewport));
+    if (!cardPlayer && activeNegotiation && activeNegotiation.kind === 'sale') bindSaleNegotiation(() => renderSquadAndMarketView(viewport));
 }
 
 function matchesPosGroup(pos, filter) {
@@ -799,8 +751,8 @@ function buildTransferMarketTabHtml() {
     }
 
     return `
+        ${buildMyTransferListHtml()}
         ${negotiationHtml}
-
         <div class="bmh-box" style="padding: 6px;">
             <div class="filter-bar">
                 <button class="filter-btn ${marketPosFilter === 'ALL' ? 'active' : ''}" data-posf="ALL">ALLE</button>
@@ -849,6 +801,8 @@ function buildTransferMarketTabHtml() {
 }
 
 function bindTransferMarketEvents(viewport) {
+    bindTransferOfferButtons(viewport, () => renderSquadAndMarketView(viewport));
+    if (activeNegotiation && activeNegotiation.kind === 'sale') bindSaleNegotiation(() => renderSquadAndMarketView(viewport));
     document.querySelectorAll('.filter-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             marketPosFilter = e.currentTarget.dataset.posf;
@@ -908,7 +862,7 @@ function bindTransferMarketEvents(viewport) {
                     if (target.clubId && target.clubId !== 'free' && GameState.clubs[target.clubId]) {
                         GameState.clubs[target.clubId].budget += fee;
                     }
-                    target.clubId = GameState.activeClubId;
+                    movePlayerToClub(target, GameState.activeClubId);
                     target.salary = salary;
                     target.contractUntil = getCurrentSeasonEndYear() + sel.years;
                     target.seasonApps = 0;
@@ -1022,6 +976,7 @@ function bindYouthCampEvents(viewport) {
                 salary: talent.salary,
                 contractUntil: getCurrentSeasonEndYear() + 3,
                 isYouthProduct: true,
+                clubSince: GameState.meta.season,
                 seasonApps: 0,
                 seasonMinutes: 0,
                 seasonGoals: 0,
@@ -1038,5 +993,277 @@ function bindYouthCampEvents(viewport) {
             renderSquadAndMarketView(viewport);
         });
     });
+}
+
+
+// ==========================================
+// MODUL: TRANSFERLISTE, ANGEBOTE & VERKAUFSVERHANDLUNG
+// ==========================================
+const SALE_SCORE = (demand) => 1 / demand;
+
+function startSaleNegotiation(offerId) {
+    const off = (GameState.transferOffers || []).find(o => o.id === offerId && o.status === 'open');
+    if (!off) {
+        alert("Dieses Angebot ist nicht mehr aktiv.");
+        return false;
+    }
+    const p = GameState.players.find(x => x.id === off.playerId);
+    if (!p || p.clubId !== GameState.activeClubId) return false;
+    // Gegenseite akzeptiert maximal off.maxFee -> Anforderung = fee / maxFee (<= 1: Basisangebot ist immer annehmbar)
+    negoStart({
+        kind: 'sale', voice: 'club', key: 'sale:' + off.id, targetId: off.id, name: getAnyClubName(off.clubId),
+        reservation: off.fee / off.maxFee, maxReservation: 1.0, extra: { offerId: off.id }
+    });
+    return true;
+}
+
+function buildSaleNegotiationHtml() {
+    const n = activeNegotiation;
+    if (!n || n.kind !== 'sale') return '';
+    const off = (GameState.transferOffers || []).find(o => o.id === n.extra.offerId);
+    const p = off ? GameState.players.find(x => x.id === off.playerId) : null;
+    if (!off || !p) return '';
+    return buildNegotiationPanelHtml({
+        title: `💰 VERKAUF: ${p.name} → ${getAnyClubName(off.clubId)}`,
+        infoHtml: `<p>${p.pos} • ${p.age} J. • Stärke ${p.rating.toFixed(1)} • Marktwert <strong>${formatMoneyShort(calculateMarketValue(p))}</strong></p>
+                   <p>Angebot von ${getAnyClubName(off.clubId)}: <strong style="color:#6ee787;">${formatMoneyShort(off.fee)}</strong> • Notverkauf wäre nur ${formatMoneyShort(getQuickSalePrice(p))}</p>
+                   <p style="font-size:0.64rem; color:#d3f9d8;">Das aktuelle Angebot (100%) nimmt der Verein immer an. Höhere Forderungen können ihn verärgern.</p>`,
+        optionsHtml: negoSelectHtml('nego-sale-demand', 'DEINE FORDERUNG', SALE_DEMAND_STEPS.map(s => ({ value: s.value, label: `${formatMoneyShort(Math.round(off.fee * s.value / 50000) * 50000)} (${s.label})` })), n.sel.demand ?? 1.0),
+        submitLabel: 'FORDERUNG STELLEN',
+        successText: `${p.name} ist verkauft!`,
+        abortText: `${getAnyClubName(off.clubId)} hat das Angebot zurückgezogen.`
+    });
+}
+
+function bindSaleNegotiation(rerender) {
+    bindNegotiationPanel({
+        onClose: rerender,
+        onSubmit: () => {
+            const n = activeNegotiation;
+            const off = (GameState.transferOffers || []).find(o => o.id === n.extra.offerId);
+            const p = off ? GameState.players.find(x => x.id === off.playerId) : null;
+            if (!off || !p || off.status !== 'open') { activeNegotiation = null; rerender(); return; }
+            const demand = parseFloat(document.getElementById('nego-sale-demand').value) || 1.0;
+            n.sel = { demand };
+            const fee = Math.round(off.fee * demand / 50000) * 50000;
+            const res = negoSubmit(SALE_SCORE(demand), `${formatMoneyShort(fee)}`, (r, mood) => {
+                if (mood === 'angry') return '';
+                const step = findMaxAcceptableStep(SALE_DEMAND_STEPS, v => SALE_SCORE(v), r);
+                return step ? `Der Sportdirektor deutet an: Bis ${formatMoneyShort(Math.round(off.fee * step.value / 50000) * 50000)} würden wir mitgehen.` : '';
+            });
+            if (res.status === 'accepted') {
+                const buyerName = getAnyClubName(off.clubId);
+                completePlayerSale(p, off.clubId, fee);
+                off.status = 'accepted';
+                addInbox('✅', `Verkauft: ${p.name}`, `${p.name} wechselt für ${formatMoneyShort(fee)} zu ${buyerName}.`, 'transfer');
+                setStatus(`💰 ${p.name} für ${formatMoneyShort(fee)} an ${buyerName} verkauft!`);
+            } else if (res.status === 'aborted') {
+                off.status = 'withdrawn';
+            }
+            saveGame();
+            renderHeader();
+            rerender();
+        }
+    });
+}
+
+function rejectTransferOffer(offerId) {
+    const off = (GameState.transferOffers || []).find(o => o.id === offerId);
+    if (!off) return;
+    off.status = 'rejected';
+    const p = GameState.players.find(x => x.id === off.playerId);
+    setStatus(`Angebot von ${getAnyClubName(off.clubId)} für ${p ? p.name : 'Spieler'} abgelehnt.`);
+    saveGame();
+}
+
+function bindTransferOfferButtons(viewport, rerender) {
+    viewport.querySelectorAll('.btn-offer-negotiate').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (startSaleNegotiation(e.currentTarget.dataset.oid)) {
+                rerender();
+                document.getElementById('main-viewport').scrollTop = 0;
+            }
+        });
+    });
+    viewport.querySelectorAll('.btn-offer-reject').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            rejectTransferOffer(e.currentTarget.dataset.oid);
+            rerender();
+        });
+    });
+}
+
+function setTransferListed(p, listed, askingMult = 1) {
+    p.transferListed = listed;
+    p.askingMult = askingMult;
+    if (listed) {
+        adjustPlayerMotivation(p, -4);
+        addInbox('📋', `${p.name} auf der Transferliste`, `${p.name} steht ab sofort zum Verkauf (Preisvorstellung ${formatMoneyShort(Math.round(calculateMarketValue(p) * askingMult / 50000) * 50000)}). Angebote anderer Vereine landen hier im Postfach. Der Spieler ist darüber nicht begeistert (-4% Motivation).`, 'transfer');
+    } else {
+        GameState.transferOffers.forEach(o => { if (o.playerId === p.id && o.status === 'open') o.status = 'rejected'; });
+    }
+}
+
+function quickSellPlayer(p) {
+    const price = getQuickSalePrice(p);
+    const avgOk = Object.values(GameState.clubs).filter(c => c.id !== GameState.activeClubId && getClubPlayers(c.id).length < MAX_SQUAD_SIZE && (c.budget || 0) >= price);
+    const fitting = avgOk.filter(c => Math.abs(getClubAverageRating(c.id) - p.rating) < 1.0);
+    const pool = fitting.length ? fitting : avgOk;
+    if (pool.length > 0) {
+        const buyer = pool[Math.floor(Math.random() * pool.length)];
+        completePlayerSale(p, buyer.id, price);
+        return buyer.name;
+    }
+    bookMoney('transfersIn', price);
+    GameState.tactics.lineup = GameState.tactics.lineup.map(id => (id === p.id ? null : id));
+    GameState.tactics.bench = GameState.tactics.bench.map(id => (id === p.id ? null : id));
+    movePlayerToClub(p, 'free');
+    return 'einen ausländischen Verein';
+}
+
+// ==========================================
+// SPIELERKARTE
+// ==========================================
+function buildPlayerCardHtml(p) {
+    const seasonEnd = getCurrentSeasonEndYear();
+    const yrsLeft = (p.contractUntil || seasonEnd) - seasonEnd;
+    const yellows = p.seasonYellows || 0;
+    const nextBan = 5 - (yellows % 5);
+    let status = '✅ Einsatzbereit';
+    let statusCls = 'long';
+    if (isPlayerSuspended(p)) { status = getUnavailableLabel(p); statusCls = 'expiring'; }
+    else if (isPlayerInjured(p)) { status = getUnavailableLabel(p); statusCls = 'expiring'; }
+    const inLineup = GameState.tactics.lineup.includes(p.id);
+    const onBench = GameState.tactics.bench.includes(p.id);
+    const role = inLineup ? 'Startelf' : (onBench ? 'Ersatzbank' : 'Tribüne');
+    const offers = getOpenOffersForPlayer(p.id);
+    const club = GameState.clubs[GameState.activeClubId];
+    const stars = '★'.repeat(p.talent || 3) + '☆'.repeat(Math.max(0, 5 - (p.talent || 3)));
+    const blocked = isNegoBlocked('player:' + p.id);
+    return `
+        <div class="player-card">
+            <div class="pc-head">
+                <div class="pc-pos">${p.pos}</div>
+                <div style="flex:1; min-width:0;">
+                    <div class="pc-name">${p.isYouthProduct ? '🌱 ' : ''}${p.name}</div>
+                    <div class="pc-sub">${p.age} Jahre • ${club ? club.name : ''} • Talent ${stars}</div>
+                </div>
+                <div class="pc-rating">${p.rating.toFixed(1)}</div>
+                <button id="btn-close-card" type="button" class="bmh-btn danger small-btn" style="padding:2px 7px; align-self:flex-start;">✕</button>
+            </div>
+            <div class="pc-status"><span class="contract-pill ${statusCls}">${status}</span> <span style="font-size:0.66rem;">• ${role} • ${getMotivationIcon(p.motivation)} Motivation ${p.motivation || 78}%</span></div>
+            <div class="pc-grid">
+                <div class="pc-cell"><span>SPIELE SAISON</span><strong>${p.seasonApps || 0}</strong><em>${p.seasonMinutes || 0} Min.</em></div>
+                <div class="pc-cell"><span>TORE SAISON</span><strong>${p.seasonGoals || 0}</strong><em>+ ${p.cupGoals || 0} im Pokal</em></div>
+                <div class="pc-cell"><span>SPIELE FÜR ${club ? club.name.toUpperCase() : 'VEREIN'}</span><strong>${p.clubApps || 0}</strong><em>seit ${p.clubSince || GameState.meta.season}</em></div>
+                <div class="pc-cell"><span>TORE FÜR DEN VEREIN</span><strong>${p.clubGoals || 0}</strong><em>Pflichtspiele</em></div>
+                <div class="pc-cell"><span>GELBE KARTEN</span><strong>🟨 ${yellows}</strong><em>${yellows > 0 && nextBan === 1 ? '<b style="color:#a82424;">Nächste Gelbe = Sperre!</b>' : `Sperre nach ${nextBan} weiteren`}</em></div>
+                <div class="pc-cell"><span>ZU-NULL-SPIELE</span><strong>${p.seasonCleanSheets || 0}</strong><em>${['TW', 'IV', 'LV', 'RV', 'DM'].includes(p.pos) ? 'Defensive' : '–'}</em></div>
+                <div class="pc-cell"><span>MARKTWERT</span><strong>${formatMoneyShort(calculateMarketValue(p))}</strong><em>Notverkauf ${formatMoneyShort(getQuickSalePrice(p))}</em></div>
+                <div class="pc-cell"><span>GEHALT / JAHR</span><strong>${formatMoneyShort(p.salary || 0)}</strong><em>marktüblich ${formatMoneyShort(calculateExpectedSalary(p))}</em></div>
+            </div>
+            <div class="pc-contract">
+                ✍️ Vertrag bis <strong>${p.contractUntil}</strong> <span class="contract-pill ${yrsLeft <= 0 ? 'expiring' : (yrsLeft === 1 ? 'medium' : 'long')}">${yrsLeft <= 0 ? 'läuft aus!' : `noch ${yrsLeft + 1} Saison${yrsLeft + 1 === 1 ? '' : 's'}`}</span>
+                ${p.transferListed ? `<br>📋 <strong>Auf der Transferliste</strong> (Preisvorstellung ${formatMoneyShort(Math.round(calculateMarketValue(p) * (p.askingMult || 1) / 50000) * 50000)}) • ${offers.length} offene${offers.length === 1 ? 's Angebot' : ' Angebote'}` : ''}
+            </div>
+            ${offers.map(o => `
+                <div class="pc-offer">
+                    <span>💰 ${getAnyClubName(o.clubId)}: <strong>${formatMoneyShort(o.fee)}</strong></span>
+                    <span style="display:flex; gap:4px;">
+                        <button type="button" class="mini-action-btn btn-offer-negotiate" data-oid="${o.id}" style="width:auto; padding:3px 6px;">VERHANDELN</button>
+                        <button type="button" class="mini-action-btn sell btn-offer-reject" data-oid="${o.id}" style="width:auto; padding:3px 6px;">✕</button>
+                    </span>
+                </div>`).join('')}
+            <div class="pc-actions">
+                <button id="btn-card-contract" type="button" class="bmh-btn primary small-btn" ${blocked ? 'disabled' : ''}>${blocked ? '🔒 GESPRÄCHSSPERRE' : '✍️ VERTRAG VERLÄNGERN'}</button>
+                ${p.transferListed
+                    ? `<button id="btn-card-unlist" type="button" class="bmh-btn small-btn">↩ VON TRANSFERLISTE NEHMEN</button>`
+                    : `<div style="display:flex; gap:4px;">
+                        <select id="card-asking" class="bmh-select" style="margin-bottom:0; font-size:0.66rem; padding:3px; flex:1;">
+                            ${[0.9, 1.0, 1.2, 1.4].map(m => `<option value="${m}" ${m === 1 ? 'selected' : ''}>${formatMoneyShort(Math.round(calculateMarketValue(p) * m / 50000) * 50000)} (${m === 1 ? 'Marktwert' : (m < 1 ? '-10%' : '+' + Math.round((m - 1) * 100) + '%')})</option>`).join('')}
+                        </select>
+                        <button id="btn-card-list" type="button" class="bmh-btn gold-btn small-btn">📋 AUF TRANSFERLISTE</button>
+                       </div>`}
+                <button id="btn-card-quicksell" type="button" class="bmh-btn danger small-btn">⚡ SOFORT VERKAUFEN (${formatMoneyShort(getQuickSalePrice(p))})</button>
+            </div>
+        </div>
+    `;
+}
+
+function bindPlayerCard(viewport, p, rerender) {
+    const close = document.getElementById('btn-close-card');
+    if (close) close.addEventListener('click', () => { playerCardId = null; rerender(); });
+    bindTransferOfferButtons(viewport, rerender);
+    const contractBtn = document.getElementById('btn-card-contract');
+    if (contractBtn) contractBtn.addEventListener('click', () => openContractNegotiationFor(p.id));
+    const listBtn = document.getElementById('btn-card-list');
+    if (listBtn) listBtn.addEventListener('click', () => {
+        const mult = parseFloat(document.getElementById('card-asking').value) || 1;
+        setTransferListed(p, true, mult);
+        saveGame();
+        setStatus(`📋 ${p.name} steht auf der Transferliste.`);
+        rerender();
+    });
+    const unlistBtn = document.getElementById('btn-card-unlist');
+    if (unlistBtn) unlistBtn.addEventListener('click', () => {
+        setTransferListed(p, false);
+        saveGame();
+        rerender();
+    });
+    const quickBtn = document.getElementById('btn-card-quicksell');
+    if (quickBtn) quickBtn.addEventListener('click', () => {
+        if (getClubPlayers().length <= MIN_SQUAD_SIZE) {
+            alert(`Dein Kader darf nicht unter ${MIN_SQUAD_SIZE} Spieler fallen! Verpflichte erst Ersatz.`);
+            return;
+        }
+        const price = getQuickSalePrice(p);
+        if (!confirm(`${p.name} sofort für nur ${formatMoneyShort(price)} verkaufen?\n(Marktwert: ${formatMoneyShort(calculateMarketValue(p))})`)) return;
+        const buyer = quickSellPlayer(p);
+        addInbox('⚡', `Notverkauf: ${p.name}`, `${p.name} wurde kurzfristig für ${formatMoneyShort(price)} an ${buyer} abgegeben.`, 'transfer');
+        playerCardId = null;
+        saveGame();
+        renderHeader();
+        setStatus(`⚡ ${p.name} für ${formatMoneyShort(price)} verkauft.`);
+        rerender();
+    });
+}
+
+function openContractNegotiationFor(pid) {
+    const player = GameState.players.find(p => p.id === pid);
+    if (!player) return;
+    contractsSubTab = 'players';
+    contractFilter = 'ALL';
+    switchToView('contracts');
+    negoStart({ kind: 'contract', voice: 'player', key: 'player:' + pid, targetId: pid, name: player.name, reservation: computePlayerReservation(player, 'contract') });
+    renderContractsView(document.getElementById('main-viewport'));
+}
+
+// Transferliste im Transfermarkt
+function buildMyTransferListHtml() {
+    const listed = getClubPlayers().filter(p => p.transferListed);
+    const negoHtml = activeNegotiation && activeNegotiation.kind === 'sale' ? buildSaleNegotiationHtml() : '';
+    return `
+        ${negoHtml}
+        <div class="bmh-box" style="padding:6px;">
+            <h3 style="font-size:0.80rem; color:#184d25; margin-bottom:4px;">📋 MEINE TRANSFERLISTE (${listed.length})</h3>
+            ${listed.length === 0 ? '<p style="font-size:0.70rem; color:#444;">Keine Spieler gelistet. Tippe im Kader auf einen Spieler → Spielerkarte → „Auf Transferliste“.</p>' : listed.map(p => {
+                const offers = getOpenOffersForPlayer(p.id);
+                return `
+                    <div class="pc-offer" style="flex-wrap:wrap;">
+                        <span><strong>${p.pos}</strong> ${p.name} (${p.rating.toFixed(1)}) • Preis ${formatMoneyShort(Math.round(calculateMarketValue(p) * (p.askingMult || 1) / 50000) * 50000)}</span>
+                        <span style="font-size:0.64rem;">${offers.length === 0 ? '⏳ Noch kein Angebot' : ''}</span>
+                        ${offers.map(o => `
+                            <div style="width:100%; display:flex; justify-content:space-between; align-items:center; gap:4px; margin-top:3px;">
+                                <span>💰 ${getAnyClubName(o.clubId)}: <strong>${formatMoneyShort(o.fee)}</strong></span>
+                                <span style="display:flex; gap:4px;">
+                                    <button type="button" class="mini-action-btn btn-offer-negotiate" data-oid="${o.id}" style="width:auto; padding:3px 6px;">VERHANDELN</button>
+                                    <button type="button" class="mini-action-btn sell btn-offer-reject" data-oid="${o.id}" style="width:auto; padding:3px 6px;">✕</button>
+                                </span>
+                            </div>`).join('')}
+                    </div>`;
+            }).join('')}
+        </div>`;
 }
 

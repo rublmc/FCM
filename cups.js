@@ -6,7 +6,8 @@
 
 const NATIONAL_CUP_NAMES = {
     DE: "DFB-Pokal", EN: "FA Cup", ES: "Copa del Rey", IT: "Coppa Italia", FR: "Coupe de France",
-    AT: "ÖFB-Cup", CH: "Schweizer Cup", NL: "KNVB-Beker", PT: "Taça de Portugal", BE: "Belgischer Pokal"
+    AT: "ÖFB-Cup", CH: "Schweizer Cup", NL: "KNVB-Beker", PT: "Taça de Portugal", BE: "Croky Cup",
+    TR: "Türkiye Kupası", GR: "Griechischer Pokal", NO: "NM Cup", CZ: "MOL Cup", SK: "Slovnaft Cup", UA: "Ukrainischer Pokal", RU: "Russischer Pokal"
 };
 
 const COMP_META = {
@@ -83,6 +84,41 @@ const AMATEUR_CLUBS = {
     NL: ["Quick Boys", "Koninklijke HFC", "ACV Assen", "Spakenburg", "Rijnsburgse Boys", "Excelsior Maassluis"]
 };
 
+// Ortsnamen für generierte Amateurvereine im Landespokal
+const AMATEUR_TOWNS = {
+    DE: [["SV", "FC", "TSV", "SpVgg", "VfB"], ["Ahlen", "Bocholt", "Lippstadt", "Straelen", "Pfullendorf", "Memmingen", "Schwaz", "Eichstätt", "Kaan-Marienborn", "Hennef", "Bremerhaven", "Zwickau", "Plauen", "Neugersdorf", "Freiberg", "Biberach"]],
+    AT: [["SV", "FC", "ASK", "SC", "USV"], ["Wels", "Bregenz", "Leoben", "Kufstein", "Wörgl", "Gleisdorf", "Amstetten", "Kapfenberg", "Dornbirn", "Spittal", "Treibach", "Bruck", "Mattersburg", "Hohenems", "Kitzbühel", "Wolfurt", "Leobendorf", "Allerheiligen", "Gurten", "Saalfelden", "Seekirchen", "Lustenau", "Wals-Grünau", "Kalsdorf", "Deutschlandsberg", "Pinkafeld"]],
+    CH: [["FC", "SC", "FC", "AC", "FC"], ["Biel", "Chiasso", "Bellinzona", "Wohlen", "Baden", "Kriens", "Solothurn", "Yverdon", "Nyon", "Echallens", "Münsingen", "Tuggen", "Uzwil", "Freienbach", "Muri", "Sursee", "Langenthal", "Buochs", "Delémont", "Meyrin", "Monthey", "La Chaux-de-Fonds", "Brühl", "Eschen/Mauren", "Rapperswil", "Wettswil"]],
+    ES: [["CD", "UD", "CF", "Atlético", "SD"], ["Talavera", "Guadalajara", "Linares", "Lorca", "Ibiza", "Melilla", "Badajoz", "Ponferrada", "Lugo", "Arenteiro", "Sestao", "Barakaldo", "Tarazona", "Alcorcón", "Fuenlabrada", "Écija", "Algeciras", "Antequera", "Mérida", "Cartagena", "Ourense", "Ávila", "Zamora", "Ferrol", "Gimnàstic"]],
+    IT: [["US", "AC", "SS", "ASD", "FC"], ["Trapani", "Siracusa", "Crotone", "Benevento", "Potenza", "Foggia", "Latina", "Rimini", "Ravenna", "Lucchese", "Alessandria", "Novara", "Pro Vercelli", "Lumezzane", "Trento", "Arzignano", "Triestina", "Pergolettese", "Giana Erminio", "Gubbio", "Pineto", "Sorrento", "Cavese", "Monopoli", "Picerno"]],
+    EN: [["", "", "", "", ""], ["Stockport County", "Barnsley", "Bolton Wanderers", "Huddersfield Town", "Wigan Athletic", "Peterborough United", "Reading", "Lincoln City", "Exeter City", "Mansfield Town", "Northampton Town", "Rotherham United", "Burton Albion", "Cambridge United", "Bradford City", "Doncaster Rovers", "Port Vale", "Gillingham", "Crewe Alexandra", "Salford City", "Tranmere Rovers", "Walsall", "Swindon Town", "Grimsby Town", "AFC Wimbledon"]],
+    FR: [["US", "FC", "AS", "SO", "Stade"], ["Orléans", "Valenciennes", "Concarneau", "Bourg-Péronnas", "Quevilly", "Villefranche", "Cholet", "Sochaux", "Nîmes", "Châteauroux", "Versailles", "Aubagne", "Avranches", "Caen", "Dijon", "Créteil", "Fleury", "Chambly", "Bourges", "Épinal", "Sedan", "Toulon", "Rouen", "Martigues", "Saint-Brieuc"]],
+    PT: [["SC", "GD", "CD", "UD", "FC"], ["Covilhã", "Mafra", "Trofense", "Varzim", "Vilaverdense", "Sanjoanense", "Amarante", "Fafe", "Braga B", "Belenenses", "Caldas", "Anadia", "Alverca B", "Beira-Mar", "Oriental", "Lusitano", "Olhanense", "Real SC", "Pêro Pinheiro", "Câmara de Lobos", "Mirandela", "Montalegre", "Vianense", "Gondomar", "Lourosa B"]],
+    NL: [["", "", "", "", ""], ["Den Bosch", "De Graafschap", "Roda JC", "VVV-Venlo", "Cambuur", "Willem II", "Dordrecht", "MVV Maastricht", "TOP Oss", "Helmond Sport", "Jong Ajax", "Jong PSV", "Vitesse", "ADO Den Haag", "Emmen", "Kozakken Boys", "Katwijk", "GVVV", "IJsselmeervogels", "De Treffers", "Hoek", "AFC Amsterdam", "Scheveningen", "Excelsior '31", "HHC Hardenberg"]],
+    BE: [["", "", "", "", ""], ["Beerschot", "Lommel SK", "RWDM Brussels", "KAS Eupen", "Patro Eisden", "Lierse SK", "Francs Borains", "KMSK Deinze", "RFC Liège", "Seraing", "Virton", "Olympic Charleroi", "Knokke", "Tienen", "Lokeren-Temse", "Dessel Sport", "Hasselt", "Thes Sport", "Ninove", "Mandel United", "Hoogstraten", "Visé", "Rupel Boom", "Zelzate", "Tubize"]],
+    TR: [["", "", "", "", ""], ["Bodrum FK", "Sakaryaspor", "Bandırmaspor", "Erzurumspor", "Ankaragücü", "Adana Demirspor", "Hatayspor", "Sivasspor", "Pendikspor", "Manisa FK", "Iğdır FK", "Ümraniyespor", "Esenler Erokspor", "Amedspor", "Boluspor", "Çorum FK", "Keçiörengücü", "Şanlıurfaspor", "Bursaspor", "Altay", "Sarıyer", "Karşıyaka", "Denizlispor", "Tuzlaspor", "Eskişehirspor"]],
+    GR: [["", "", "", "", ""], ["Iraklis", "Kalamata", "Ionikos", "Niki Volos", "Chania", "Kavala", "Panachaiki", "Egaleo", "Marko", "Ilioupoli", "Athens Kallithea", "Apollon Smyrnis", "PAS Giannina", "Lamia", "Makedonikos", "Kampaniakos", "Anagennisi Karditsa", "Proodeftiki", "Diagoras", "Asteras Tripolis B", "Olympiacos B", "PAOK B", "Rodos", "Trikala", "Veria"]],
+    NO: [["", "", "", "", ""], ["Lillestrøm", "Odd", "Aalesund", "Start", "Stabæk", "Mjøndalen", "Sogndal", "Ranheim", "Raufoss", "Kongsvinger", "Egersund", "Moss", "Åsane", "Lyn", "Hødd", "Skeid", "Jerv", "Levanger", "Arendal", "Strømmen", "Brattvåg", "Tromsdalen", "Fløy", "Grorud", "Notodden"]],
+    CZ: [["", "", "", "", ""], ["Zbrojovka Brno", "Vlašim", "Táborsko", "Příbram", "Líšeň", "Chrudim", "Prostějov", "Jihlava", "Sparta Prag B", "Viktoria Žižkov", "Varnsdorf", "Opava", "Kroměříž", "Ústí nad Labem", "Dukla Prag B", "Hlučín", "Třinec", "Velké Meziříčí", "Domažlice", "Slavia Prag B", "Sokolov", "Písek", "Zápy", "Přepeře", "Hodonín"]],
+    SK: [["", "", "", "", ""], ["Dubnica", "Banská Bystrica", "Petržalka", "Pohronie", "Nitra", "Púchov", "Šamorín", "Senica", "Zlaté Moravce", "Liptovský Mikuláš", "Považská Bystrica", "Spišská Nová Ves", "Humenné", "Lamač", "Rimavská Sobota", "Trebišov", "Bardejov", "Stará Ľubovňa", "Námestovo", "Žiar nad Hronom", "Malženice", "Slovan Bratislava B", "Žilina B", "Prešov B", "Vranov"]],
+    UA: [["", "", "", "", ""], ["Chornomorets Odesa", "Inhulets", "Metalurh Zaporizhzhia", "Prykarpattia", "Bukovyna", "Livyi Bereh", "Podillia", "Viktoriya Sumy", "Nyva Ternopil", "Mynai", "Kremin", "Ahrobiznes", "Dinaz Vyshhorod", "Feniks-Mariupol", "Chernihiv", "Lisne", "Probiy", "Uzhhorod", "Hirnyk-Sport", "Dnipro", "Skala Stryi", "Volyn Lutsk", "Kulykiv", "Nyva Vinnytsia", "Vorskla Poltava"]],
+    RU: [["", "", "", "", ""], ["Torpedo Moskau", "Rotor Wolgograd", "Fakel Woronesch", "Ural Jekaterinburg", "Tschernomorez Noworossijsk", "KAMAZ", "Arsenal Tula", "Sokol Saratow", "Schinnik Jaroslawl", "SKA-Chabarowsk", "Jenissei Krasnojarsk", "Tjumen", "Neftechimik", "Alanija", "Rodina Moskau", "Kuban", "Tekstilschtschik", "Wolga Uljanowsk", "Leningradez", "Weles", "Saljut Belgorod", "Spartak Kostroma", "Metallurg Lipezk", "Dynamo Barnaul", "Irtysch Omsk"]]
+};
+
+function generateAmateurNames(country, count, exclude) {
+    const def = AMATEUR_TOWNS[country];
+    const out = [];
+    if (!def) return out;
+    const [prefixes, towns] = def;
+    shuffleArr(towns).forEach((t, i) => {
+        if (out.length >= count) return;
+        const p = prefixes[i % prefixes.length];
+        const name = p ? `${p} ${t}` : t;
+        if (!exclude.has(name.toLowerCase())) out.push(name);
+    });
+    return out;
+}
+
 const FOREIGN_SURNAMES = ["García", "Rossi", "Silva", "Dubois", "Novak", "Jansen", "Nielsen", "Kovač", "Popescu", "Yılmaz", "Smith", "O'Brien", "Fernandes",
     "Moreau", "Ricci", "Kowalski", "Horvat", "Petrović", "Andersson", "Martínez", "Bianchi", "Lefebvre", "De Jong", "Costa", "Hansen", "Papadopoulos", "Ivanov", "Murray"];
 
@@ -148,7 +184,7 @@ function ensureCompetitionsInitialized() {
             simulated++;
         }
         if (simulated > 0) {
-            addInbox('🏆', 'Pokal & Europapokal eingeführt', `Mit dem Update gibt es jetzt den nationalen Pokal und den Europapokal. Die bereits vergangenen ${simulated} Runden dieser Saison wurden automatisch ausgetragen – den aktuellen Stand findest du unter 🏆 TAB. → POKAL & EUROPAPOKAL.`, 'cup');
+            addInbox('🏆', 'Pokal & Europapokal eingeführt', `Mit dem Update gibt es jetzt den nationalen Pokal und den Europapokal. Die bereits vergangenen ${simulated} Runden dieser Saison wurden automatisch ausgetragen – den aktuellen Stand findest du unter 🏆 POKAL.`, 'cup');
         }
     }
 }
@@ -206,6 +242,9 @@ function setupSeasonCompetitions() {
         .slice(0, 64)
         .map(c => c.id);
     const amateurNames = shuffleArr((AMATEUR_CLUBS[userCountry] || []).filter(n => !dbNames.has(n.toLowerCase())));
+    const missing = Math.max(0, 64 - natClubs.length - amateurNames.length);
+    const usedNames = new Set([...dbNames, ...amateurNames.map(n => n.toLowerCase())]);
+    amateurNames.push(...generateAmateurNames(userCountry, missing, usedNames));
     let amIdx = 0;
     while (natClubs.length < 64) {
         const name = amIdx < amateurNames.length ? amateurNames[amIdx] : `Amateurauswahl ${amIdx + 1}`;
@@ -237,7 +276,7 @@ function setupSeasonCompetitions() {
     drawNationalRound(nat, 0);
 
     // ---------- 2. Europapokal ----------
-    const tier1Leagues = Object.values(GameState.leagues).filter(l => (l.tier || 1) === 1);
+    const tier1Leagues = Object.values(GameState.leagues).filter(l => (l.tier || 1) === 1 && !UEFA_EXCLUDED.includes(l.country || 'DE'));
     const dbCountries = new Set(tier1Leagues.map(l => l.country || 'DE'));
     const qualified = { cl: [], el: [], ecl: [] };
     const taken = new Set();
@@ -268,7 +307,8 @@ function setupSeasonCompetitions() {
         take('ecl', EURO_ALLOCATION.ecl[c] ?? EURO_ALLOCATION.ecl._);
     });
 
-    const pool = shuffleArr(EURO_CLUB_POOL.filter(([name, country]) => !dbCountries.has(country) && !dbNames.has(name.toLowerCase())))
+    const dbAllCountries = new Set(Object.values(GameState.leagues).map(l => l.country || 'DE'));
+    const pool = shuffleArr(EURO_CLUB_POOL.filter(([name, country]) => !dbAllCountries.has(country) && !dbCountries.has(country) && !dbNames.has(name.toLowerCase())))
         .sort((a, b) => b[2] - a[2]);
     let poolIdx = 0;
     let genIdx = 1;
@@ -685,6 +725,10 @@ function getNextUserEvent() {
 
 // Alle fälligen Ereignisse ohne eigene Beteiligung im Hintergrund abwickeln
 function processDueAiEvents() {
+    return withClubIndex(() => processDueAiEventsInner());
+}
+
+function processDueAiEventsInner() {
     const userLeague = getUserLeagueId();
     const catchUpLines = [];
     let guard = 0;
@@ -832,6 +876,135 @@ function formatCupScore(m) {
     return s;
 }
 
+// ==========================================
+// TURNIERBAUM (K.o.-Phase)
+// ==========================================
+const BRACKET_STAGES = {
+    national: [['r16', 'Achtelfinale'], ['qf', 'Viertelfinale'], ['sf', 'Halbfinale'], ['final', 'Finale']],
+    euro: [['po', 'Play-offs'], ['r16', 'Achtelfinale'], ['qf', 'Viertelfinale'], ['sf', 'Halbfinale'], ['final', 'Finale']]
+};
+
+// Alle Paarungen einer K.o.-Stufe (bei Hin-/Rückspiel zusammengefasst)
+function buildStageTies(comp, ko) {
+    const rounds = comp.rounds.filter(r => r.ko === ko);
+    if (rounds.length === 0 || !rounds[0].drawn) return { drawn: false, ties: [], date: rounds[0] ? rounds[0].date : null };
+    if (rounds.length === 1) {
+        return {
+            drawn: true,
+            date: rounds[0].date,
+            ties: rounds[0].matches.map(m => ({
+                a: m.homeId, b: m.awayId,
+                ga: m.played ? m.homeGoals : null, gb: m.played ? m.awayGoals : null,
+                winner: m.winnerId || null,
+                detail: m.played ? (m.pens ? `i.E. ${m.pens}` : (m.et ? 'n.V.' : '')) : formatGameDate(rounds[0].date),
+                neutral: Boolean(m.neutral)
+            }))
+        };
+    }
+    const [leg1, leg2] = rounds;
+    return {
+        drawn: true,
+        date: leg1.date,
+        ties: leg1.matches.map((m1, i) => {
+            const m2 = leg2.matches.find(x => x.tie === i) || null;
+            const ga = m1.played ? (m1.homeGoals + (m2 && m2.played ? m2.awayGoals : 0)) : null;
+            const gb = m1.played ? (m1.awayGoals + (m2 && m2.played ? m2.homeGoals : 0)) : null;
+            let detail = m1.played ? `Hin ${m1.homeGoals}:${m1.awayGoals}` : `Hin ${formatGameDate(leg1.date)}`;
+            if (m2 && m2.played) detail += ` • Rück ${m2.homeGoals}:${m2.awayGoals}${m2.pens ? ' i.E. ' + m2.pens : (m2.et ? ' n.V.' : '')}`;
+            else if (m1.played) detail += ` • Rück ${formatGameDate(leg2.date)}`;
+            return { a: m1.homeId, b: m1.awayId, ga, gb, winner: m2 ? (m2.winnerId || null) : null, detail };
+        })
+    };
+}
+
+// Paarungen so sortieren, dass die Sieger sauber in die nächste Runde "fließen"
+function orderBracketStages(stages) {
+    for (let j = stages.length - 2; j >= 0; j--) {
+        const next = stages[j + 1];
+        const cur = stages[j];
+        if (!cur.drawn || !next.drawn || next.ties.length === 0) continue;
+        const used = new Set();
+        const ordered = [];
+        next.ties.forEach(t => {
+            [t.a, t.b].forEach(team => {
+                const idx = cur.ties.findIndex((x, k) => !used.has(k) && (x.winner === team || x.a === team || x.b === team));
+                if (idx >= 0) {
+                    used.add(idx);
+                    ordered.push(cur.ties[idx]);
+                }
+            });
+        });
+        cur.ties.forEach((x, k) => { if (!used.has(k)) ordered.push(x); });
+        cur.ties = ordered;
+    }
+    return stages;
+}
+
+function buildBracketHtml(comp) {
+    const uid = GameState.activeClubId;
+    const defs = comp.type === 'national' ? BRACKET_STAGES.national : BRACKET_STAGES.euro;
+    const stages = defs.map(([ko, name]) => ({ ko, name, ...buildStageTies(comp, ko) }));
+    const firstDrawn = stages.findIndex(s => s.drawn);
+    if (firstDrawn === -1) {
+        let info;
+        if (comp.type === 'national') {
+            const cur = comp.rounds.find(r => r.drawn && !r.played) || comp.rounds.find(r => !r.played);
+            info = `Der Turnierbaum startet mit dem Achtelfinale. Aktuell läuft: <strong>${cur ? cur.name : '-'}</strong>. Alle Spiele findest du unter 📋 SPIELE.`;
+        } else {
+            const playedLp = comp.rounds.filter(r => r.stage === 'league' && r.played).length;
+            info = `Der Turnierbaum erscheint nach der Ligaphase (gespielt: <strong>${playedLp}/${comp.lpRounds}</strong>). Platz 1–8 zieht direkt ins Achtelfinale ein, Platz 9–24 spielt die Play-offs.`;
+        }
+        return `<div class="bmh-box" style="font-size:0.74rem;">🌳 ${info}</div>`;
+    }
+    orderBracketStages(stages);
+    const visible = stages.slice(firstDrawn);
+    // Platzhalter-Anzahl für noch nicht ausgeloste Runden
+    let prevCount = visible[0].ties.length;
+    visible.forEach((s, i) => {
+        if (i === 0) return;
+        if (!s.drawn) s.placeholders = s.ko === 'r16' ? 8 : Math.max(1, Math.ceil(prevCount / 2));
+        prevCount = s.drawn ? s.ties.length : s.placeholders;
+    });
+    const maxBoxes = Math.max(...visible.map(s => (s.drawn ? s.ties.length : s.placeholders)));
+    const colHeight = Math.max(160, maxBoxes * 64);
+
+    const teamRow = (id, goals, winner) => {
+        const isUser = id === uid;
+        const lost = winner && winner !== id;
+        return `<div class="br-team ${isUser ? 'user' : ''} ${winner === id ? 'win' : ''} ${lost ? 'lost' : ''}">
+            <span class="br-name" title="${getAnyClubName(id)}">${getAnyClubName(id)}</span>
+            <span class="br-goals">${goals === null || goals === undefined ? '' : goals}</span>
+        </div>`;
+    };
+    const columns = visible.map(s => {
+        const boxes = s.drawn
+            ? s.ties.map(t => `
+                <div class="br-tie ${t.a === uid || t.b === uid ? 'user-tie' : ''}">
+                    ${teamRow(t.a, t.ga, t.winner)}
+                    ${teamRow(t.b, t.gb, t.winner)}
+                    <div class="br-detail">${t.detail || ''}</div>
+                </div>`).join('')
+            : Array.from({ length: s.placeholders }, () => `
+                <div class="br-tie placeholder">
+                    <div class="br-team"><span class="br-name">Auslosung folgt</span></div>
+                    <div class="br-team"><span class="br-name">&nbsp;</span></div>
+                </div>`).join('');
+        return `
+            <div class="br-col">
+                <div class="br-col-title">${s.name}</div>
+                <div class="br-col-body" style="height:${colHeight}px;">${boxes}</div>
+            </div>`;
+    }).join('');
+    const champion = comp.winner ? `<div class="br-champion">🏆 ${getAnyClubName(comp.winner)}</div>` : '';
+    return `
+        <div class="bmh-box" style="padding:6px;">
+            <h3 style="font-size:0.80rem; color:#184d25; margin-bottom:4px;">🌳 TURNIERBAUM ${comp.name.toUpperCase()}</h3>
+            ${champion}
+            <div class="bracket-scroll"><div class="bracket">${columns}</div></div>
+            <p style="font-size:0.58rem; color:#555; margin-top:4px;">Wird nach jeder Runde neu ausgelost. ➡️ Seitlich wischen für weitere Runden.</p>
+        </div>`;
+}
+
 function renderCupsView(viewport) {
     ensureCompetitionsInitialized();
     const cups = GameState.cups;
@@ -845,14 +1018,8 @@ function renderCupsView(viewport) {
         selectedCupViewId = order.find(k => cups.comps[k].teams.includes(uid) && k !== 'national') || 'national';
     }
     const comp = cups.comps[selectedCupViewId];
+    if (comp.type !== 'euro' && cupsSubTab === 'table') cupsSubTab = 'rounds';
     const status = getUserCompStatus(comp);
-    const drawnIdx = comp.rounds.map((r, i) => (r.drawn ? i : -1)).filter(i => i >= 0);
-    if (selectedCupRoundIdx === null || !comp.rounds[selectedCupRoundIdx] || !comp.rounds[selectedCupRoundIdx].drawn) {
-        const nextOpen = comp.rounds.findIndex(r => r.drawn && !r.played);
-        selectedCupRoundIdx = nextOpen >= 0 ? nextOpen : (drawnIdx.length ? drawnIdx[drawnIdx.length - 1] : 0);
-    }
-    const round = comp.rounds[selectedCupRoundIdx];
-    const posInDrawn = drawnIdx.indexOf(selectedCupRoundIdx);
 
     const tabsHtml = order.map(k => {
         const c = cups.comps[k];
@@ -860,28 +1027,15 @@ function renderCupsView(viewport) {
         return `<button type="button" class="sub-tab-btn ${k === selectedCupViewId ? 'active' : ''}" data-cup="${k}">${c.icon} ${c.short}${mine ? ' •' : ''}</button>`;
     }).join('');
 
-    const matchesHtml = round.matches.map(m => {
-        const isUser = m.homeId === uid || m.awayId === uid;
-        const leg1 = round.stage === 'leg2' ? comp.rounds[selectedCupRoundIdx - 1].matches[m.tie] : null;
-        const winMark = (id) => (m.winnerId === id ? ' ✅' : '');
-        return `
-            <div class="fixture-row ${isUser ? 'user-match' : ''}" style="flex-wrap:wrap;">
-                <span class="fixture-team" title="${getAnyClubName(m.homeId)}">${getAnyClubName(m.homeId)}${winMark(m.homeId)}</span>
-                <span class="fixture-score ${!m.played ? 'unplayed' : ''}" style="min-width:58px;">${formatCupScore(m)}</span>
-                <span class="fixture-team away" title="${getAnyClubName(m.awayId)}">${getAnyClubName(m.awayId)}${winMark(m.awayId)}</span>
-                ${leg1 && leg1.played ? `<div style="width:100%; font-size:0.58rem; color:#555; text-align:center;">Hinspiel ${leg1.homeGoals}:${leg1.awayGoals}</div>` : ''}
-            </div>
-        `;
-    }).join('');
-
-    let tableHtml = "";
-    if (comp.type === 'euro') {
+    let bodyHtml = '';
+    if (cupsSubTab === 'bracket') {
+        bodyHtml = buildBracketHtml(comp);
+    } else if (cupsSubTab === 'table' && comp.type === 'euro') {
         const table = computeEuroTable(comp);
-        tableHtml = `
+        bodyHtml = `
             <div class="bmh-box" style="padding:6px;">
                 <h3 style="font-size:0.80rem; color:#184d25; margin-bottom:4px;">📊 TABELLE LIGAPHASE</h3>
-                <p style="font-size:0.60rem; color:#444; margin-bottom:4px;">🟩 1–8 Achtelfinale • 🟨 9–24 Play-offs • 🟥 25–36 ausgeschieden</p>
-                <div style="max-height:260px; overflow-y:auto;">
+                <p style="font-size:0.60rem; color:#444; margin-bottom:4px;">🟩 1–8 Achtelfinale • 🟦 9–24 Play-offs • 🟥 25–36 ausgeschieden</p>
                 <table class="bmh-table">
                     <thead><tr><th style="width:12%;">PL</th><th style="width:52%;">VEREIN</th><th style="width:10%;">SP</th><th style="width:13%;">DIFF</th><th style="width:13%;">PKT</th></tr></thead>
                     <tbody>
@@ -891,9 +1045,36 @@ function renderCupsView(viewport) {
                         }).join('')}
                     </tbody>
                 </table>
+            </div>`;
+    } else {
+        const drawnIdx = comp.rounds.map((r, i) => (r.drawn ? i : -1)).filter(i => i >= 0);
+        if (selectedCupRoundIdx === null || !comp.rounds[selectedCupRoundIdx] || !comp.rounds[selectedCupRoundIdx].drawn) {
+            const nextOpen = comp.rounds.findIndex(r => r.drawn && !r.played);
+            selectedCupRoundIdx = nextOpen >= 0 ? nextOpen : (drawnIdx.length ? drawnIdx[drawnIdx.length - 1] : 0);
+        }
+        const round = comp.rounds[selectedCupRoundIdx];
+        const posInDrawn = drawnIdx.indexOf(selectedCupRoundIdx);
+        const matchesHtml = round.matches.map(m => {
+            const isUser = m.homeId === uid || m.awayId === uid;
+            const leg1 = round.stage === 'leg2' ? comp.rounds[selectedCupRoundIdx - 1].matches[m.tie] : null;
+            const winMark = (id) => (m.winnerId === id ? ' ✅' : '');
+            return `
+                <div class="fixture-row ${isUser ? 'user-match' : ''}" style="flex-wrap:wrap;">
+                    <span class="fixture-team" title="${getAnyClubName(m.homeId)}">${getAnyClubName(m.homeId)}${winMark(m.homeId)}</span>
+                    <span class="fixture-score ${!m.played ? 'unplayed' : ''}" style="min-width:58px;">${formatCupScore(m)}</span>
+                    <span class="fixture-team away" title="${getAnyClubName(m.awayId)}">${getAnyClubName(m.awayId)}${winMark(m.awayId)}</span>
+                    ${leg1 && leg1.played ? `<div style="width:100%; font-size:0.58rem; color:#555; text-align:center;">Hinspiel ${leg1.homeGoals}:${leg1.awayGoals}</div>` : ''}
+                </div>`;
+        }).join('');
+        bodyHtml = `
+            <div class="bmh-box" style="padding:6px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; gap:4px;">
+                    <button id="btn-cup-prev" type="button" class="sort-btn" style="padding:3px 8px;" ${posInDrawn <= 0 ? 'disabled' : ''}>◀</button>
+                    <strong style="font-size:0.76rem; text-align:center;">${round.name}<br><span style="font-size:0.62rem; font-weight:normal;">${formatGameDate(round.date, true)}${round.stage === 'final' ? ' • neutraler Ort' : ''}</span></strong>
+                    <button id="btn-cup-next" type="button" class="sort-btn" style="padding:3px 8px;" ${posInDrawn >= drawnIdx.length - 1 ? 'disabled' : ''}>▶</button>
                 </div>
-            </div>
-        `;
+                ${matchesHtml || '<p style="font-size:0.72rem;">Noch nicht ausgelost.</p>'}
+            </div>`;
     }
 
     const prizeInfo = comp.type === 'euro'
@@ -902,7 +1083,7 @@ function renderCupsView(viewport) {
 
     viewport.innerHTML = `
         <h2 class="section-title">🏆 POKAL & EUROPAPOKAL ${GameState.meta.season}</h2>
-        <div class="sub-tab-bar">${tabsHtml}</div>
+        <div class="sub-tab-bar" style="grid-template-columns: repeat(${order.length}, 1fr);">${tabsHtml}</div>
         <div class="bmh-box" style="padding:8px;">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
                 <strong style="font-size:0.84rem;">${comp.icon} ${comp.name}</strong>
@@ -911,16 +1092,12 @@ function renderCupsView(viewport) {
             ${comp.winner ? `<p style="font-size:0.72rem; margin-top:4px;">🏆 Sieger: <strong>${getAnyClubName(comp.winner)}</strong></p>` : ''}
             <p style="font-size:0.60rem; color:#555; margin-top:4px;">${prizeInfo} (Richtwerte)</p>
         </div>
-        <div class="bmh-box" style="padding:6px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; gap:4px;">
-                <button id="btn-cup-prev" type="button" class="sort-btn" style="padding:3px 8px;" ${posInDrawn <= 0 ? 'disabled' : ''}>◀</button>
-                <strong style="font-size:0.76rem; text-align:center;">${round.name}<br><span style="font-size:0.62rem; font-weight:normal;">${formatGameDate(round.date, true)}${round.stage === 'final' ? ' • neutraler Ort' : ''}</span></strong>
-                <button id="btn-cup-next" type="button" class="sort-btn" style="padding:3px 8px;" ${posInDrawn >= drawnIdx.length - 1 ? 'disabled' : ''}>▶</button>
-            </div>
-            ${matchesHtml || '<p style="font-size:0.72rem;">Noch nicht ausgelost.</p>'}
+        <div class="sub-tab-bar" style="grid-template-columns: repeat(${comp.type === 'euro' ? 3 : 2}, 1fr);">
+            <button type="button" class="sub-tab-btn ${cupsSubTab === 'rounds' ? 'active' : ''}" data-cupsub="rounds">📋 SPIELE</button>
+            <button type="button" class="sub-tab-btn ${cupsSubTab === 'bracket' ? 'active' : ''}" data-cupsub="bracket">🌳 TURNIERBAUM</button>
+            ${comp.type === 'euro' ? `<button type="button" class="sub-tab-btn ${cupsSubTab === 'table' ? 'active' : ''}" data-cupsub="table">📊 LIGAPHASE</button>` : ''}
         </div>
-        ${tableHtml}
-        <div class="bmh-box"><button id="btn-cup-back-league" type="button" class="bmh-btn" style="width:100%;">📊 ZUR LIGA-TABELLE</button></div>
+        ${bodyHtml}
     `;
 
     viewport.querySelectorAll('[data-cup]').forEach(btn => {
@@ -930,11 +1107,20 @@ function renderCupsView(viewport) {
             renderCupsView(viewport);
         });
     });
-    const prev = document.getElementById('btn-cup-prev');
-    if (prev) prev.addEventListener('click', () => { if (posInDrawn > 0) { selectedCupRoundIdx = drawnIdx[posInDrawn - 1]; renderCupsView(viewport); } });
-    const next = document.getElementById('btn-cup-next');
-    if (next) next.addEventListener('click', () => { if (posInDrawn < drawnIdx.length - 1) { selectedCupRoundIdx = drawnIdx[posInDrawn + 1]; renderCupsView(viewport); } });
-    document.getElementById('btn-cup-back-league').addEventListener('click', () => switchToView('league'));
+    viewport.querySelectorAll('[data-cupsub]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            cupsSubTab = e.currentTarget.dataset.cupsub;
+            renderCupsView(viewport);
+        });
+    });
+    if (cupsSubTab === 'rounds') {
+        const drawnIdx = comp.rounds.map((r, i) => (r.drawn ? i : -1)).filter(i => i >= 0);
+        const posInDrawn = drawnIdx.indexOf(selectedCupRoundIdx);
+        const prev = document.getElementById('btn-cup-prev');
+        if (prev) prev.addEventListener('click', () => { if (posInDrawn > 0) { selectedCupRoundIdx = drawnIdx[posInDrawn - 1]; renderCupsView(viewport); } });
+        const next = document.getElementById('btn-cup-next');
+        if (next) next.addEventListener('click', () => { if (posInDrawn < drawnIdx.length - 1) { selectedCupRoundIdx = drawnIdx[posInDrawn + 1]; renderCupsView(viewport); } });
+    }
 }
 
 // Alle eigenen Pflichtspiel-Termine eines Wettbewerbs (für den Kalender)

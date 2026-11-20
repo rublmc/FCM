@@ -298,6 +298,7 @@ function advanceBreakWeek() {
 
     healInjuriesOneStep();
     generateRoutineEvents();
+    processTransferListOffers();
     GameState.meta.tick = (GameState.meta.tick || 0) + 1;
 
     const nextWeek = curWeekNum + 1;
@@ -404,6 +405,29 @@ function buildBreakWeeksHtml(brk, isActive) {
     `;
 }
 
+// Spielbericht für den Kalender: archivierter Bericht oder Kurzbericht aus den Spieldaten
+function getCalendarReport(key, match, label, date, mode) {
+    const saved = (GameState.matchReports || []).find(r => r.key === key);
+    if (saved) return saved;
+    if (!match || match.homeGoals === null || match.homeGoals === undefined) return null;
+    const uid = GameState.activeClubId;
+    return {
+        key, mode, label, date, matchday: match.md || '',
+        match: {
+            homeName: getAnyClubName(match.homeId), awayName: getAnyClubName(match.awayId),
+            homeGoals: match.homeGoals, awayGoals: match.awayGoals,
+            et: Boolean(match.et), pens: match.pens || null,
+            events: match.events || [], isHome: match.homeId === uid, neutral: Boolean(match.neutral), weather: match.weather
+        },
+        highlights: [], stats: null
+    };
+}
+
+function calendarReportRow(key, report) {
+    if (calendarOpenReportKey !== key || !report) return '';
+    return `<div class="cal-report">${buildLastMatchReportHtml(report, 'btn-close-cal-report')}</div>`;
+}
+
 function buildSeasonCalendarHtml(club, isPreseason) {
     const uid = club.id;
     const userSched = GameState.schedule[club.leagueId];
@@ -454,8 +478,11 @@ function buildSeasonCalendarHtml(club, isPreseason) {
                 extra = `<div style="font-size:0.60rem; color:#184d25;">📅 Nachgeholt</div>`;
             }
             const wIcon = myMatch.weather && !myMatch.postponed ? getWeather(myMatch.weather).icon : '';
+            const rKey = `L:${club.leagueId}:${md.matchday}:${idx}`;
+            const played = myMatch.homeGoals !== null && myMatch.homeGoals !== undefined;
+            const report = played ? getCalendarReport(rKey, { ...myMatch, md: md.matchday }, `${md.matchday}. Spieltag`, md.date, myMatch.wasPostponed ? 'catchup' : 'league') : null;
             rows.push({ date: md.date, order: 1, html: `
-                <div class="fixture-row ${isNext ? 'user-match' : ''}" style="flex-wrap:wrap;">
+                <div class="fixture-row ${isNext ? 'user-match' : ''} ${report ? 'cal-clickable' : ''} ${calendarOpenReportKey === rKey ? 'cal-open' : ''}" ${report ? `data-rkey="${rKey}" role="button" tabindex="0"` : ''} style="flex-wrap:wrap;">
                     <span style="width:18%; font-weight:bold;">ST ${md.matchday}</span>
                     <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                         <span style="font-size:0.62rem; color:#444;">${formatGameDate(md.date)}</span> ${isHome ? '🏟️' : '🚌'} ${oppName}
@@ -464,6 +491,7 @@ function buildSeasonCalendarHtml(club, isPreseason) {
                     <span class="fixture-score ${myMatch.homeGoals === null ? 'unplayed' : ''}">${resText}</span>
                     ${extra ? `<div style="width:100%;">${extra}</div>` : ''}
                 </div>
+                ${calendarReportRow(rKey, report)}
             ` });
         }
         if (md.matchday === half) {
@@ -494,11 +522,13 @@ function buildSeasonCalendarHtml(club, isPreseason) {
     });
     getUserCupCalendarEntries().forEach(e => {
         const m = e.match;
+        const rKey = m ? `C:${e.comp.id}:${e.comp.rounds.indexOf(e.round)}:${e.round.matches.indexOf(m)}` : null;
+        const report = m && m.played ? getCalendarReport(rKey, m, `${e.comp.name} – ${e.round.name}`, e.date, 'cup') : null;
         const isNext = nextEv && nextEv.type === 'cup' && nextEv.compId === e.comp.id && nextEv.date === e.date;
         const res = m ? formatCupScore(m) : 'offen';
         const shortRound = e.round.name.replace(' (Hinspiel)', ' (H)').replace(' (Rückspiel)', ' (R)');
         rows.push({ date: e.date, order: 0, html: `
-            <div class="fixture-row ${isNext ? 'user-match' : ''}" style="background:#f3f0ff; flex-wrap:wrap;">
+            <div class="fixture-row ${isNext ? 'user-match' : ''} ${report ? 'cal-clickable' : ''} ${calendarOpenReportKey === rKey ? 'cal-open' : ''}" ${report ? `data-rkey="${rKey}" role="button" tabindex="0"` : ''} style="background:#f3f0ff; flex-wrap:wrap;">
                 <span style="width:18%; font-weight:bold;">${e.comp.icon} ${e.comp.short}</span>
                 <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                     <span style="font-size:0.62rem; color:#444;">${formatGameDate(e.date)}</span> ${e.isHome === null ? '⚖️' : (e.isHome ? '🏟️' : '🚌')} ${e.opp || '<em>Auslosung folgt</em>'}
@@ -506,6 +536,7 @@ function buildSeasonCalendarHtml(club, isPreseason) {
                 <span class="fixture-score ${!m || !m.played ? 'unplayed' : ''}" style="min-width:44px;">${res}</span>
                 <div style="width:100%; font-size:0.58rem; color:#5f3dc4;">${shortRound}</div>
             </div>
+            ${calendarReportRow(rKey, report)}
         ` });
     });
     rows.sort((a, b) => a.date.localeCompare(b.date) || a.order - b.order);
@@ -514,7 +545,7 @@ function buildSeasonCalendarHtml(club, isPreseason) {
         <div class="bmh-box" style="padding:8px;">
             <h3 style="font-size:0.84rem; color:#184d25; margin-bottom:6px;">📅 SAISONKALENDER (${GameState.meta.season})</h3>
             ${GameState.meta.harshWinter ? `<p style="font-size:0.64rem; color:#1c4f8a; margin-bottom:4px;">🌨️ Wetterdienst: Für diesen Winter wird ein strenger Winter erwartet – Spielabsagen sind wahrscheinlicher.</p>` : ''}
-            <p style="font-size:0.60rem; color:#444; margin-bottom:4px;">⚽ Liga • 📅 Nachholspiel • 🏆 Pokal • ⭐ CL • 🟠 EL • 🟢 ECL</p>
+            <p style="font-size:0.60rem; color:#444; margin-bottom:4px;">⚽ Liga • 📅 Nachholspiel • 🏆 Pokal • ⭐ CL • 🟠 EL • 🟢 ECL • <strong>Gespielte Partien antippen = Spielbericht</strong></p>
             ${preseasonSectionHtml}
             <p style="font-size:0.68rem; color:#444; margin:4px 0 4px 0;"><strong>PFLICHTSPIELE</strong></p>
             ${rows.map(r => r.html).join('')}
@@ -681,6 +712,17 @@ function renderCalendarView(viewport) {
     if (autoPreBtn) autoPreBtn.addEventListener('click', () => autoPlanPreseason());
     const togglePreCollapse = document.getElementById('btn-toggle-preseason-collapse');
     if (togglePreCollapse) togglePreCollapse.addEventListener('click', () => { preseasonCollapsedInSeason = !preseasonCollapsedInSeason; renderCalendarView(viewport); });
+    viewport.querySelectorAll('.cal-clickable[data-rkey]').forEach(row => {
+        const toggle = () => {
+            calendarOpenReportKey = calendarOpenReportKey === row.dataset.rkey ? null : row.dataset.rkey;
+            renderCalendarView(viewport);
+        };
+        row.addEventListener('click', toggle);
+        row.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } });
+    });
+    const closeRep = document.getElementById('btn-close-cal-report');
+    if (closeRep) closeRep.addEventListener('click', (ev) => { ev.stopPropagation(); calendarOpenReportKey = null; renderCalendarView(viewport); });
+
     viewport.querySelectorAll('[data-calsub]').forEach(btn => {
         btn.addEventListener('click', (e) => { calendarSubTab = e.currentTarget.dataset.calsub; renderCalendarView(viewport); });
     });

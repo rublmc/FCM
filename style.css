@@ -1356,3 +1356,79 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
     outline: 2px solid var(--accent-gold); outline-offset: 1px;
 }
 .sub-tab-bar { flex-wrap: wrap; }
+
+/* ==========================================
+   v1.5: NAVIGATION (2 REIHEN), TURNIERBAUM, SPIELERKARTE, FORMATIONS-EDITOR, FINANZEN
+   ========================================== */
+.bmh-nav {
+    grid-template-columns: repeat(5, 1fr);
+    gap: 3px;
+    padding: 4px 3px;
+}
+.nav-btn {
+    font-size: 0.58rem;
+    padding: 5px 0 4px 0;
+    letter-spacing: 0.2px;
+}
+.nav-icon { font-size: 1.05rem; }
+@media (min-width: 700px) {
+    .bmh-nav { grid-template-columns: repeat(10, 1fr); }
+}
+
+.bracket-scroll {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
+    padding-bottom: 4px;
+}
+.bracket { display: flex; gap: 10px; min-width: min-content; }
+.br-col { display: flex; flex-direction: column; width: 150px; flex-shrink: 0; }
+.br-col-title {
+    background: var(--pitch-dark); color: var(--accent-gold);
+    font-size: 0.64rem; font-weight: bold; text-align: center; padding: 3px; margin-bottom: 4px;
+}
+.br-col-body { display: flex; flex-direction: column; justify-content: space-around; }
+.br-tie { background: #e9ecea; border: 1px solid var(--panel-shadow); border-left: 3px solid #8c918e; margin: 2px 0; }
+.br-tie.user-tie { border-left-color: var(--accent-gold); background: #fff9db; }
+.br-tie.placeholder { opacity: 0.6; border-style: dashed; }
+.br-team { display: flex; justify-content: space-between; gap: 4px; padding: 2px 4px; font-size: 0.64rem; }
+.br-team.user .br-name { color: #184d25; font-weight: bold; }
+.br-team.win { font-weight: bold; background: #d3f9d8; }
+.br-team.lost { color: #777; }
+.br-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.br-goals { flex-shrink: 0; font-weight: bold; min-width: 14px; text-align: right; }
+.br-detail { font-size: 0.54rem; color: #555; padding: 0 4px 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.br-champion { background: #184d25; color: #e5b822; font-weight: bold; text-align: center; padding: 5px; margin-bottom: 6px; font-size: 0.8rem; }
+
+.player-card { background: #f4f6f4; border: 2px solid var(--pitch-dark); padding: 8px; margin-bottom: 10px; font-size: 0.72rem; }
+.pc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.pc-pos { background: var(--pitch-dark); color: var(--accent-gold); font-weight: bold; padding: 6px 7px; font-size: 0.8rem; flex-shrink: 0; }
+.pc-name { font-weight: bold; font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-sub { font-size: 0.64rem; color: #444; }
+.pc-rating { font-size: 1.2rem; font-weight: bold; color: var(--pitch-green); flex-shrink: 0; }
+.pc-status { margin-bottom: 6px; }
+.pc-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; margin-bottom: 6px; }
+.pc-cell { background: #e2e5e3; border: 1px solid var(--panel-shadow); padding: 4px 6px; display: flex; flex-direction: column; min-width: 0; }
+.pc-cell span { font-size: 0.56rem; color: #444; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-cell strong { font-size: 0.86rem; color: var(--pitch-dark); }
+.pc-cell em { font-size: 0.58rem; color: #555; font-style: normal; }
+.pc-contract { background: #e9ecea; border: 1px solid var(--panel-shadow); padding: 5px 6px; margin-bottom: 6px; }
+.pc-offer { display: flex; justify-content: space-between; align-items: center; gap: 6px; background: #fff9db; border: 1px solid #b58900; padding: 4px 6px; margin-bottom: 4px; font-size: 0.68rem; }
+.pc-actions { display: flex; flex-direction: column; gap: 5px; }
+.pc-actions .bmh-btn { width: 100%; }
+
+.pitch-board.edit-mode { touch-action: none; box-shadow: inset 0 0 0 3px var(--accent-gold); }
+.pitch-node.edit-node { cursor: grab; border-color: var(--accent-gold); touch-action: none; }
+.pitch-node.edit-node.locked { cursor: not-allowed; opacity: 0.85; border-color: #ccc; }
+
+.cal-clickable { cursor: pointer; }
+.cal-clickable:hover, .cal-clickable:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: -2px; }
+.cal-open { background: #fff3bf !important; }
+.cal-report { margin: 4px 0 8px 0; }
+
+.finance-table .fin-head td { background: #c7ccc9; font-weight: bold; font-size: 0.62rem; letter-spacing: 0.5px; }
+.finance-table .fin-sum td { font-weight: bold; border-top: 1px solid #8c918e; }
+.finance-table .fin-total td { font-weight: bold; font-size: 0.80rem; border-top: 2px solid #184d25; background: #d7eadc; }
+.rank-badge.ecl { background-color: #7048e8; color: #fff; }
+.roster-row:hover td { background: #d0dfd4; }

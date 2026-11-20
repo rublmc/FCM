@@ -253,17 +253,7 @@ function renderLiveTickerView(viewport) {
                             else if (diffRank < 0) moveHtml = `<span class="rank-move-down">▼${Math.abs(diffRank)}</span>`;
 
                             const isUser = row.clubId === GameState.activeClubId;
-                            let badgeClass = "";
-                            if (isTopTier) {
-                                if (rank <= 4) badgeClass = "cl";
-                                else if (rank <= 6) badgeClass = "el";
-                                else if (rank === 16) badgeClass = "rel";
-                                else if (rank >= 17) badgeClass = "down";
-                            } else {
-                                if (rank <= 2) badgeClass = "cl";
-                                else if (rank === 3) badgeClass = "rel";
-                                else if (rank >= 16) badgeClass = "down";
-                            }
+                            const badgeClass = getRankZone(st.userLeagueId, rank, blitz.length);
                             return `
                                 <tr class="${isUser ? 'table-row-user' : ''}">
                                     <td><span class="rank-badge ${badgeClass}">${rank}</span> ${moveHtml}</td>
@@ -283,11 +273,9 @@ function renderLiveTickerView(viewport) {
         // LIVE-TAKTIK & AUSWECHSLUNGEN (Standard: Spielfeld + Umschalter auf Liste)
         const squad = getClubPlayers();
         const formation = GameState.tactics.formation || "4-4-2";
-        const slots = FORMATIONS[formation] || FORMATIONS["4-4-2"];
-        const coords = FORMATION_COORDS[formation] || FORMATION_COORDS["4-4-2"];
-        const formationOptions = Object.keys(FORMATIONS).map(f =>
-            `<option value="${f}" ${formation === f ? 'selected' : ''}>System ${f}</option>`
-        ).join('');
+        const slots = getFormationSlots(formation);
+        const coords = getFormationCoords(formation);
+        const formationOptions = buildFormationOptionsHtml(formation);
 
         const availBench = [];
         GameState.tactics.bench.forEach((pid, bIdx) => {

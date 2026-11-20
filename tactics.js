@@ -4,8 +4,29 @@
 // ==========================================
 // TAKTIK, STARTELF, BANK & TRIBÜNE LOGIK
 // ==========================================
+// Optionaler Index Verein -> Spieler für rechenintensive Abläufe (viele Ligen)
+let CLUB_PLAYER_INDEX = null;
+
 function getClubPlayers(clubId = GameState.activeClubId) {
+    if (CLUB_PLAYER_INDEX) return CLUB_PLAYER_INDEX.get(clubId) || [];
     return GameState.players.filter(p => p.clubId === clubId);
+}
+
+// Führt fn mit Spieler-Index aus (nur für Abläufe ohne Vereinswechsel!)
+function withClubIndex(fn) {
+    if (CLUB_PLAYER_INDEX) return fn();
+    const m = new Map();
+    for (const p of GameState.players) {
+        let arr = m.get(p.clubId);
+        if (!arr) { arr = []; m.set(p.clubId, arr); }
+        arr.push(p);
+    }
+    CLUB_PLAYER_INDEX = m;
+    try {
+        return fn();
+    } finally {
+        CLUB_PLAYER_INDEX = null;
+    }
 }
 
 function getShortName(fullName) {
@@ -13,6 +34,60 @@ function getShortName(fullName) {
     const parts = fullName.trim().split(" ");
     if (parts.length === 1) return parts[0];
     return parts[parts.length - 1];
+}
+
+// ==========================================
+// FORMATIONEN (Standard & eigene Formation)
+// ==========================================
+// Rolle einer Position anhand der Koordinaten (y: 88 = eigenes Tor, kleiner = weiter vorne)
+function roleFromCoord(c, idx) {
+    if (idx === 0) return 'TW';
+    const x = c.x, y = c.y;
+    if (y >= 63) return x < 28 ? 'LV' : (x > 72 ? 'RV' : 'IV');
+    if (y >= 50) return x < 22 ? 'LM' : (x > 78 ? 'RM' : 'DM');
+    if (y >= 36) return x < 25 ? 'LM' : (x > 75 ? 'RM' : 'ZM');
+    if (y >= 24) return x < 25 ? 'LA' : (x > 75 ? 'RA' : 'OM');
+    return x < 28 ? 'LA' : (x > 72 ? 'RA' : 'ST');
+}
+
+function hasCustomFormation() {
+    return Array.isArray(GameState.tactics.customCoords) && GameState.tactics.customCoords.length === 11;
+}
+
+function isValidFormation(f) {
+    return f === 'custom' ? hasCustomFormation() : Boolean(FORMATIONS[f]);
+}
+
+function getFormationCoords(f = GameState.tactics.formation) {
+    if (f === 'custom' && hasCustomFormation()) return GameState.tactics.customCoords;
+    return FORMATION_COORDS[f] || FORMATION_COORDS["4-4-2"];
+}
+
+function getFormationSlots(f = GameState.tactics.formation) {
+    if (f === 'custom' && hasCustomFormation()) return GameState.tactics.customCoords.map((c, i) => roleFromCoord(c, i));
+    return FORMATIONS[f] || FORMATIONS["4-4-2"];
+}
+
+// Kurzbezeichnung einer eigenen Formation, z. B. "4-2-3-1"
+function describeCustomFormation() {
+    if (!hasCustomFormation()) return '';
+    const rows = [0, 0, 0, 0];
+    GameState.tactics.customCoords.forEach((c, i) => {
+        if (i === 0) return;
+        if (c.y >= 63) rows[0]++;
+        else if (c.y >= 44) rows[1]++;
+        else if (c.y >= 26) rows[2]++;
+        else rows[3]++;
+    });
+    return rows.filter(n => n > 0).join('-');
+}
+
+function buildFormationOptionsHtml(selected) {
+    let html = Object.keys(FORMATIONS).map(f => `<option value="${f}" ${selected === f ? 'selected' : ''}>System ${f}</option>`).join('');
+    if (hasCustomFormation()) {
+        html += `<option value="custom" ${selected === 'custom' ? 'selected' : ''}>✏️ Eigene (${describeCustomFormation()})</option>`;
+    }
+    return html;
 }
 
 function isPlayerSuspended(player) {
@@ -89,7 +164,7 @@ function autoPickBestLineup(notify = true) {
     const squad = [...getClubPlayers()]
         .filter(p => !isPlayerUnavailable(p))
         .sort((a, b) => b.rating - a.rating);
-    const slots = FORMATIONS[GameState.tactics.formation] || FORMATIONS["4-4-2"];
+    const slots = getFormationSlots();
     const usedIds = new Set();
     const newLineup = new Array(11).fill(null);
 
@@ -244,7 +319,7 @@ function calculateSlotEffectiveRating(player, slotPos) {
 
 function calculateTeamStrength() {
     const squad = getClubPlayers();
-    const slots = FORMATIONS[GameState.tactics.formation] || FORMATIONS["4-4-2"];
+    const slots = getFormationSlots();
     let total = 0;
     let count = 0;
 
@@ -273,8 +348,8 @@ function renderTacticsView(viewport) {
     ensureValidSquadAssignment();
     const squad = getClubPlayers();
     const formation = GameState.tactics.formation || "4-4-2";
-    const slots = FORMATIONS[formation] || FORMATIONS["4-4-2"];
-    const coords = FORMATION_COORDS[formation] || FORMATION_COORDS["4-4-2"];
+    const slots = getFormationSlots(formation);
+    const coords = getFormationCoords(formation);
     const teamStrength = calculateTeamStrength();
 
     const lineupSet = new Set(GameState.tactics.lineup.filter(Boolean));
@@ -283,9 +358,7 @@ function renderTacticsView(viewport) {
         .filter(p => !lineupSet.has(p.id) && !benchSet.has(p.id))
         .sort((a, b) => b.rating - a.rating);
 
-    const formationOptions = Object.keys(FORMATIONS).map(f =>
-        `<option value="${f}" ${formation === f ? 'selected' : ''}>System ${f}</option>`
-    ).join('');
+    const formationOptions = buildFormationOptionsHtml(formation);
 
     let swapBannerHtml = "";
     if (selectedSwapSource) {
@@ -308,9 +381,9 @@ function renderTacticsView(viewport) {
         const isSelected = selectedSwapSource && selectedSwapSource.zone === 'pitch' && selectedSwapSource.index === idx;
 
         return `
-            <div class="pitch-node swap-slot ${!player ? 'empty-slot' : ''} ${isMismatch ? 'mismatch' : ''} ${isSelected ? 'selected-swap' : ''}"
+            <div class="pitch-node ${tacticsEditMode ? 'edit-node' + (idx === 0 ? ' locked' : '') : 'swap-slot'} ${!player ? 'empty-slot' : ''} ${isMismatch ? 'mismatch' : ''} ${isSelected ? 'selected-swap' : ''}"
                  style="left:${posCoord.x}%; top:${posCoord.y}%;"
-                 draggable="${Boolean(player)}"
+                 draggable="${Boolean(player) && !tacticsEditMode}"
                  data-zone="pitch"
                  data-index="${idx}"
                  data-playerid="${player ? player.id : ''}">
@@ -403,6 +476,10 @@ function renderTacticsView(viewport) {
                 </select>
                 <button id="btn-auto-lineup" class="bmh-btn primary small-btn">⚡ BESTE 11</button>
             </div>
+            <div style="display:flex; gap:6px; margin-bottom:6px;">
+                <button id="btn-edit-formation" type="button" class="bmh-btn ${tacticsEditMode ? 'gold-btn' : ''} small-btn" style="flex:1;">${tacticsEditMode ? '✅ FORMATION FERTIG' : '✏️ EIGENE FORMATION'}</button>
+                ${GameState.tactics.formation === 'custom' ? `<button id="btn-reset-formation" type="button" class="bmh-btn small-btn" style="flex:1;">↩ ZURÜCK ZU ${GameState.tactics.lastStandardFormation || '4-4-2'}</button>` : ''}
+            </div>
 
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
                 <div>
@@ -428,12 +505,17 @@ function renderTacticsView(viewport) {
 
         ${swapBannerHtml}
         ${unavailableHtml}
+        ${tacticsEditMode ? `
+            <div class="swap-banner">
+                <span>✏️ <strong>FORMATIONS-EDITOR:</strong> Ziehe die Positionen auf dem Feld an die gewünschte Stelle. Die Rolle (z. B. IV, DM, ST) passt sich automatisch an. Der Torwart bleibt fix.</span>
+            </div>
+        ` : ''}
         <div class="squad-zone-header">
-            <span><span class="zone-badge xi">STARTELF</span> (${lineupSet.size}/11)</span>
-            <span style="font-size:0.68rem; color:#333;">Tippen oder Ziehen zum Wechseln</span>
+            <span><span class="zone-badge xi">STARTELF</span> (${lineupSet.size}/11) ${GameState.tactics.formation === 'custom' ? '• ✏️ ' + describeCustomFormation() : ''}</span>
+            <span style="font-size:0.68rem; color:#333;">${tacticsEditMode ? 'Positionen verschieben' : 'Tippen oder Ziehen zum Wechseln'}</span>
         </div>
 
-        <div class="pitch-board">
+        <div class="pitch-board ${tacticsEditMode ? 'edit-mode' : ''}">
             <div class="pitch-halfline"></div>
             <div class="pitch-circle"></div>
             <div class="pitch-box-top"></div>
@@ -462,10 +544,77 @@ function renderTacticsView(viewport) {
 
     document.getElementById('tactic-formation').addEventListener('change', (e) => {
         GameState.tactics.formation = e.target.value;
+        if (e.target.value !== 'custom') GameState.tactics.lastStandardFormation = e.target.value;
         selectedSwapSource = null;
         saveGame();
         renderTacticsView(viewport);
     });
+
+    document.getElementById('btn-edit-formation').addEventListener('click', () => {
+        if (!tacticsEditMode) {
+            // Editor starten: aktuelle Formation als Ausgangspunkt übernehmen
+            if (GameState.tactics.formation !== 'custom') {
+                GameState.tactics.lastStandardFormation = GameState.tactics.formation;
+                GameState.tactics.customCoords = getFormationCoords(GameState.tactics.formation).map(c => ({ x: c.x, y: c.y }));
+                GameState.tactics.formation = 'custom';
+            }
+            tacticsEditMode = true;
+            selectedSwapSource = null;
+        } else {
+            tacticsEditMode = false;
+            setStatus(`Eigene Formation ${describeCustomFormation()} gespeichert.`);
+        }
+        saveGame();
+        renderTacticsView(viewport);
+    });
+
+    const resetFormBtn = document.getElementById('btn-reset-formation');
+    if (resetFormBtn) {
+        resetFormBtn.addEventListener('click', () => {
+            GameState.tactics.formation = GameState.tactics.lastStandardFormation || '4-4-2';
+            tacticsEditMode = false;
+            saveGame();
+            setStatus(`Zurück zur Formation ${GameState.tactics.formation}.`);
+            renderTacticsView(viewport);
+        });
+    }
+
+    if (tacticsEditMode) {
+        const board = viewport.querySelector('.pitch-board');
+        viewport.querySelectorAll('.pitch-node.edit-node').forEach(node => {
+            const idx = parseInt(node.dataset.index, 10);
+            if (idx === 0) return;
+            node.addEventListener('pointerdown', (ev) => {
+                ev.preventDefault();
+                try { node.setPointerCapture(ev.pointerId); } catch (err) { /* ältere Browser */ }
+                node.classList.add('selected-swap');
+                let cur = null;
+                const move = (e2) => {
+                    const r = board.getBoundingClientRect();
+                    const x = Math.max(6, Math.min(94, ((e2.clientX - r.left) / r.width) * 100));
+                    const y = Math.max(10, Math.min(80, ((e2.clientY - r.top) / r.height) * 100));
+                    cur = { x: Math.round(x), y: Math.round(y) };
+                    node.style.left = cur.x + '%';
+                    node.style.top = cur.y + '%';
+                    const posEl = node.querySelector('.pitch-node-pos');
+                    if (posEl) posEl.textContent = roleFromCoord(cur, idx);
+                };
+                const up = () => {
+                    node.removeEventListener('pointermove', move);
+                    node.removeEventListener('pointerup', up);
+                    node.removeEventListener('pointercancel', up);
+                    if (cur) {
+                        GameState.tactics.customCoords[idx] = cur;
+                        saveGame();
+                    }
+                    renderTacticsView(viewport);
+                };
+                node.addEventListener('pointermove', move);
+                node.addEventListener('pointerup', up);
+                node.addEventListener('pointercancel', up);
+            });
+        });
+    }
 
     document.getElementById('btn-auto-lineup').addEventListener('click', () => {
         autoPickBestLineup(true);

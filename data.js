@@ -253,6 +253,8 @@ let GameState = {
     prevStandings: {},     // Abschlusstabellen der Vorsaison (Europapokal-Qualifikation)
     cupHistory: {},        // Pokalsieger der Vorsaison
     finance: null,         // Saison-Buchhaltung des eigenen Vereins
+    matchReports: [],      // Spielberichte aller eigenen Pflichtspiele der laufenden Saison
+    transferOffers: [],    // Angebote anderer Vereine für Spieler auf der Transferliste
     preseason: null,
     winterBreak: null,
     lastBreakReport: null,
@@ -297,6 +299,8 @@ function resetCareerFields(clubId) {
     GameState.prevStandings = {};
     GameState.cupHistory = {};
     GameState.finance = null;
+    GameState.matchReports = [];
+    GameState.transferOffers = [];
     GameState.preseason = null;
     GameState.winterBreak = null;
     GameState.lastBreakReport = null;
@@ -356,6 +360,10 @@ let inboxShowAll = false;
 let officeFinanceOpen = false;
 let selectedCupViewId = null;
 let selectedCupRoundIdx = null;
+let cupsSubTab = 'rounds';          // 'rounds' | 'bracket' | 'table'
+let calendarOpenReportKey = null;   // aufgeklappter Spielbericht im Kalender
+let playerCardId = null;            // geöffnete Spielerkarte im Kader
+let tacticsEditMode = false;        // Formations-Editor aktiv
 
 // Maximale Kadergröße (Profikader)
 const MAX_SQUAD_SIZE = 25;
@@ -370,10 +378,18 @@ function deepCopy(obj) {
     return JSON.parse(JSON.stringify(obj));
 }
 
+// Spieler im Snapshot platzsparend als Tupel speichern: [id, clubId, pos, name, age, rating, salary, contractUntil]
+const SNAP_FIELDS = ['id', 'clubId', 'pos', 'name', 'age', 'rating', 'salary', 'contractUntil'];
+
 function loadDatabaseSnapshot() {
     try {
         const raw = localStorage.getItem(DB_STORAGE_KEY);
-        return raw ? JSON.parse(raw) : null;
+        if (!raw) return null;
+        const db = JSON.parse(raw);
+        if (Array.isArray(db.players) && db.players.length > 0 && Array.isArray(db.players[0])) {
+            db.players = db.players.map(t => Object.fromEntries(SNAP_FIELDS.map((k, i) => [k, t[i]])));
+        }
+        return db;
     } catch (e) {
         return null;
     }
@@ -381,10 +397,11 @@ function loadDatabaseSnapshot() {
 
 function saveDatabaseSnapshot(db) {
     try {
-        localStorage.setItem(DB_STORAGE_KEY, JSON.stringify(db));
+        const compact = { ...db, players: (db.players || []).map(p => SNAP_FIELDS.map(k => p[k])) };
+        localStorage.setItem(DB_STORAGE_KEY, JSON.stringify(compact));
         return true;
     } catch (e) {
-        alert("Speicher voll: Die Original-Datenbank konnte nicht gesichert werden.");
+        alert("Speicher voll: Die Original-Datenbank konnte nicht gesichert werden. Tipp: Weniger Länderpakete gleichzeitig laden.");
         return false;
     }
 }
@@ -427,10 +444,14 @@ function restoreDatabaseFromSnapshot() {
 // WINTERPAUSE JE LAND (Wochen ohne Ligaspiel)
 // ==========================================
 const WINTER_BREAK_WEEKS = {
-    DE: 3, AT: 4, CH: 4, FR: 2, NL: 2, IT: 1, ES: 1,
+    DE: 3, AT: 4, CH: 4, FR: 2, NL: 2, IT: 1, ES: 1, PT: 1, BE: 1, TR: 2, GR: 1,
+    NO: 4, CZ: 4, SK: 4, UA: 4, RU: 4,
     EN: 0   // England: keine Winterpause (Boxing Day!)
 };
-const COUNTRY_LABELS = { DE: "Deutschland", AT: "Österreich", CH: "Schweiz", FR: "Frankreich", NL: "Niederlande", IT: "Italien", ES: "Spanien", EN: "England", PT: "Portugal", BE: "Belgien", TR: "Türkei", SC: "Schottland" };
+const COUNTRY_LABELS = { DE: "Deutschland", AT: "Österreich", CH: "Schweiz", FR: "Frankreich", NL: "Niederlande", IT: "Italien", ES: "Spanien", EN: "England", PT: "Portugal", BE: "Belgien", TR: "Türkei", SC: "Schottland", GR: "Griechenland", NO: "Norwegen", CZ: "Tschechien", SK: "Slowakei", UA: "Ukraine", RU: "Russland" };
+const COUNTRY_FLAGS = { DE: "🇩🇪", AT: "🇦🇹", CH: "🇨🇭", FR: "🇫🇷", NL: "🇳🇱", IT: "🇮🇹", ES: "🇪🇸", EN: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", PT: "🇵🇹", BE: "🇧🇪", TR: "🇹🇷", GR: "🇬🇷", NO: "🇳🇴", CZ: "🇨🇿", SK: "🇸🇰", UA: "🇺🇦", RU: "🇷🇺" };
+// Länder ohne Startrecht im Europapokal
+const UEFA_EXCLUDED = ['RU'];
 
 const WINTER_CAMPS = [
     {
@@ -517,3 +538,71 @@ const FINANCE_CATEGORIES = {
     youth:     { label: "Nachwuchs & Scouting", icon: "🌱" },
     other:     { label: "Sonstiges", icon: "📎" }
 };
+
+// ==========================================
+// KOMPAKTES SPEICHERFORMAT (Spieler & Spielpläne als Tupel)
+// ==========================================
+const SAVE_PLAYER_KEYS = ['id', 'clubId', 'pos', 'name', 'age', 'rating', 'salary', 'contractUntil', 'talent', 'motivation'];
+
+function packPlayerTuple(o) {
+    const t = SAVE_PLAYER_KEYS.map(k => (o[k] === undefined ? null : o[k]));
+    const extra = {};
+    let hasExtra = false;
+    for (const k in o) {
+        if (!SAVE_PLAYER_KEYS.includes(k)) { extra[k] = o[k]; hasExtra = true; }
+    }
+    if (hasExtra) t.push(extra);
+    return t;
+}
+
+function unpackPlayerTuple(t) {
+    const o = {};
+    SAVE_PLAYER_KEYS.forEach((k, i) => { if (t[i] !== null && t[i] !== undefined) o[k] = t[i]; });
+    if (t.length > SAVE_PLAYER_KEYS.length && t[SAVE_PLAYER_KEYS.length]) Object.assign(o, t[SAVE_PLAYER_KEYS.length]);
+    return o;
+}
+
+function packMatchTuple(m) {
+    const t = [m.homeId, m.awayId, m.homeGoals, m.awayGoals, m.weather || 0];
+    const extra = {};
+    let hasExtra = false;
+    for (const k in m) {
+        if (['homeId', 'awayId', 'homeGoals', 'awayGoals', 'weather'].includes(k)) continue;
+        if (k === 'events' && (!m.events || m.events.length === 0)) continue;
+        extra[k] = m[k];
+        hasExtra = true;
+    }
+    if (hasExtra) t.push(extra);
+    return t;
+}
+
+function unpackMatchTuple(t) {
+    const m = { homeId: t[0], awayId: t[1], homeGoals: t[2], awayGoals: t[3], events: [] };
+    if (t[4]) m.weather = t[4];
+    if (t[5]) Object.assign(m, t[5]);
+    return m;
+}
+
+function packSchedule(schedule) {
+    const out = {};
+    Object.keys(schedule || {}).forEach(lid => {
+        const s = schedule[lid];
+        out[lid] = { ...s, matchdays: (s.matchdays || []).map(md => ({ ...md, matches: md.matches.map(packMatchTuple) })) };
+    });
+    return out;
+}
+
+// Gespeicherten Spielstand (altes oder kompaktes Format) in Objekte zurückwandeln
+function expandSavedState(parsed) {
+    if (!parsed) return parsed;
+    if (parsed.saveFmt === 2) {
+        parsed.players = (parsed.players || []).map(unpackPlayerTuple);
+        Object.keys(parsed.schedule || {}).forEach(lid => {
+            (parsed.schedule[lid].matchdays || []).forEach(md => {
+                md.matches = md.matches.map(m => (Array.isArray(m) ? unpackMatchTuple(m) : m));
+            });
+        });
+        delete parsed.saveFmt;
+    }
+    return parsed;
+}

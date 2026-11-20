@@ -12,7 +12,17 @@ const COUNTRY_NAMES = {
     "IT": "🇮🇹 Italien",
     "FR": "🇫🇷 Frankreich",
     "AT": "🇦🇹 Österreich",
-    "CH": "🇨🇭 Schweiz"
+    "CH": "🇨🇭 Schweiz",
+    "PT": "🇵🇹 Portugal",
+    "NL": "🇳🇱 Niederlande",
+    "BE": "🇧🇪 Belgien",
+    "TR": "🇹🇷 Türkei",
+    "GR": "🇬🇷 Griechenland",
+    "NO": "🇳🇴 Norwegen",
+    "CZ": "🇨🇿 Tschechien",
+    "SK": "🇸🇰 Slowakei",
+    "UA": "🇺🇦 Ukraine",
+    "RU": "🇷🇺 Russland"
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -32,7 +42,7 @@ function loadGameState() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
         try {
-            const parsed = JSON.parse(saved);
+            const parsed = expandSavedState(JSON.parse(saved));
             GameState = { ...GameState, ...parsed };
             GameState.meta = { ...GameState.meta, ...(parsed.meta || {}) };
         } catch (e) {
@@ -42,7 +52,11 @@ function loadGameState() {
 }
 
 function saveGameState() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(GameState));
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(GameState));
+    } catch (e) {
+        alert("⚠️ Browser-Speicher voll! Bitte weniger Länderpakete laden.");
+    }
 }
 
 function setSetupStatus(msg) {
@@ -251,8 +265,8 @@ function renderSetup() {
         viewport.innerHTML = `
             <h2 class="section-title">⚙️ LIGEN- & KADER-DATEN LADEN</h2>
             <div class="bmh-box">
-                <p style="font-size:0.8rem; margin-bottom:8px;">Lade hier deine <code>update_bl1_bl2_komplett.json</code> (oder weitere Länder-Updates) hoch:</p>
-                <input type="file" id="setup-file-upload" accept=".json" class="bmh-input">
+                <p style="font-size:0.8rem; margin-bottom:8px;">Lade hier deine <code>update_bl1_bl2_komplett.json</code> (oder weitere Länder-Updates) hoch – du kannst auch mehrere Dateien gleichzeitig auswählen:</p>
+                <input type="file" id="setup-file-upload" accept=".json" class="bmh-input" multiple>
                 <button id="btn-setup-demo" class="bmh-btn" style="width:100%; margin-top:4px;">📦 Mini-Demo (4 Vereine) laden</button>
             </div>
             <div class="bmh-box" style="font-size:0.8rem;">
@@ -265,20 +279,22 @@ function renderSetup() {
         `;
 
         document.getElementById('setup-file-upload').addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                try {
-                    const json = JSON.parse(event.target.result);
-                    if (applyUpdateOnStart(json)) {
-                        renderSetup();
+            const files = Array.from(e.target.files || []);
+            if (files.length === 0) return;
+            let done = 0;
+            files.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        applyUpdateOnStart(JSON.parse(event.target.result));
+                    } catch (err) {
+                        alert(`Fehler beim Lesen von ${file.name}: ${err.message}`);
                     }
-                } catch (err) {
-                    alert("Fehler beim Lesen der JSON-Datei: " + err.message);
-                }
-            };
-            reader.readAsText(file);
+                    done++;
+                    if (done === files.length) renderSetup();
+                };
+                reader.readAsText(file);
+            });
         });
 
         document.getElementById('btn-setup-demo').addEventListener('click', () => {
@@ -330,6 +346,8 @@ function applyUpdateOnStart(updateData) {
             else GameState.players.push(newPlayer);
         });
     }
+    if (!Array.isArray(GameState.meta.installedUpdates)) GameState.meta.installedUpdates = [];
+    GameState.meta.installedUpdates = GameState.meta.installedUpdates.filter(u => u.id !== updateData.updateId);
     GameState.meta.installedUpdates.push({
         id: updateData.updateId,
         name: updateData.name || updateData.updateId,

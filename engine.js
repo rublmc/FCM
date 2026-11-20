@@ -42,20 +42,63 @@ function initGameWorld() {
 // ==========================================
 // SPEICHER-SYSTEM (LOCAL STORAGE)
 // ==========================================
+// Standardwerte werden beim Speichern weggelassen (spart viel Platz bei vielen Ligen)
+const PLAYER_DEFAULTS = {
+    seasonApps: 0, seasonMinutes: 0, seasonGoals: 0, seasonCleanSheets: 0, cupGoals: 0,
+    seasonYellows: 0, clubApps: 0, clubGoals: 0, motivation: 78, campDevBonus: 0,
+    suspendedMatches: 0, suspensionReason: "", injuredMatches: 0, injuryReason: "",
+    transferListed: false, askingMult: 1
+};
+
+function compactPlayer(p) {
+    const o = {};
+    for (const k in p) {
+        if (k === 'birthday' && p.birthday === generateBirthday(p.id)) continue;
+        if (Object.prototype.hasOwnProperty.call(PLAYER_DEFAULTS, k) && p[k] === PLAYER_DEFAULTS[k]) continue;
+        o[k] = p[k];
+    }
+    return o;
+}
+
+function serializeGameState() {
+    return JSON.stringify({
+        ...GameState,
+        saveFmt: 2,
+        players: GameState.players.map(p => packPlayerTuple(compactPlayer(p))),
+        schedule: packSchedule(GameState.schedule)
+    });
+}
+
+let saveWarnedFull = false;
 function saveGame() {
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(GameState));
+        localStorage.setItem(STORAGE_KEY, serializeGameState());
         setStatus("Spielstand gespeichert.");
     } catch (e) {
-        setStatus("⚠️ Speichern fehlgeschlagen (Speicher voll?)");
+        setStatus("⚠️ Speichern fehlgeschlagen – Speicher voll!");
+        if (!saveWarnedFull) {
+            saveWarnedFull = true;
+            alert("⚠️ Der Browser-Speicher ist voll – der Spielstand konnte nicht gespeichert werden!\n\nTipp: Unter ⚙️ ADMIN die Datenbank zurücksetzen und weniger Länderpakete laden.");
+        }
     }
+}
+
+function getStorageUsageKB() {
+    let total = 0;
+    try {
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            total += (k.length + (localStorage.getItem(k) || '').length);
+        }
+    } catch (e) { /* ignorieren */ }
+    return Math.round(total / 1024);
 }
 
 function loadGame() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved) return;
     try {
-        const parsed = JSON.parse(saved);
+        const parsed = expandSavedState(JSON.parse(saved));
         GameState = { ...GameState, ...parsed };
         GameState.meta = { ...GameState.meta, ...(parsed.meta || {}) };
         if (!GameState.meta.phase) {
@@ -81,6 +124,8 @@ function loadGame() {
         GameState.prevStandings = parsed.prevStandings || {};
         GameState.cupHistory = parsed.cupHistory || {};
         GameState.finance = parsed.finance || null;
+        GameState.matchReports = Array.isArray(parsed.matchReports) ? parsed.matchReports : [];
+        GameState.transferOffers = Array.isArray(parsed.transferOffers) ? parsed.transferOffers : [];
         setStatus("Spielstand geladen.");
     } catch (e) {
         console.error("Fehler beim Laden:", e);
@@ -96,7 +141,7 @@ function resetGame() {
 }
 
 function switchToView(viewName) {
-    const navView = viewName === 'cups' ? 'league' : viewName;
+    const navView = viewName;
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     const targetBtn = document.querySelector(`.nav-btn[data-view="${navView}"]`);
     if (targetBtn) targetBtn.classList.add('active');
@@ -106,6 +151,9 @@ function switchToView(viewName) {
     activeContractPlayerId = null;
     activeSponsorOffer = null;
     activeNegotiation = null;
+    playerCardId = null;
+    calendarOpenReportKey = null;
+    tacticsEditMode = false;
     document.getElementById('main-viewport').scrollTop = 0;
     renderView(viewName);
 }
@@ -138,6 +186,11 @@ function ensurePlayerStatsInitialized() {
         if (typeof p.suspensionReason !== 'string') p.suspensionReason = "";
         if (typeof p.injuredMatches !== 'number') p.injuredMatches = 0;
         if (typeof p.injuryReason !== 'string') p.injuryReason = "";
+        if (typeof p.seasonYellows !== 'number') p.seasonYellows = 0;
+        if (typeof p.clubApps !== 'number') p.clubApps = 0;
+        if (typeof p.clubGoals !== 'number') p.clubGoals = 0;
+        if (typeof p.transferListed !== 'boolean') p.transferListed = false;
+        if (typeof p.askingMult !== 'number') p.askingMult = 1;
     });
 }
 

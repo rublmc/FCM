@@ -291,8 +291,9 @@ function simulateSingleMatch(match, isOfficialLeagueMatch = true) {
         if (scoreHome) {
             hLeft--;
             const scorer = pickScorerForClub(match.homeId);
-            if (scorer && isOfficialLeagueMatch) {
+            if (scorer && scorer.id && isOfficialLeagueMatch) {
                 scorer.seasonGoals = (scorer.seasonGoals || 0) + 1;
+                scorer.clubGoals = (scorer.clubGoals || 0) + 1;
                 if (scorer.clubId === GameState.activeClubId) adjustPlayerMotivation(scorer, 3);
             }
             events.push({
@@ -304,8 +305,9 @@ function simulateSingleMatch(match, isOfficialLeagueMatch = true) {
         } else {
             aLeft--;
             const scorer = pickScorerForClub(match.awayId);
-            if (scorer && isOfficialLeagueMatch) {
+            if (scorer && scorer.id && isOfficialLeagueMatch) {
                 scorer.seasonGoals = (scorer.seasonGoals || 0) + 1;
+                scorer.clubGoals = (scorer.clubGoals || 0) + 1;
                 if (scorer.clubId === GameState.activeClubId) adjustPlayerMotivation(scorer, 3);
             }
             events.push({
@@ -325,6 +327,7 @@ function simulateSingleMatch(match, isOfficialLeagueMatch = true) {
             const sq = [...getClubPlayers(cid)].sort((a, b) => b.rating - a.rating);
             sq.slice(0, 11).forEach(p => {
                 p.seasonApps = (p.seasonApps || 0) + 1;
+                p.clubApps = (p.clubApps || 0) + 1;
                 p.seasonMinutes = (p.seasonMinutes || 0) + 90;
                 if (conceded === 0 && ["TW", "IV", "LV", "RV", "DM"].includes(p.pos)) {
                     p.seasonCleanSheets = (p.seasonCleanSheets || 0) + 1;
@@ -499,6 +502,7 @@ function finishSeasonAndAdvance() {
 
     ensurePlayerStatsInitialized();
     flushAllPendingEvents();
+    flushRemainingLeagueMatchdays();
     const seasonEnd = getCurrentSeasonEndYear();
     const finishedSeasonLabel = GameState.meta.season;
     // Abschlusstabellen & Pokalsieger für die Europapokal-Qualifikation merken
@@ -524,27 +528,21 @@ function finishSeasonAndAdvance() {
     // TV-Geld wird ratierlich je Spieltag gezahlt – hier nur die Saisonsumme für den Bericht
     const tvPrize = (ensureFinanceLedger().items.tv || 0);
 
-    // 2. Auf- und Abstieg zwischen BL1 und BL2 (falls beide existieren)
+    // 2. Auf- und Abstieg zwischen 1. und 2. Liga je Land
     let promoRelMsg = "";
     let userPromoted = false;
     let userRelegated = false;
-    if (GameState.leagues["bl1"] && GameState.leagues["bl2"]) {
-        const bl1Standings = computeLeagueStandings("bl1");
-        const bl2Standings = computeLeagueStandings("bl2");
-        if (bl1Standings.length >= 16 && bl2Standings.length >= 2) {
-            const relegated = bl1Standings.slice(-2).map(r => r.clubId);
-            const promoted = bl2Standings.slice(0, 2).map(r => r.clubId);
-            relegated.forEach(cid => { if (GameState.clubs[cid]) GameState.clubs[cid].leagueId = "bl2"; });
-            promoted.forEach(cid => { if (GameState.clubs[cid]) GameState.clubs[cid].leagueId = "bl1"; });
-            if (relegated.includes(club.id)) {
-                userRelegated = true;
-                promoRelMsg = " Leider abgestiegen in Liga 2.";
-            }
-            if (promoted.includes(club.id)) {
-                userPromoted = true;
-                promoRelMsg = " 🎉 AUFSTIEG in die 1. Bundesliga!";
-            }
-        }
+    const moves = applyPromotionRelegation();
+    if (moves.relegated.includes(club.id)) {
+        userRelegated = true;
+        promoRelMsg = ` Leider abgestiegen in die ${GameState.leagues[club.leagueId]?.name || '2. Liga'}.`;
+    }
+    if (moves.promoted.includes(club.id)) {
+        userPromoted = true;
+        promoRelMsg = ` 🎉 AUFSTIEG in die ${GameState.leagues[club.leagueId]?.name || '1. Liga'}!`;
+    }
+    if (moves.lines.length > 0) {
+        addInbox('🔁', 'Auf- und Absteiger', moves.lines.join('\n'), 'league');
     }
 
     // Team-Erfolgs-Multiplikator für Stärkeentwicklung
@@ -638,6 +636,9 @@ function finishSeasonAndAdvance() {
     GameState.winterBreak = null;
     GameState.lastBreakReport = null;
     GameState.lastMatchReport = null;
+    GameState.matchReports = [];
+    GameState.transferOffers = [];
+    GameState.players.forEach(p => { p.seasonYellows = 0; });
     GameState.meta.tick = (GameState.meta.tick || 0) + 1;
     GameState.meta.harshWinter = Math.random() < 0.2;
     GameState.meta.weatherSeason = nextSeasonLabel;
@@ -665,6 +666,98 @@ function finishSeasonAndAdvance() {
     switchToView('calendar');
 }
 
+// Alle noch offenen Spieltage aller Ligen still ausspielen (Ligen mit mehr Spieltagen als die eigene)
+function flushRemainingLeagueMatchdays() {
+    withClubIndex(() => flushRemainingLeagueMatchdaysInner());
+}
+
+function flushRemainingLeagueMatchdaysInner() {
+    Object.keys(GameState.schedule).forEach(lid => {
+        const sched = GameState.schedule[lid];
+        if (!sched || !Array.isArray(sched.matchdays)) return;
+        sched.matchdays.forEach(md => {
+            md.matches.forEach(m => {
+                if (m.homeGoals === null || m.postponed) {
+                    simulateSingleMatch(m, true);
+                    m.postponed = false;
+                    if (lid !== getUserLeagueId()) m.events = [];
+                }
+            });
+            md.played = true;
+        });
+    });
+}
+
+// Anzahl Auf-/Absteiger: aus dem Datenpaket (league.promo) oder Standard 2
+function getPromoCount(leagueId) {
+    const lg = GameState.leagues[leagueId];
+    return lg && typeof lg.promo === 'number' ? lg.promo : 2;
+}
+
+// Auf- und Abstieg zwischen der 1. und 2. Liga jedes Landes
+function applyPromotionRelegation() {
+    const result = { promoted: [], relegated: [], lines: [] };
+    const byCountry = {};
+    Object.values(GameState.leagues).forEach(l => {
+        const c = l.country || 'DE';
+        (byCountry[c] = byCountry[c] || {})[l.tier || 1] = l;
+    });
+    Object.keys(byCountry).forEach(c => {
+        const l1 = byCountry[c][1];
+        const l2 = byCountry[c][2];
+        if (!l1 || !l2) return;
+        const s1 = computeLeagueStandings(l1.id);
+        const s2 = computeLeagueStandings(l2.id);
+        const n = Math.min(getPromoCount(l1.id), getPromoCount(l2.id), Math.floor(s1.length / 3), s2.length);
+        if (n <= 0) return;
+        const down = s1.slice(-n).map(r => r.clubId);
+        const up = s2.slice(0, n).map(r => r.clubId);
+        down.forEach(cid => { if (GameState.clubs[cid]) GameState.clubs[cid].leagueId = l2.id; });
+        up.forEach(cid => { if (GameState.clubs[cid]) GameState.clubs[cid].leagueId = l1.id; });
+        result.relegated.push(...down);
+        result.promoted.push(...up);
+        result.lines.push(`${COUNTRY_FLAGS[c] || ''} ${l1.name}: ⬆️ ${up.map(getAnyClubName).join(', ')} • ⬇️ ${down.map(getAnyClubName).join(', ')}`);
+    });
+    return result;
+}
+
+// Tabellen-Markierungen je Liga (Europapokal-Plätze, Auf-/Abstieg)
+function getRankZone(leagueId, rank, size) {
+    const lg = GameState.leagues[leagueId];
+    const tier = (lg && lg.tier) || 1;
+    const country = (lg && lg.country) || 'DE';
+    const promo = getPromoCount(leagueId);
+    if (tier === 1) {
+        const hasLower = Object.values(GameState.leagues).some(l => (l.country || 'DE') === country && (l.tier || 1) === 2);
+        if (!UEFA_EXCLUDED.includes(country)) {
+            const cl = EURO_ALLOCATION.cl[country] ?? EURO_ALLOCATION.cl._;
+            const el = (EURO_ALLOCATION.el[country] ?? EURO_ALLOCATION.el._) + 1;
+            const ecl = EURO_ALLOCATION.ecl[country] ?? EURO_ALLOCATION.ecl._;
+            if (rank <= cl) return 'cl';
+            if (rank <= cl + el) return 'el';
+            if (rank <= cl + el + ecl) return 'ecl';
+        }
+        if (hasLower && rank > size - promo) return 'down';
+        return '';
+    }
+    if (rank <= promo) return 'cl';
+    const hasLowerTier = Object.values(GameState.leagues).some(l => (l.country || 'DE') === country && (l.tier || 1) === tier + 1);
+    if (hasLowerTier && rank > size - promo) return 'down';
+    return '';
+}
+
+function getRankZoneLegend(leagueId) {
+    const lg = GameState.leagues[leagueId];
+    const tier = (lg && lg.tier) || 1;
+    const country = (lg && lg.country) || 'DE';
+    const promo = getPromoCount(leagueId);
+    if (tier === 1) {
+        if (UEFA_EXCLUDED.includes(country)) return `Kein Europapokal-Startrecht • 🟥 Abstieg (letzte ${promo}, falls 2. Liga geladen)`;
+        return `🟩 Champions League • 🟦 Europa League • 🟪 Conference League • 🟥 Abstieg (letzte ${promo}, falls 2. Liga geladen)`;
+    }
+    return `🟩 Aufstieg (Platz 1–${promo}) • 🟥 Abstieg`;
+}
+
 // ==========================================
 // MODUL: TABELLE, SPIELTAG & TORJÄGER
 // ==========================================
@@ -684,8 +777,8 @@ function renderLeagueView(viewport) {
     }
 
     const leagueOptions = Object.values(GameState.leagues)
-        .sort((a, b) => (a.tier || 1) - (b.tier || 1))
-        .map(l => `<option value="${l.id}" ${l.id === selectedLeagueViewId ? 'selected' : ''}>${l.name}</option>`)
+        .sort((a, b) => ((a.country || 'DE') === (GameState.leagues[club.leagueId]?.country || 'DE') ? -1 : 0) - ((b.country || 'DE') === (GameState.leagues[club.leagueId]?.country || 'DE') ? -1 : 0) || (a.country || '').localeCompare(b.country || '') || (a.tier || 1) - (b.tier || 1))
+        .map(l => `<option value="${l.id}" ${l.id === selectedLeagueViewId ? 'selected' : ''}>${COUNTRY_FLAGS[l.country || 'DE'] || ''} ${l.name}</option>`)
         .join('');
 
     const isPreseason = GameState.meta.phase === 'preseason';
@@ -707,7 +800,7 @@ function renderLeagueView(viewport) {
         ${nextMatchBanner}
 
         <div class="bmh-box" style="padding:6px; margin-bottom:8px;">
-            <button id="btn-goto-cups" type="button" class="bmh-btn gold-btn" style="width:100%; margin-bottom:6px;">🏆 POKAL & EUROPAPOKAL</button>
+
             <select id="league-view-select" class="bmh-select" style="margin-bottom:0;">
                 ${leagueOptions}
             </select>
@@ -725,7 +818,7 @@ function renderLeagueView(viewport) {
 
 
     bindNextEventBanner();
-    document.getElementById('btn-goto-cups').addEventListener('click', () => switchToView('cups'));
+
 
 
 
@@ -785,17 +878,7 @@ function buildStandingsTableHtml(leagueId) {
                     ${standings.map((row, idx) => {
                         const rank = idx + 1;
                         const isUser = row.clubId === GameState.activeClubId;
-                        let badgeClass = "";
-                        if (isTopTier) {
-                            if (rank <= 4) badgeClass = "cl";
-                            else if (rank <= 6) badgeClass = "el";
-                            else if (rank === 16) badgeClass = "rel";
-                            else if (rank >= 17) badgeClass = "down";
-                        } else {
-                            if (rank <= 2) badgeClass = "cl";
-                            else if (rank === 3) badgeClass = "rel";
-                            else if (rank >= 16) badgeClass = "down";
-                        }
+                        const badgeClass = getRankZone(leagueId, rank, standings.length);
                         return `
                         <tr class="${isUser ? 'table-row-user' : ''}">
                             <td><span class="rank-badge ${badgeClass}">${rank}</span></td>
@@ -809,9 +892,7 @@ function buildStandingsTableHtml(leagueId) {
                 </tbody>
             </table>
             <p style="font-size:0.64rem; color:#444; margin-top:6px;">
-                ${isTopTier
-                    ? '🟩 1–4 Champions League • 🟦 5–6 Europa • 🟨 16 Relegation • 🟥 17–18 Abstieg'
-                    : '🟩 1–2 Direktaufstieg • 🟨 3 Relegation • 🟥 16–18 Abstieg'}
+                ${getRankZoneLegend(leagueId)}
             </p>
         </div>
     `;

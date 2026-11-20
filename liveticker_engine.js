@@ -258,7 +258,7 @@ function startLiveMatchday() {
         saveGame();
         renderHeader();
         if (isSeasonComplete()) {
-            alert("Die Saison ist beendet! Gehe in die Tabelle (🏆 TAB.), um den Saisonabschluss durchzuführen.");
+            alert("Die Saison ist beendet! Gehe in die Tabelle (📊 TABELLE), um den Saisonabschluss durchzuführen.");
         }
         switchToView('league');
         return;
@@ -270,6 +270,26 @@ function startLiveMatchday() {
     const hasUserMatch = Boolean(umd && umd.matches.some(m => m.homeId === club.id || m.awayId === club.id));
     if (hasUserMatch && !checkLineupBeforeKickoff()) return;
     startLiveSession({ mode: 'league' });
+}
+
+// Spiele anderer Ligen sofort komplett berechnen (Performance bei vielen Ligen)
+function quickSimLiveMatch(lm) {
+    const w = getWeather(lm.weather);
+    const hs = calculateClubMatchStrength(lm.homeId, !lm.neutral);
+    const as = calculateClubMatchStrength(lm.awayId, false);
+    const diff = (hs - as) * w.diffMult;
+    lm.homeGoals = samplePoisson((1.42 + diff * 0.58) * w.goalMult);
+    lm.awayGoals = samplePoisson((1.15 - diff * 0.55) * w.goalMult);
+    const add = (id, n, side) => {
+        for (let i = 0; i < n; i++) {
+            const sc = pickScorerForClub(id);
+            lm.events.push({ minute: 1 + Math.floor(Math.random() * 90), side, type: 'goal', playerName: sc ? sc.name : 'Stürmer', scorerId: sc ? sc.id : null });
+        }
+    };
+    add(lm.homeId, lm.homeGoals, 'home');
+    add(lm.awayId, lm.awayGoals, 'away');
+    lm.events.sort((a, b) => a.minute - b.minute);
+    lm.instant = true;
 }
 
 function buildLiveMatchObj(key, ref, m, weatherKey) {
@@ -290,6 +310,10 @@ function buildLiveMatchObj(key, ref, m, weatherKey) {
 }
 
 function startLiveSession(opts) {
+    return withClubIndex(() => startLiveSessionInner(opts));
+}
+
+function startLiveSessionInner(opts) {
     const club = GameState.clubs[GameState.activeClubId];
     const userLeagueId = club.leagueId;
     const totalMds = getLeagueTotalMatchdays(userLeagueId);
@@ -339,6 +363,10 @@ function startLiveSession(opts) {
             const weatherKey = rollWeather(dateISO, getClubCountry(m.homeId), false); // Pokalspiele werden nicht abgesagt
             const lm = buildLiveMatchObj(comp.id, { compId: comp.id, roundIdx, idx }, m, weatherKey);
             if (lm.isUserMatch) userMatchRef = lm;
+            else {
+                lm.hStr = calculateClubMatchStrength(m.homeId, !m.neutral);
+                lm.aStr = calculateClubMatchStrength(m.awayId, false);
+            }
             leaguesMatches[comp.id].push(lm);
         });
         label = `${comp.icon} ${comp.name.toUpperCase()} • ${round.name.toUpperCase()}`;
@@ -369,6 +397,12 @@ function startLiveSession(opts) {
                 }
                 const liveM = buildLiveMatchObj(lid, { md: currentMd, idx }, m, weatherKey);
                 if (isUser) userMatchRef = liveM;
+                if (lid !== userLeagueId) {
+                    quickSimLiveMatch(liveM);
+                } else if (!isUser) {
+                    liveM.hStr = calculateClubMatchStrength(m.homeId, true);
+                    liveM.aStr = calculateClubMatchStrength(m.awayId, false);
+                }
                 leaguesMatches[lid].push(liveM);
             });
         });
@@ -537,7 +571,7 @@ function triggerLiveInterruption(reasonText, forcePause = false) {
 function calculateLiveClubStrength(clubId, isHome) {
     if (clubId === GameState.activeClubId) {
         const squad = getClubPlayers();
-        const slots = FORMATIONS[GameState.tactics.formation] || FORMATIONS["4-4-2"];
+        const slots = getFormationSlots();
         let total = 0;
 
         slots.forEach((slotPos, idx) => {
@@ -581,7 +615,7 @@ function calculateLiveClubStrength(clubId, isHome) {
 function performAutomaticInjurySub(slotIdx, injuredPlayer) {
     if (!liveMatchState) return null;
     const squad = getClubPlayers();
-    const slots = FORMATIONS[GameState.tactics.formation] || FORMATIONS["4-4-2"];
+    const slots = getFormationSlots();
     const slotPos = slots[slotIdx] || injuredPlayer.pos;
 
 
@@ -753,9 +787,9 @@ function tickLiveMatchday(silentRender = false) {
         Object.keys(liveMatchState.leaguesMatches).forEach(lid => {
             const matches = liveMatchState.leaguesMatches[lid];
             matches.forEach(m => {
-                if (m.isUserMatch) return;
-                const hStr = calculateClubMatchStrength(m.homeId, !m.neutral);
-                const aStr = calculateClubMatchStrength(m.awayId, false);
+                if (m.isUserMatch || m.instant) return;
+                const hStr = typeof m.hStr === 'number' ? m.hStr : calculateClubMatchStrength(m.homeId, !m.neutral);
+                const aStr = typeof m.aStr === 'number' ? m.aStr : calculateClubMatchStrength(m.awayId, false);
                 const aw = getWeather(m.weather);
                 const diff = (hStr - aStr) * aw.diffMult;
                 const pHome = Math.max(0.003, Math.min(0.052, ((1.42 + diff * 0.58) * aw.goalMult) / 90));
@@ -1118,6 +1152,13 @@ function computeLiveBlitzStandings(leagueId) {
 
 function finalizeLiveMatchday() {
     if (!liveMatchState) return;
+    // Index nur für die Ergebnisverarbeitung; Ansichtswechsel danach ohne Index
+    let after = null;
+    withClubIndex(() => { after = finalizeLiveMatchdayInner(); });
+    if (after) after();
+}
+
+function finalizeLiveMatchdayInner() {
     stopLiveTickerTimer();
     const club = GameState.clubs[GameState.activeClubId];
     const st = liveMatchState;
@@ -1127,6 +1168,7 @@ function finalizeLiveMatchday() {
     if (mode === 'cup') applyLiveKoDecider();
 
     // 1. Ergebnisse übernehmen
+    const playerById = new Map(GameState.players.map(p => [p.id, p]));
     if (mode === 'cup') {
         const comp = GameState.cups.comps[st.cupCtx.compId];
         const roundIdx = st.cupCtx.roundIdx;
@@ -1150,7 +1192,10 @@ function finalizeLiveMatchday() {
             lm.events.forEach(ev => {
                 if (ev.type === "goal" && ev.scorerId) {
                     const pl = GameState.players.find(p => p.id === ev.scorerId);
-                    if (pl) pl.cupGoals = (pl.cupGoals || 0) + 1;
+                    if (pl) {
+                        pl.cupGoals = (pl.cupGoals || 0) + 1;
+                        pl.clubGoals = (pl.clubGoals || 0) + 1;
+                    }
                 }
             });
         });
@@ -1170,11 +1215,15 @@ function finalizeLiveMatchday() {
                     origMatch.postponed = false;
                     origMatch.wasPostponed = true;
                 }
-                origMatch.events = lm.events.map(ev => ({ minute: ev.minute, side: ev.side, type: ev.type, playerName: ev.playerName }));
+                // Torschützen nur für die eigene Liga speichern (spart Speicherplatz)
+                origMatch.events = lid === st.userLeagueId ? lm.events.map(ev => ({ minute: ev.minute, side: ev.side, type: ev.type, playerName: ev.playerName })) : [];
                 lm.events.forEach(ev => {
                     if (ev.type === "goal" && ev.scorerId) {
-                        const pl = GameState.players.find(p => p.id === ev.scorerId);
-                        if (pl) pl.seasonGoals = (pl.seasonGoals || 0) + 1;
+                        const pl = playerById.get(ev.scorerId);
+                        if (pl) {
+                            pl.seasonGoals = (pl.seasonGoals || 0) + 1;
+                            pl.clubGoals = (pl.clubGoals || 0) + 1;
+                        }
                     }
                 });
                 [lm.homeId, lm.awayId].forEach(cid => {
@@ -1183,11 +1232,13 @@ function finalizeLiveMatchday() {
                     const sq = [...getClubPlayers(cid)].sort((a, b) => b.rating - a.rating);
                     sq.slice(0, 11).forEach(p => {
                         p.seasonApps = (p.seasonApps || 0) + 1;
+                        p.clubApps = (p.clubApps || 0) + 1;
                         p.seasonMinutes = (p.seasonMinutes || 0) + 90;
                         if (conceded === 0 && ["TW", "IV", "LV", "RV", "DM"].includes(p.pos)) p.seasonCleanSheets = (p.seasonCleanSheets || 0) + 1;
                     });
                     sq.slice(11, 15).forEach(p => {
                         p.seasonApps = (p.seasonApps || 0) + 1;
+                        p.clubApps = (p.clubApps || 0) + 1;
                         p.seasonMinutes = (p.seasonMinutes || 0) + 22;
                     });
                 });
@@ -1227,6 +1278,7 @@ function finalizeLiveMatchday() {
             const mins = minMap[p.id] || 0;
             if (mins > 0) {
                 p.seasonApps = (p.seasonApps || 0) + 1;
+                p.clubApps = (p.clubApps || 0) + 1;
                 p.seasonMinutes = (p.seasonMinutes || 0) + mins;
                 if (cleanSheet && mins >= 60 && ["TW", "IV", "LV", "RV", "DM"].includes(p.pos)) p.seasonCleanSheets = (p.seasonCleanSheets || 0) + 1;
                 adjustPlayerMotivation(p, won ? 3 : (draw ? 1 : -1));
@@ -1332,8 +1384,25 @@ function finalizeLiveMatchday() {
         }
     });
 
+    // 4b. Gelbe Karten (Liga): jede 5. Gelbe Karte = 1 Spiel Sperre
+    if (mode !== 'cup' && Array.isArray(st.yellowCardIds)) {
+        st.yellowCardIds.forEach(pid => {
+            if (st.sentOffIds.includes(pid)) return; // Gelb-Rot zählt nicht zur Gelb-Sperre
+            const pl = squad.find(p => p.id === pid);
+            if (!pl) return;
+            pl.seasonYellows = (pl.seasonYellows || 0) + 1;
+            if (pl.seasonYellows % 5 === 0) {
+                pl.suspendedMatches = Math.max(pl.suspendedMatches || 0, 1);
+                pl.suspensionReason = `Gelbsperre (${pl.seasonYellows}. Gelbe Karte)`;
+                addInbox('🟨', `Gelbsperre: ${pl.name}`, `${pl.name} hat seine ${pl.seasonYellows}. Gelbe Karte gesehen und ist im nächsten Ligaspiel gesperrt.`, 'discipline', st.dateISO);
+            } else if (pl.seasonYellows % 5 === 4) {
+                addInbox('⚠️', `${pl.name}: 4. Gelbe Karte`, `Achtung: ${pl.name} ist mit ${pl.seasonYellows} Gelben Karten vorbelastet. Bei der nächsten Gelben Karte ist er für ein Spiel gesperrt.`, 'discipline', st.dateISO);
+            }
+        });
+    }
+
     // 5. Ausgangsaufstellung wiederherstellen – gesperrte/verletzte Spieler bleiben LEER (manuell ersetzen!)
-    if (st.initialFormation && FORMATIONS[st.initialFormation]) GameState.tactics.formation = st.initialFormation;
+    if (st.initialFormation && isValidFormation(st.initialFormation)) GameState.tactics.formation = st.initialFormation;
     const baseLineup = Array.isArray(st.initialLineup) && st.initialLineup.length === 11 ? [...st.initialLineup] : [...GameState.tactics.lineup];
     const baseBench = Array.isArray(st.initialBench) && st.initialBench.length === MAX_BENCH_SIZE ? [...st.initialBench] : [...GameState.tactics.bench];
     const squadById = new Map(squad.map(p => [p.id, p]));
@@ -1354,7 +1423,10 @@ function finalizeLiveMatchday() {
     const highlights = [...st.tickerLog].reverse()
         .filter(e => highlightTypes.has(e.type) && e.side !== 'system')
         .map(e => ({ min: e.minLabel, type: e.type, text: e.text }));
+    let reportKey = `X:${st.dateISO}`;
+    if (um) reportKey = mode === 'cup' ? `C:${um.ref.compId}:${um.ref.roundIdx}:${um.ref.idx}` : `L:${um.leagueId}:${um.ref.md}:${um.ref.idx}`;
     GameState.lastMatchReport = {
+        key: reportKey,
         matchday: currentMd,
         mode,
         isCatchUp: mode === 'catchup',
@@ -1393,6 +1465,12 @@ function finalizeLiveMatchday() {
         buildStatusMsg
     };
 
+    // Spielbericht archivieren (für den Kalender)
+    if (!Array.isArray(GameState.matchReports)) GameState.matchReports = [];
+    GameState.matchReports = GameState.matchReports.filter(r => r.key !== reportKey);
+    GameState.matchReports.push(GameState.lastMatchReport);
+    if (GameState.matchReports.length > 90) GameState.matchReports.shift();
+
     // 7. Zeit voranschreiten lassen
     if (mode === 'league') {
         GameState.meta.matchday = currentMd + 1;
@@ -1404,10 +1482,15 @@ function finalizeLiveMatchday() {
     liveSelectedPitchSlot = null;
 
     generateRoutineEvents();
+    processTransferListOffers();
     if (mode === 'league' && currentMd === getFirstHalfLastMatchday(club.leagueId)) {
         startWinterBreakIfNeeded();
     }
     syncGameClock();
+    return () => finalizeLiveMatchdayUi(st, um, currentMd);
+}
+
+function finalizeLiveMatchdayUi(st, um, currentMd) {
     saveGame();
     renderHeader();
     switchToView('office');

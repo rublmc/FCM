@@ -11,7 +11,7 @@
     <title>FC Manager - Retro Edition</title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="apple-touch-icon" href="logo.png">
-    <link rel="stylesheet" href="style.css?v=14.0">
+    <link rel="stylesheet" href="style.css?v=15.0">
 </head>
 <body>
     <div id="app-container">
@@ -19,7 +19,7 @@
         <header class="bmh-header">
             <div class="header-top-row">
                 <div class="header-left">
-                    <img src="logo.png?v=14.0" alt="FC Manager Logo" class="header-logo">
+                    <img src="logo.png?v=15.0" alt="FC Manager Logo" class="header-logo">
                     <div class="club-title-wrap">
                         <h1 id="header-club-name">KEIN VEREIN</h1>
                         <span id="header-league-info" class="sub-info">Bitte Update laden</span>
@@ -43,22 +43,23 @@
             <!-- Inhalte werden dynamisch von den Spiel-Modulen gerendert -->
         </main>
 
-        <!-- Fixierter unterer Bereich: Status/Weiter-Button + 9 Kacheln nebeneinander -->
+        <!-- Fixierter unterer Bereich: Status/Weiter-Button + 10 Kacheln in 2 Reihen -->
         <div class="bmh-bottom-dock">
             <div class="bmh-footer">
-                <span id="status-message">Bereit (v1.4.0)</span>
+                <span id="status-message">Bereit (v1.5.0)</span>
                 <button id="btn-next-day" class="bmh-btn primary small-btn">WEITER ▶</button>
             </div>
 
             <nav class="bmh-nav">
                 <button class="nav-btn active" data-view="office"><span class="nav-icon">🏢</span><span>BÜRO</span></button>
-                <button class="nav-btn" data-view="calendar"><span class="nav-icon">📅</span><span>KAL.</span></button>
+                <button class="nav-btn" data-view="calendar"><span class="nav-icon">📅</span><span>KALENDER</span></button>
                 <button class="nav-btn" data-view="squad"><span class="nav-icon">👥</span><span>KADER</span></button>
                 <button class="nav-btn" data-view="tactics"><span class="nav-icon">📋</span><span>TAKTIK</span></button>
-                <button class="nav-btn" data-view="contracts"><span class="nav-icon">✍️</span><span>VERTR.</span></button>
-                <button class="nav-btn" data-view="sponsors"><span class="nav-icon">💼</span><span>SPONS.</span></button>
-                <button class="nav-btn" data-view="stadium"><span class="nav-icon">🏟️</span><span>STAD.</span></button>
-                <button class="nav-btn" data-view="league"><span class="nav-icon">🏆</span><span>TAB.</span></button>
+                <button class="nav-btn" data-view="contracts"><span class="nav-icon">✍️</span><span>VERTRÄGE</span></button>
+                <button class="nav-btn" data-view="sponsors"><span class="nav-icon">💼</span><span>SPONSOREN</span></button>
+                <button class="nav-btn" data-view="stadium"><span class="nav-icon">🏟️</span><span>STADION</span></button>
+                <button class="nav-btn" data-view="league"><span class="nav-icon">📊</span><span>TABELLE</span></button>
+                <button class="nav-btn" data-view="cups"><span class="nav-icon">🏆</span><span>POKAL</span></button>
                 <button class="nav-btn admin-btn" data-view="admin"><span class="nav-icon">⚙️</span><span>ADMIN</span></button>
             </nav>
         </div>
@@ -73,18 +74,18 @@
             if (st) st.textContent = 'Fehler: ' + window.FCM_SCRIPT_ERROR;
         });
     </script>
-    <script src="data.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'data.js';"></script>
-    <script src="engine.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'engine.js';"></script>
-    <script src="world.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'world.js';"></script>
-    <script src="negotiation.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'negotiation.js';"></script>
-    <script src="cups.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'cups.js';"></script>
-    <script src="calendar.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'calendar.js';"></script>
-    <script src="league.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'league.js';"></script>
-    <script src="liveticker_engine.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'liveticker_engine.js';"></script>
-    <script src="liveticker_ui.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'liveticker_ui.js';"></script>
-    <script src="squad.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'squad.js';"></script>
-    <script src="tactics.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'tactics.js';"></script>
-    <script src="club.js?v=14.0" onerror="window.FCM_NETWORK_ERROR = 'club.js';"></script>
+    <script src="data.js?v=15.0" onerror="window.FCM_NETWORK_ERROR = 'data.js';"></script>
+    <script src="engine.js?v=15.0" onerror="window.FCM_NETWORK_ERROR = 'engine.js';"></script>
+    <script src="world.js?v=15.0" onerror="window.FCM_NETWORK_ERROR = 'world.js';"></script>
+    <script src="negotiation.js?v=15.0" onerror="window.FCM_NETWORK_ERROR = 'negotiation.js';"></script>
+    <script src="cups.js?v=15.0" onerror="window.FCM_NETWORK_ERROR = 'cups.js';"></script>
+    <script src="calendar.js?v=15.0" onerror="window.FCM_NETWORK_ERROR = 'calendar.js';"></script>
+    <script src="league.js?v=15.0" onerror="window.FCM_NETWORK_ERROR = 'league.js';"></script>
+    <script src="liveticker_engine.js?v=15.0" onerror="window.FCM_NETWORK_ERROR = 'liveticker_engine.js';"></script>
+    <script src="liveticker_ui.js?v=15.0" onerror="window.FCM_NETWORK_ERROR = 'liveticker_ui.js';"></script>
+    <script src="squad.js?v=15.0" onerror="window.FCM_NETWORK_ERROR = 'squad.js';"></script>
+    <script src="tactics.js?v=15.0" onerror="window.FCM_NETWORK_ERROR = 'tactics.js';"></script>
+    <script src="club.js?v=15.0" onerror="window.FCM_NETWORK_ERROR = 'club.js';"></script>
     <script>
         if (!window.FCM_APP_LOADED) {
             var vp = document.getElementById('main-viewport');

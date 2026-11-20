@@ -180,12 +180,13 @@ function processBirthdays(oldISO, newISO) {
 // ==========================================
 // POSTFACH
 // ==========================================
-function addInbox(icon, title, text, cat = 'info', dateISO = null) {
+function addInbox(icon, title, text, cat = 'info', dateISO = null, action = null) {
     if (!Array.isArray(GameState.inbox)) GameState.inbox = [];
     GameState.inbox.unshift({
         id: `msg_${Date.now()}_${Math.floor(Math.random() * 1e6)}`,
         date: dateISO || GameState.meta.currentDate || getCurrentGameDate(),
         icon, title, text, cat,
+        action,
         read: false
     });
     if (GameState.inbox.length > 80) GameState.inbox.length = 80;
@@ -199,11 +200,34 @@ function getUnreadInboxCount() {
 // FINANZEN: ZENTRALE BUCHUNG (Budget + Saison-Buchhaltung)
 // ==========================================
 function ensureFinanceLedger() {
+    const club = GameState.clubs[GameState.activeClubId];
     if (!GameState.finance || GameState.finance.season !== GameState.meta.season) {
         const prev = GameState.finance && GameState.finance.season ? GameState.finance : null;
-        GameState.finance = { season: GameState.meta.season, items: {}, lastSeason: prev ? { season: prev.season, items: prev.items } : (GameState.finance?.lastSeason || null) };
+        GameState.finance = {
+            season: GameState.meta.season,
+            items: {},
+            openingBalance: club ? club.budget : 0,
+            lastSeason: prev ? { season: prev.season, items: prev.items, openingBalance: prev.openingBalance } : (GameState.finance?.lastSeason || null)
+        };
+    }
+    // Ältere Spielstände: Anfangsbestand aus aktuellem Kontostand zurückrechnen
+    if (typeof GameState.finance.openingBalance !== 'number' && club) {
+        const sum = Object.values(GameState.finance.items || {}).reduce((s, v) => s + v, 0);
+        GameState.finance.openingBalance = club.budget - sum;
     }
     return GameState.finance;
+}
+
+// Vereinswechsel: Statistiken "für den Verein" zurücksetzen
+function movePlayerToClub(p, clubId) {
+    if (p.clubId !== clubId) {
+        p.clubApps = 0;
+        p.clubGoals = 0;
+        p.clubSince = GameState.meta.season;
+    }
+    p.clubId = clubId;
+    p.transferListed = false;
+    p.askingMult = 1;
 }
 
 function bookMoney(cat, amount, clubId = GameState.activeClubId) {
@@ -227,6 +251,8 @@ function ensureWorldInitialized() {
     if (!GameState.negoBlocks || typeof GameState.negoBlocks !== 'object') GameState.negoBlocks = {};
     if (!GameState.prevStandings) GameState.prevStandings = {};
     if (!GameState.cupHistory) GameState.cupHistory = {};
+    if (!Array.isArray(GameState.matchReports)) GameState.matchReports = [];
+    if (!Array.isArray(GameState.transferOffers)) GameState.transferOffers = [];
     if (typeof GameState.meta.tick !== 'number') GameState.meta.tick = 0;
     if (GameState.meta.weatherSeason !== GameState.meta.season) {
         GameState.meta.harshWinter = Math.random() < 0.2;
@@ -588,7 +614,7 @@ function maintainAiSquadsAtSeasonEnd(seasonEnd) {
                 .filter(p => p.clubId === 'free' && allowed.includes(p.pos) && (p.age || 25) <= 33 && p.rating >= avg - 1.0 && p.rating <= avg + 0.6)
                 .sort((a, b) => b.rating - a.rating)[0];
             if (fa && Math.random() < 0.6) {
-                fa.clubId = club.id;
+                movePlayerToClub(fa, club.id);
                 fa.contractUntil = newSeasonEnd + Math.floor(Math.random() * 3);
                 fa.salary = calculateExpectedSalary(fa);
                 signings.push(`${fa.name} (${fa.pos}, ${fa.rating.toFixed(1)}) → ${club.name}`);
@@ -646,4 +672,88 @@ function getAnnualOperatingCosts(clubId) {
     if (tier === 1) return 8000000 + cap * 150;
     if (tier === 2) return 2500000 + cap * 60;
     return 800000 + cap * 25;
+}
+
+// ==========================================
+// TRANSFERLISTE: ANGEBOTE ANDERER VEREINE
+// ==========================================
+const SALE_DEMAND_STEPS = [
+    { value: 1.00, label: "Angebot annehmen (100%)" },
+    { value: 1.05, label: "+5% fordern" },
+    { value: 1.10, label: "+10% fordern" },
+    { value: 1.15, label: "+15% fordern" },
+    { value: 1.20, label: "+20% fordern" },
+    { value: 1.30, label: "+30% fordern" },
+    { value: 1.40, label: "+40% fordern" }
+];
+
+function getQuickSalePrice(player) {
+    // Notverkauf: deutlich unter Marktwert
+    return Math.max(50000, Math.round((calculateMarketValue(player) * 0.55) / 50000) * 50000);
+}
+
+function getOpenOffersForPlayer(pid) {
+    return (GameState.transferOffers || []).filter(o => o.playerId === pid && o.status === 'open');
+}
+
+// Wird nach jedem Spiel / jeder Pausenwoche aufgerufen
+function processTransferListOffers() {
+    if (!Array.isArray(GameState.transferOffers)) GameState.transferOffers = [];
+    const tick = GameState.meta.tick || 0;
+    // Abgelaufene Angebote entfernen
+    GameState.transferOffers.forEach(o => {
+        if (o.status === 'open' && tick > o.expiresTick) {
+            o.status = 'expired';
+            const p = GameState.players.find(x => x.id === o.playerId);
+            addInbox('⌛', `Angebot zurückgezogen: ${p ? p.name : 'Spieler'}`, `${getAnyClubName(o.clubId)} hat sein Angebot (${formatMoneyShort(o.fee)}) zurückgezogen, weil wir nicht reagiert haben.`, 'transfer');
+        }
+    });
+    GameState.transferOffers = GameState.transferOffers.filter(o => o.status === 'open' || (tick - (o.createdTick || 0)) < 6);
+
+    const listed = getClubPlayers().filter(p => p.transferListed);
+    listed.forEach(p => {
+        if (getOpenOffersForPlayer(p.id).length >= 2) return;
+        const value = calculateMarketValue(p);
+        const ask = p.askingMult || 1;
+        const chance = Math.max(0.08, Math.min(0.6, 0.55 - (ask - 1) * 0.9));
+        if (Math.random() > chance) return;
+        const buyers = Object.values(GameState.clubs).filter(c => {
+            if (c.id === GameState.activeClubId) return false;
+            if (getClubPlayers(c.id).length >= MAX_SQUAD_SIZE) return false;
+            const avg = getClubAverageRating(c.id);
+            return p.rating >= avg - 0.6 && p.rating <= avg + 1.4 && (c.budget || 0) >= value * 0.6;
+        });
+        if (buyers.length === 0) return;
+        const buyer = buyers[Math.floor(Math.random() * buyers.length)];
+        const fee = Math.round((value * (0.70 + Math.random() * 0.30) * Math.min(1.15, ask)) / 50000) * 50000;
+        const maxFee = Math.round((fee * (1.0 + Math.random() * 0.30)) / 50000) * 50000;
+        const offer = {
+            id: `off_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e5)}`,
+            playerId: p.id,
+            clubId: buyer.id,
+            fee: Math.max(50000, fee),
+            maxFee: Math.max(fee, maxFee),
+            createdTick: tick,
+            expiresTick: tick + 3,
+            status: 'open'
+        };
+        GameState.transferOffers.push(offer);
+        addInbox('💰', `Angebot für ${p.name}: ${formatMoneyShort(offer.fee)}`, `${buyer.name} (${GameState.leagues[buyer.leagueId]?.name || ''}) bietet ${formatMoneyShort(offer.fee)} Ablöse für ${p.name} (${p.pos}, ${p.rating.toFixed(1)}, Marktwert ${formatMoneyShort(value)}).\nDas Angebot gilt für 3 Spiele/Wochen.`, 'transfer', null, { type: 'transferOffer', offerId: offer.id });
+    });
+}
+
+// Verkauf an einen anderen Verein abschließen
+function completePlayerSale(player, buyerId, fee) {
+    const buyer = GameState.clubs[buyerId];
+    bookMoney('transfersIn', fee);
+    if (buyer) buyer.budget = (buyer.budget || 0) - fee;
+    GameState.tactics.lineup = GameState.tactics.lineup.map(id => (id === player.id ? null : id));
+    GameState.tactics.bench = GameState.tactics.bench.map(id => (id === player.id ? null : id));
+    const seasonEnd = getCurrentSeasonEndYear();
+    movePlayerToClub(player, buyerId);
+    player.contractUntil = Math.max(player.contractUntil || seasonEnd, seasonEnd + 2);
+    player.salary = calculateExpectedSalary(player);
+    GameState.transferOffers.forEach(o => {
+        if (o.playerId === player.id && o.status === 'open') o.status = 'closed';
+    });
 }

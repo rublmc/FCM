@@ -127,6 +127,7 @@ function ensureClubStadiumInitialized() {
     if (typeof club.stadium.vipLevel !== 'number') {
         club.stadium.vipLevel = 0;
     }
+    if (!club.stadium.name) club.stadium.name = `${club.name} Arena`;
     // Stadien aus Datenpaketen haben oft nur "capacity" -> in Steh-/Sitzplätze aufteilen
     if (typeof club.stadium.standing !== 'number' || typeof club.stadium.seated !== 'number') {
         const cap = club.stadium.capacity || 18000;
@@ -180,15 +181,17 @@ function calculateStadiumForecast(club, weatherKey = null, compId = null) {
 // ==========================================
 // MODUL: MANAGER-BÜRO (ÜBERSICHT, POSTFACH, SPIELBERICHT & FINANZEN)
 // ==========================================
-function buildLastMatchReportHtml() {
-    const rep = GameState.lastMatchReport;
+function buildLastMatchReportHtml(rep = GameState.lastMatchReport, closeBtnId = null) {
     if (!rep) return "";
     const sign = rep.netBalance >= 0 ? '+' : '';
-    const title = rep.mode === 'cup' ? (rep.label || 'POKALSPIEL') : (rep.isCatchUp ? `NACHHOLSPIEL (ST ${rep.matchday})` : `LETZTER SPIELTAG (ST ${rep.matchday})`);
+    const title = rep.mode === 'cup' ? (rep.label || 'POKALSPIEL') : ((rep.isCatchUp || rep.mode === 'catchup') ? `NACHHOLSPIEL (ST ${rep.matchday})` : `${rep.matchday}. SPIELTAG`);
     const header = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; gap:6px;">
             <strong style="font-size:0.72rem; color:#e5b822;">📋 ${title}${rep.date ? ' • ' + formatGameDate(rep.date) : ''}</strong>
-            <span style="font-size:0.72rem; font-weight:bold; color:${rep.netBalance >= 0 ? '#6ee787' : '#ff8787'};">${sign}${formatMoneyShort(rep.netBalance)}</span>
+            <span style="display:flex; align-items:center; gap:6px;">
+                ${typeof rep.netBalance === 'number' ? `<span style="font-size:0.72rem; font-weight:bold; color:${rep.netBalance >= 0 ? '#6ee787' : '#ff8787'};">${sign}${formatMoneyShort(rep.netBalance)}</span>` : ''}
+                ${closeBtnId ? `<button id="${closeBtnId}" type="button" class="bmh-btn danger small-btn" style="padding:1px 6px;">✕</button>` : ''}
+            </span>
         </div>
     `;
     if (!rep.match) {
@@ -212,7 +215,7 @@ function buildLastMatchReportHtml() {
     const stats = rep.stats || null;
     const possH = stats ? stats.homePossession : null;
     const finance = [];
-    if (m.isHome && !m.neutral) finance.push(`👥 ${rep.visitors.toLocaleString('de-DE')} Zuschauer (+${formatMoneyShort(rep.ticketIncome)})`);
+    if (m.isHome && !m.neutral && rep.visitors) finance.push(`👥 ${rep.visitors.toLocaleString('de-DE')} Zuschauer (+${formatMoneyShort(rep.ticketIncome)})`);
     else finance.push(m.neutral ? '⚖️ Neutraler Ort' : '🚌 Auswärtsspiel');
     if (rep.sponsorIncome) finance.push(`Sponsoren +${formatMoneyShort(rep.sponsorIncome)}`);
     if (rep.prizeIncome) finance.push(`Prämie +${formatMoneyShort(rep.prizeIncome)}`);
@@ -253,6 +256,17 @@ function buildLastMatchReportHtml() {
     `;
 }
 
+function buildInboxActionHtml(msg) {
+    if (!msg.action || msg.action.type !== 'transferOffer') return '';
+    const off = (GameState.transferOffers || []).find(o => o.id === msg.action.offerId);
+    if (!off || off.status !== 'open') return `<p style="margin-top:4px; color:#555;"><em>Dieses Angebot ist nicht mehr aktiv.</em></p>`;
+    return `
+        <div style="display:flex; gap:6px; margin-top:6px;">
+            <button type="button" class="bmh-btn primary small-btn btn-offer-negotiate" data-oid="${off.id}" style="flex:2;">💼 IN VERHANDLUNG EINSTEIGEN</button>
+            <button type="button" class="bmh-btn danger small-btn btn-offer-reject" data-oid="${off.id}" style="flex:1;">ABLEHNEN</button>
+        </div>`;
+}
+
 function buildInboxHtml() {
     const inbox = GameState.inbox || [];
     const unread = getUnreadInboxCount();
@@ -275,7 +289,7 @@ function buildInboxHtml() {
                             <span class="inbox-title">${msg.title}</span>
                             <span class="inbox-date">${formatGameDate(msg.date)}</span>
                         </div>
-                        ${open ? `<div class="inbox-text">${String(msg.text).replace(/\n/g, '<br>')}</div>` : ''}
+                        ${open ? `<div class="inbox-text">${String(msg.text).replace(/\n/g, '<br>')}${buildInboxActionHtml(msg)}</div>` : ''}
                     </div>
                 `;
             }).join('')}
@@ -290,38 +304,48 @@ function sumFinanceItems(items) {
 
 function buildFinanceDetailHtml() {
     const f = ensureFinanceLedger();
-    const row = (key, items) => {
-        const v = (items || {})[key] || 0;
-        if (!v) return '';
-        const cat = FINANCE_CATEGORIES[key];
+    const club = GameState.clubs[GameState.activeClubId];
+    const items = f.items || {};
+    const keys = Object.keys(FINANCE_CATEGORIES);
+    const income = keys.filter(k => (items[k] || 0) > 0);
+    const expense = keys.filter(k => (items[k] || 0) < 0);
+    const sumIn = income.reduce((s, k) => s + items[k], 0);
+    const sumOut = expense.reduce((s, k) => s + items[k], 0);
+    const opening = typeof f.openingBalance === 'number' ? f.openingBalance : club.budget - (sumIn + sumOut);
+    const row = (k) => {
+        const v = items[k];
+        const cat = FINANCE_CATEGORIES[k];
         return `<tr><td>${cat.icon} ${cat.label}</td><td style="text-align:right; color:${v >= 0 ? '#184d25' : '#a82424'}; font-weight:bold;">${v >= 0 ? '+' : ''}${formatMoneyShort(v)}</td></tr>`;
     };
-    const keys = Object.keys(FINANCE_CATEGORIES);
-    const total = sumFinanceItems(f.items);
     const squad = getClubPlayers();
-    const club = GameState.clubs[GameState.activeClubId];
     const mds = getLeagueTotalMatchdays(club.leagueId);
     const salaryYear = squad.reduce((s, p) => s + (p.salary || 0), 0) + getStaffAnnualCost();
     const homeGames = Math.ceil(mds / 2);
     const forecast = calculateStadiumForecast(club);
     const sp = (GameState.sponsors.main ? GameState.sponsors.main.perMatch * mds : 0) + (GameState.sponsors.boards ? GameState.sponsors.boards.perMatch * homeGames : 0);
+    const rank = Math.max(1, computeLeagueStandings(club.leagueId).findIndex(r => r.clubId === club.id) + 1);
+    const projected = homeGames * forecast.totalMatchRevenue + sp + getAnnualTvMoney(club.leagueId, rank) + getAnnualMerchMoney(club.id) - salaryYear - getAnnualOperatingCosts(club.id);
     const prev = f.lastSeason;
     return `
         <div class="bmh-box" style="padding:8px;">
-            <h3 style="font-size:0.80rem; color:#184d25; margin-bottom:4px;">💶 FINANZEN SAISON ${f.season}</h3>
+            <h3 style="font-size:0.80rem; color:#184d25; margin-bottom:6px;">💶 KONTOSTAND & FINANZEN SAISON ${f.season}</h3>
             <table class="bmh-table finance-table">
                 <tbody>
-                    ${keys.map(k => row(k, f.items)).join('') || '<tr><td colspan="2">Noch keine Buchungen.</td></tr>'}
-                    <tr style="border-top:2px solid #184d25;"><td><strong>SALDO BISHER</strong></td><td style="text-align:right;"><strong style="color:${total >= 0 ? '#184d25' : '#a82424'};">${total >= 0 ? '+' : ''}${formatMoneyShort(total)}</strong></td></tr>
+                    <tr><td><strong>🏦 Kontostand zu Saisonbeginn</strong></td><td style="text-align:right;"><strong>${formatMoneyShort(opening)}</strong></td></tr>
+                    <tr class="fin-head"><td colspan="2">EINNAHMEN</td></tr>
+                    ${income.map(row).join('') || '<tr><td colspan="2">Noch keine Einnahmen.</td></tr>'}
+                    <tr class="fin-sum"><td>Summe Einnahmen</td><td style="text-align:right; color:#184d25;">+${formatMoneyShort(sumIn)}</td></tr>
+                    <tr class="fin-head"><td colspan="2">AUSGABEN</td></tr>
+                    ${expense.map(row).join('') || '<tr><td colspan="2">Noch keine Ausgaben.</td></tr>'}
+                    <tr class="fin-sum"><td>Summe Ausgaben</td><td style="text-align:right; color:#a82424;">${formatMoneyShort(sumOut)}</td></tr>
+                    <tr class="fin-sum"><td>Saldo Saison bisher</td><td style="text-align:right; color:${sumIn + sumOut >= 0 ? '#184d25' : '#a82424'};">${sumIn + sumOut >= 0 ? '+' : ''}${formatMoneyShort(sumIn + sumOut)}</td></tr>
+                    <tr class="fin-total"><td>🏦 AKTUELLER KONTOSTAND</td><td style="text-align:right; color:${club.budget >= 0 ? '#184d25' : '#a82424'};">${formatMoneyShort(club.budget)}</td></tr>
                 </tbody>
             </table>
-            <p style="font-size:0.66rem; color:#333; margin-top:6px;"><strong>Hochrechnung ganze Saison (Liga):</strong><br>
-                🎟️ ${homeGames} Heimspiele × ${formatMoneyShort(forecast.totalMatchRevenue)} = +${formatMoneyShort(homeGames * forecast.totalMatchRevenue)}<br>
-                💼 Sponsoren-Fixum: +${formatMoneyShort(sp)} (ohne Siegprämien)<br>
-                💶 Gehälter Spieler + Stab: -${formatMoneyShort(salaryYear)} (je Liga-Spieltag ${formatMoneyShort(Math.round(salaryYear / Math.max(1, mds)))})<br>
-                📺 TV-Geld je nach Tabellenplatz: ${formatMoneyShort(getAnnualTvMoney(club.leagueId, Math.max(1, computeLeagueStandings(club.leagueId).findIndex(r => r.clubId === club.id) + 1)))} (aktueller Platz)<br>
-                👕 Merchandising & Vermarktung: ca. +${formatMoneyShort(getAnnualMerchMoney(club.id))}<br>
-                🏢 Betriebskosten: -${formatMoneyShort(getAnnualOperatingCosts(club.id))}
+            ${club.budget < 0 ? '<p style="font-size:0.66rem; color:#a82424; margin-top:4px;"><strong>⚠️ Konto im Minus!</strong> Verkaufe Spieler oder senke Kosten.</p>' : ''}
+            <p style="font-size:0.66rem; color:#333; margin-top:6px;"><strong>Prognose ganze Saison (Liga, ohne Transfers & Prämien):</strong> ${projected >= 0 ? '+' : ''}${formatMoneyShort(projected)}<br>
+                🎟️ ${homeGames} Heimspiele × ${formatMoneyShort(forecast.totalMatchRevenue)} • 💼 Sponsoren-Fixum ${formatMoneyShort(sp)} • 📺 TV ${formatMoneyShort(getAnnualTvMoney(club.leagueId, rank))} (Platz ${rank}) • 👕 Vermarktung ${formatMoneyShort(getAnnualMerchMoney(club.id))}<br>
+                💶 Gehälter −${formatMoneyShort(salaryYear)} • 🏢 Betriebskosten −${formatMoneyShort(getAnnualOperatingCosts(club.id))}
             </p>
             ${prev ? `<p style="font-size:0.62rem; color:#555; margin-top:4px;">Vorsaison ${prev.season}: Saldo ${sumFinanceItems(prev.items) >= 0 ? '+' : ''}${formatMoneyShort(sumFinanceItems(prev.items))}</p>` : ''}
         </div>
@@ -390,6 +414,7 @@ function renderOfficeView(viewport) {
                 </div>
             </div>
         ` : ''}
+        ${activeNegotiation && activeNegotiation.kind === 'sale' ? buildSaleNegotiationHtml() : ''}
         ${buildInboxHtml()}
         <div class="kpi-grid">
             ${kpi('squad', 'KADER & TEAM-Ø', `${squad.length}/${MAX_SQUAD_SIZE} • Ø ${calculateTeamStrength()}`)}
@@ -399,7 +424,7 @@ function renderOfficeView(viewport) {
             ${kpi('stadium', 'STADION-PROGNOSE', `${forecast.occupancyPct}% (${formatMoneyShort(forecast.totalMatchRevenue)})`)}
             ${kpi('staff', 'TRAINERSTAB', `${staffCount}/${Object.keys(STAFF_ROLES).length} besetzt`, staffCount === 0 ? 'warn' : '')}
             ${kpi('cups', 'POKAL & EUROPA', `<span style="font-size:0.68rem;">${compText}</span>`)}
-            ${kpi('finance', 'FINANZEN SAISON', `${financeTotal >= 0 ? '+' : ''}${formatMoneyShort(financeTotal)} ${officeFinanceOpen ? '▴' : '▾'}`, financeTotal < 0 ? 'warn' : '')}
+            ${kpi('finance', 'KONTOSTAND', `${formatMoneyShort(club.budget)} <span style="font-size:0.62rem;">(${financeTotal >= 0 ? '+' : ''}${formatMoneyShort(financeTotal)}) ${officeFinanceOpen ? '▴' : '▾'}</span>`, club.budget < 0 ? 'warn' : '')}
         </div>
         ${officeFinanceOpen ? buildFinanceDetailHtml() : ''}
         <div class="bmh-box" style="font-size:0.78rem;">
@@ -460,6 +485,9 @@ function renderOfficeView(viewport) {
         el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
     });
 
+    bindTransferOfferButtons(viewport, () => renderOfficeView(viewport));
+    if (activeNegotiation && activeNegotiation.kind === 'sale') bindSaleNegotiation(() => renderOfficeView(viewport));
+
     viewport.querySelectorAll('.inbox-item').forEach(el => {
         const toggle = () => {
             const mid = el.dataset.mid;
@@ -472,8 +500,8 @@ function renderOfficeView(viewport) {
             }
             renderOfficeView(viewport);
         };
-        el.addEventListener('click', toggle);
-        el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+        el.querySelector('.inbox-head').addEventListener('click', toggle);
+        el.addEventListener('keydown', (e) => { if (e.target === el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(); } });
     });
 }
 
@@ -889,7 +917,7 @@ function renderAdminView(viewport) {
         <div class="bmh-box">
             <h3>2. Update-Paket einspielen</h3><br>
             <p style="font-size:0.78rem; margin-bottom:8px;">Wähle eine <code>.json</code> Update-Datei aus:</p>
-            <input type="file" id="admin-file-upload" accept=".json" class="bmh-input">
+            <input type="file" id="admin-file-upload" accept=".json" class="bmh-input" multiple>
         </div>
 
         <div class="bmh-box">
@@ -908,6 +936,7 @@ function renderAdminView(viewport) {
 
         <div class="bmh-box">
             <h3>4. Datenbank-Wartung</h3><br>
+            <p style="font-size:0.72rem; margin-bottom:6px;">Datenbank: ${Object.keys(GameState.leagues).length} Ligen • ${Object.keys(GameState.clubs).length} Vereine • ${GameState.players.length} Spieler<br>Belegter Browser-Speicher: <strong>${getStorageUsageKB()} KB</strong> (Grenze meist ca. 5.000 KB)</p>
             <button id="btn-export-db" class="bmh-btn" style="margin-bottom:6px;">💾 Backup exportieren</button>
             <button id="btn-reset-db" class="bmh-btn danger">🗑️ Reset</button>
         </div>
@@ -937,18 +966,25 @@ function renderAdminView(viewport) {
     });
 
     document.getElementById('admin-file-upload').addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            try {
-                const json = JSON.parse(event.target.result);
-                if (applyUpdatePackage(json)) renderAdminView(viewport);
-            } catch (err) {
-                alert("Fehler beim Lesen der JSON-Datei: " + err.message);
-            }
-        };
-        reader.readAsText(file);
+        const files = Array.from(e.target.files || []);
+        let done = 0;
+        files.forEach(file => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    applyUpdatePackage(JSON.parse(event.target.result));
+                } catch (err) {
+                    alert(`Fehler beim Lesen von ${file.name}: ${err.message}`);
+                }
+                done++;
+                if (done === files.length) {
+                    ensureAllSchedulesInitialized(false);
+                    saveGame();
+                    renderAdminView(viewport);
+                }
+            };
+            reader.readAsText(file);
+        });
     });
 
     document.getElementById('btn-export-db').addEventListener('click', () => {
