@@ -1521,3 +1521,45 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
 .world-check.on { background: #d7eadc; border-color: var(--pitch-green); }
 .world-check span { font-size: 0.58rem; font-weight: normal; color: #444; }
 .world-check input { margin-right: 4px; vertical-align: middle; }
+
+/* ==========================================
+   v1.12: NOTEN, FORM, KONFERENZ, INTERVIEW
+   ========================================== */
+.grade-badge, .grade-chip {
+    display: inline-block; font-weight: bold; border: 1px solid #111; text-align: center; vertical-align: middle;
+}
+.grade-badge { min-width: 26px; font-size: 0.62rem; padding: 0 4px; }
+.grade-chip { font-size: 0.62rem; padding: 1px 5px; margin: 1px 1px; }
+.g-top { background: #2b8a3e; color: #fff; }
+.g-good { background: #94d82d; color: #111; }
+.g-ok { background: #ffd43b; color: #111; }
+.g-bad { background: #e03131; color: #fff; }
+.g-none { background: #8c918e; color: #111; }
+.pitch-node-grade { font-size: 0.56rem; font-weight: bold; padding: 1px 2px; text-align: center; border-top: 1px solid rgba(255,255,255,0.25); }
+.ht-grades { background: #0e2e16; border: 1px solid #246b35; padding: 5px 7px; margin-bottom: 6px; font-size: 0.66rem; color: #f4f4f4; }
+.ht-grades .grade-line { font-size: 0.64rem; }
+.ht-grades em { color: #99b8a1; font-style: normal; }
+.form-up { color: #2b8a3e; font-size: 0.62rem; font-weight: bold; }
+.form-down { color: #a82424; font-size: 0.62rem; font-weight: bold; }
+.conf-detail { background: #ffffff; border: 1px solid #b5bab7; padding: 5px 6px; margin-top: 3px; cursor: default; }
+.conf-row:active { transform: none; }
+.iv-reporter { font-size: 0.68rem; color: #444; margin-bottom: 4px; }
+.iv-question { font-size: 0.92rem; font-weight: bold; color: #184d25; margin: 4px 0 10px 0; line-height: 1.3; }
+.iv-answer {
+    display: block; width: 100%; text-align: left; padding: 8px 9px; margin-bottom: 6px;
+    background: #e9ecea; border: 2px solid #8c918e; cursor: pointer; font-size: 0.74rem; line-height: 1.3; color: #111;
+}
+.iv-answer .iv-tag { display: block; font-size: 0.60rem; font-weight: bold; letter-spacing: 0.5px; margin-bottom: 2px; }
+.iv-answer.serious { border-color: #246b35; }
+.iv-answer.funny { border-color: #e5b822; }
+.iv-answer.provocative { border-color: #d9480f; }
+.iv-answer.angry { border-color: #a82424; }
+.iv-answer.picked { background: #fff3bf; border-width: 3px; }
+.iv-answer.dim { opacity: 0.45; }
+.iv-feedback { background: #f4f6f4; border: 1px solid #b5bab7; padding: 8px; margin-top: 4px; }
+.iv-meters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.iv-meter { background: #e9ecea; border: 2px solid #8c918e; text-align: center; font-size: 0.58rem; padding: 4px 2px; font-weight: bold; }
+.iv-meter strong { font-size: 1.0rem; }
+.iv-meter.pos { border-color: #246b35; background: #d3f9d8; }
+.iv-meter.neg { border-color: #a82424; background: #ffe3e3; }
+.club-row:hover td { background: #d0dfd4; }

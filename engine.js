@@ -49,7 +49,9 @@ function initGameWorld() {
     ensurePreseasonInitialized();
     ensureStaffOffersInitialized();
     ensureCompetitionsInitialized();
-    ensureLifeInitialized();
+      ensureLifeInitialized();
+    ensureTransferWindowInitialized();
+    ensureInterviewInitialized();
     syncGameClock();
     if (GameState.inbox.filter(m => m.cat === 'board').length === 0) {
         const club = GameState.clubs[GameState.activeClubId];
@@ -66,7 +68,8 @@ const PLAYER_DEFAULTS = {
     seasonApps: 0, seasonMinutes: 0, seasonGoals: 0, seasonCleanSheets: 0, cupGoals: 0,
     seasonYellows: 0, clubApps: 0, clubGoals: 0, motivation: 78, campDevBonus: 0,
     suspendedMatches: 0, suspensionReason: "", injuredMatches: 0, injuryReason: "",
-    transferListed: false, askingMult: 1, freeSeasons: 0, lastMoveSeason: undefined
+    transferListed: false, askingMult: 1, freeSeasons: 0, lastMoveSeason: undefined,
+    form: 0, gradeSum: 0, gradeCount: 0, pendingMove: false, aiListed: false
 };
 
 function compactPlayer(p) {
@@ -132,8 +135,9 @@ function getStorageUsageKB() {
 // ==========================================
 const BACKUP_REMINDER_EVERY = 5;   // nach so vielen Spielen/Wochen ohne Datei-Backup wird erinnert
 
-function autosaveAfterRound(label) {
-    GameState.meta.roundsSinceBackup = (GameState.meta.roundsSinceBackup || 0) + 1;
+// isGame = true: nur gespielte Partien zählen für die Backup-Erinnerung (alle 5 Spiele)
+function autosaveAfterRound(label, isGame = false) {
+    if (isGame) GameState.meta.roundsSinceBackup = (GameState.meta.roundsSinceBackup || 0) + 1;
     GameState.meta.lastAutosave = new Date().toISOString();
     GameState.meta.lastAutosaveLabel = label;
     saveGameNow();
@@ -160,7 +164,7 @@ function buildBackupReminderHtml() {
     return `
         <div class="backup-banner">
             <div><strong>💾 SPIELSTAND EXTERN SICHERN</strong><br>
-            <span>Seit ${GameState.meta.roundsSinceBackup} Spielen/Wochen kein Datei-Backup. Gespeichert wird automatisch – löscht Safari aber die Website-Daten, ist der Spielstand nur mit einer Backup-Datei zu retten.</span></div>
+            <span>Seit ${GameState.meta.roundsSinceBackup} Spielen kein Datei-Backup. Die Datei heißt immer gleich – beim Sichern in „Dateien“ einfach „Ersetzen“ wählen. Löscht Safari die Website-Daten, rettet nur diese Datei deinen Spielstand.</span></div>
             <button id="btn-backup-now" type="button" class="bmh-btn gold-btn small-btn">💾 BACKUP</button>
         </div>`;
 }
@@ -211,6 +215,10 @@ function loadGame() {
         GameState.matchReports = Array.isArray(parsed.matchReports) ? parsed.matchReports : [];
         GameState.transferOffers = Array.isArray(parsed.transferOffers) ? parsed.transferOffers : [];
         GameState.transferNews = Array.isArray(parsed.transferNews) ? parsed.transferNews : [];
+        GameState.pendingTransfers = Array.isArray(parsed.pendingTransfers) ? parsed.pendingTransfers : [];
+        GameState.board = parsed.board || null;
+        GameState.press = parsed.press || null;
+        GameState.interviews = parsed.interviews || null;
         setStatus("Spielstand geladen.");
     } catch (e) {
         console.error("Fehler beim Laden:", e);
@@ -317,6 +325,7 @@ function applyUpdatePackage(updateData) {
         date: new Date().toLocaleString('de-DE')
     });
     GameState.meta.salaryCalib = null;
+    GameState.meta.revCalib = null;
     ensurePlayerStatsInitialized();
     ensureFreeAgentsInitialized();
     ensureSalaryCalibration();
@@ -354,6 +363,10 @@ function setupNavigation() {
     }
 
     document.getElementById('btn-next-day').addEventListener('click', () => {
+        if (interviewState) {
+            setStatus('🎙️ Bitte erst das Interview beenden.');
+            return;
+        }
         if (liveMatchState) {
             if (liveMatchState.phase === 'FULLTIME') finalizeLiveMatchday();
             else if (liveMatchState.phase === 'HALFTIME') startSecondHalf();
@@ -415,8 +428,8 @@ function renderHeader() {
     }
 
     SoundFX.syncAmbience();
-    // Während eines Live-Spiels sind die Kacheln unten gesperrt
-    const locked = Boolean(liveMatchState);
+    // Während eines Live-Spiels oder Interviews sind die Kacheln unten gesperrt
+    const locked = Boolean(liveMatchState) || Boolean(interviewState);
     const nav = document.querySelector('.bmh-nav');
     if (nav) nav.classList.toggle('nav-locked', locked);
     document.querySelectorAll('.nav-btn').forEach(b => {
@@ -457,6 +470,7 @@ function renderView(viewName) {
         case 'league': renderLeagueView(viewport); break;
         case 'cups': renderCupsView(viewport); break;
         case 'admin': renderAdminView(viewport); break;
+        case 'interview': renderInterviewView(viewport); break;
         default: renderOfficeView(viewport);
     }
 }

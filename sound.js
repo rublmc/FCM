@@ -195,7 +195,8 @@ const SoundFX = {
         const f1n = this.filter('bandpass', formants[0], 5);
         const f2n = this.filter('bandpass', formants[1], 6);
         const mix = ctx.createGain();
-        mix.gain.value = 1;
+        // Die schmalen Formantfilter schlucken viel Energie – Ausgleich, damit Stimmen gut hörbar sind
+        mix.gain.value = vowel === 'm' ? 2 : 4;
         f1n.connect(mix); f2n.connect(mix);
         mix.connect(out); out.connect(this.master);
         for (let v = 0; v < voices; v++) {
@@ -222,42 +223,172 @@ const SoundFX = {
     },
 
     // ---------- Stadion-Atmosphäre ----------
+    // Kein durchgehendes Rauschen (klingt wie Meeresrauschen), sondern ein Gewirr aus vielen einzelnen
+    // Stimmen mit Silben-Rhythmus + Zurufe, Klatschen, Raunen, Pfiffe, Trommel und Gesänge. Dazu ein
+    // kurzer Stadion-Hall.
     startAmbience() {
         if (this.amb || !this.ensure()) return;
         const ctx = this.ctx;
-        const src = this.noiseSource(true);
-        const bp = this.filter('bandpass', 520, 0.5);
-        const lp = this.filter('lowpass', 2200, 0.7);
-        const g = ctx.createGain();
-        g.gain.setValueAtTime(0.0001, ctx.currentTime);
-        g.gain.linearRampToValueAtTime(0.07, ctx.currentTime + 1.2);
-        // Lautstärke schwankt langsam wie in einem echten Stadion
-        const lfo = ctx.createOscillator();
-        lfo.frequency.value = 0.13;
-        const lfoG = ctx.createGain();
-        lfoG.gain.value = 0.025;
-        lfo.connect(lfoG); lfoG.connect(g.gain);
-        src.connect(bp); bp.connect(lp); lp.connect(g); g.connect(this.master);
-        src.start(); lfo.start();
-        this.amb = { src, lfo, g };
+        const now = ctx.currentTime;
+        const out = ctx.createGain();
+        out.gain.setValueAtTime(0.0001, now);
+        out.gain.linearRampToValueAtTime(1.0, now + 1.5);
+        // Stadion-Hall (kurzes Echo mit dunklem Feedback)
+        const delay = ctx.createDelay(1.0);
+        delay.delayTime.value = 0.16;
+        const fb = ctx.createGain();
+        fb.gain.value = 0.30;
+        const fbLp = this.filter('lowpass', 1600, 0.5);
+        delay.connect(fbLp); fbLp.connect(fb); fb.connect(delay);
+        const wet = ctx.createGain();
+        wet.gain.value = 0.30;
+        out.connect(this.master); out.connect(delay); delay.connect(wet); wet.connect(this.master);
+        const stoppers = [];
+        // Nur ein Hauch dunkles Grundrauschen ("Luft" im Stadion)
+        const bed = this.noiseSource(true);
+        const bedHp = this.filter('highpass', 180, 0.7);
+        const bedLp = this.filter('lowpass', 700, 0.5);
+        const bedG = ctx.createGain();
+        bedG.gain.value = 0.05;
+        bed.connect(bedHp); bedHp.connect(bedLp); bedLp.connect(bedG); bedG.connect(out);
+        bed.start();
+        stoppers.push(bed);
+        // Stimmengewirr: 10 "Zuschauer" mit eigener Tonhöhe, Vokal und Sprech-Rhythmus
+        const voices = [];
+        for (let i = 0; i < 10; i++) {
+            const osc = ctx.createOscillator();
+            osc.type = 'sawtooth';
+            const base = i < 7 ? 95 + Math.random() * 100 : 190 + Math.random() * 70;
+            osc.frequency.value = base;
+            const f1 = this.filter('bandpass', 600, 5);
+            const f2 = this.filter('bandpass', 1100, 6);
+            const g = ctx.createGain();
+            g.gain.value = 0.0001;
+            osc.connect(f1); osc.connect(f2); f1.connect(g); f2.connect(g); g.connect(out);
+            osc.start();
+            stoppers.push(osc);
+            voices.push({ osc, f1, f2, g, base, next: now + Math.random() * 2.5 });
+        }
+        this.amb = { out, voices, stoppers, babbleTimer: null, eventTimer: null };
+        this.scheduleBabble();
+        this.scheduleCrowdEvents();
         this.scheduleChant();
     },
 
+    // Silben der "Zuschauer" jeweils ca. 6 Sekunden im Voraus planen
+    scheduleBabble() {
+        const a = this.amb;
+        if (!a || !this.ctx) return;
+        const ctx = this.ctx;
+        const horizon = ctx.currentTime + 6;
+        const VOWELS = [[800, 1200], [500, 900], [450, 1900], [330, 800], [600, 1700]];
+        a.voices.forEach(v => {
+            while (v.next < horizon) {
+                const t = Math.max(v.next, ctx.currentTime + 0.02);
+                const len = 0.10 + Math.random() * 0.22;
+                const peak = 0.06 + Math.random() * 0.09;
+                const vow = VOWELS[Math.floor(Math.random() * VOWELS.length)];
+                const pitch = v.base * (0.85 + Math.random() * 0.4);
+                v.osc.frequency.setValueAtTime(pitch, t);
+                v.osc.frequency.linearRampToValueAtTime(pitch * (0.9 + Math.random() * 0.2), t + len);
+                v.f1.frequency.setValueAtTime(vow[0], t);
+                v.f2.frequency.setValueAtTime(vow[1], t);
+                v.g.gain.setValueAtTime(0.0001, t);
+                v.g.gain.linearRampToValueAtTime(peak, t + len * 0.3);
+                v.g.gain.linearRampToValueAtTime(0.0001, t + len);
+                v.next = t + len + 0.05 + Math.random() * 0.9;
+            }
+        });
+        a.babbleTimer = setTimeout(() => this.scheduleBabble(), 2500);
+    },
+
+    // Zurufe, Raunen, Klatschen, Pfiffe in unregelmäßigen Abständen
+    scheduleCrowdEvents() {
+        const a = this.amb;
+        if (!a) return;
+        a.eventTimer = setTimeout(() => {
+            if (!this.amb) return;
+            if (!this.eventsMuted && this.ctx) {
+                const r = Math.random();
+                if (r < 0.42) this.shout();
+                else if (r < 0.72) this.murmurSwell();
+                else if (r < 0.88) this.clapBurst();
+                else this.crowdWhistle();
+            }
+            this.scheduleCrowdEvents();
+        }, 2200 + Math.random() * 5000);
+    },
+
+    shout() {
+        const f = 120 + Math.random() * 90;
+        const vowels = ['a', 'e', 'o'];
+        this.voice({ dur: 0.20 + Math.random() * 0.18, f0: f * 1.1, f1: f * 0.9, vowel: vowels[Math.floor(Math.random() * 3)], vol: 0.06 + Math.random() * 0.04, voices: 2, detune: 0.02, attack: 0.02, release: 0.10 });
+    },
+
+    murmurSwell() {
+        const f = 125 + Math.random() * 45;
+        this.voice({ dur: 1.0 + Math.random() * 0.9, f0: f, f1: f * (0.9 + Math.random() * 0.3), vowel: 'o', vol: 0.07, voices: 8, detune: 0.03, vibrato: 0.01, attack: 0.35, release: 0.6 });
+    },
+
+    clapBurst() {
+        const n = 4 + Math.floor(Math.random() * 6);
+        let t = 0;
+        for (let i = 0; i < n; i++) {
+            this.clap(t, 0.16 + Math.random() * 0.1);
+            t += 0.12 + Math.random() * 0.14;
+        }
+    },
+
+    crowdWhistle() {
+        const ctx = this.ctx;
+        const t0 = ctx.currentTime;
+        const n = 2 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < n; i++) {
+            const st = t0 + i * (0.05 + Math.random() * 0.15);
+            const osc = ctx.createOscillator();
+            osc.type = 'triangle';
+            const f = 2000 + Math.random() * 1200;
+            osc.frequency.setValueAtTime(f, st);
+            osc.frequency.linearRampToValueAtTime(f * (0.85 + Math.random() * 0.3), st + 0.7);
+            const g = this.envGain(st, 0.08, 0.35, 0.3, 0.014);
+            osc.connect(g); g.connect(this.master);
+            osc.start(st);
+            osc.stop(st + 0.9);
+        }
+    },
+
+    // Bass-Trommel der Ultras
+    kick(t, vol = 0.45) {
+        const ctx = this.ctx;
+        const t0 = ctx.currentTime + t;
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(95, t0);
+        osc.frequency.exponentialRampToValueAtTime(42, t0 + 0.14);
+        const g = this.envGain(t0, 0.004, 0.02, 0.2, vol);
+        osc.connect(g); g.connect(this.master);
+        osc.start(t0);
+        osc.stop(t0 + 0.3);
+    },
+
     stopAmbience() {
+        const a = this.amb;
+        if (!a) return;
+        if (a.babbleTimer) clearTimeout(a.babbleTimer);
+        if (a.eventTimer) clearTimeout(a.eventTimer);
         if (this.chantTimer) {
             clearTimeout(this.chantTimer);
             this.chantTimer = null;
         }
-        if (!this.amb || !this.ctx) { this.amb = null; return; }
-        const { src, lfo, g } = this.amb;
+        this.amb = null;
+        if (!this.ctx) return;
         const t = this.ctx.currentTime;
         try {
-            g.gain.cancelScheduledValues(t);
-            g.gain.setValueAtTime(g.gain.value || 0.05, t);
-            g.gain.linearRampToValueAtTime(0.0001, t + 0.8);
-            src.stop(t + 0.9); lfo.stop(t + 0.9);
-        } catch (e) { /* bereits gestoppt */ }
-        this.amb = null;
+            a.out.gain.cancelScheduledValues(t);
+            a.out.gain.setValueAtTime(a.out.gain.value || 1.0, t);
+            a.out.gain.linearRampToValueAtTime(0.0001, t + 0.8);
+            a.stoppers.forEach(n => { try { n.stop(t + 0.9); } catch (e) { /* bereits gestoppt */ } });
+        } catch (e) { /* ignorieren */ }
     },
 
     scheduleChant() {
@@ -270,32 +401,41 @@ const SoundFX = {
         }, 9000 + Math.random() * 14000);
     },
 
-    // Fangesang: Klatsch-Rhythmus oder "Oh-oh"-Gesang einer großen Menge
+    // Fangesang: Trommel + Klatschrhythmus oder mehrstimmiger Gesang
     playChant() {
         if (!this.ensure() || this.eventsMuted) return;
         const kind = Math.floor(Math.random() * 3);
+        const beat = 60 / (96 + Math.random() * 24);
         if (kind === 0) {
-            // Klatsch – Klatsch – Klatsch-Klatsch-Klatsch (zweimal)
-            const pat = [0, 0.42, 0.84, 1.05, 1.26];
-            [0, 1.8].forEach(off => pat.forEach(p => this.clap(off + p, 0.22)));
-            this.crowdBurst({ t: 0, dur: 3.2, attack: 0.4, release: 0.8, peak: 0.08, f0: 700, f1: 800 });
+            // Klatsch – Klatsch – Klatsch-Klatsch-Klatsch (zweimal) mit Trommel auf 1 und 3
+            const pat = [0, 1, 2, 2.5, 3];
+            [0, 4].forEach(off => pat.forEach((p, i) => {
+                this.clap((off + p) * beat, 0.22);
+                if (i === 0 || i === 2) this.kick((off + p) * beat, 0.42);
+            }));
         } else {
-            // Melodischer Gesang (Menge, viele leicht verstimmte Stimmen)
             const melodies = [
-                [[0, 0.45], [2, 0.45], [4, 0.45], [2, 0.45], [0, 0.9]],           // "O-lé, o-lé …"
-                [[0, 0.3], [0, 0.3], [5, 0.6], [4, 0.3], [2, 0.3], [0, 0.9]],     // "Steht auf, wenn …"
-                [[7, 0.5], [4, 0.5], [7, 0.5], [4, 0.5], [0, 1.0]]                // "Oh-oh, oh-oh"
+                [[0, 0.5], [2, 0.5], [4, 0.5], [2, 0.5], [0, 1.0]],            // "O-lé, o-lé …"
+                [[0, 0.33], [0, 0.33], [5, 0.67], [4, 0.33], [2, 0.33], [0, 1.0]], // "Steht auf, wenn …"
+                [[7, 0.5], [4, 0.5], [7, 0.5], [4, 0.5], [0, 1.0]]              // "Oh-oh, oh-oh"
             ];
             const mel = melodies[kind === 1 ? Math.floor(Math.random() * 2) : 2];
-            const base = 185 + Math.random() * 25;
+            const base = 170 + Math.random() * 25;
+            const vowels = ['o', 'a', 'o', 'e', 'a'];
             let t = 0;
-            mel.forEach(([semi, d]) => {
+            mel.forEach(([semi, d], i) => {
                 const f = base * Math.pow(2, semi / 12);
-                this.voice({ t, dur: d * 0.92, f0: f, vowel: 'o', vol: 0.09, voices: 6, detune: 0.012, vibrato: 0.008, attack: 0.06, release: 0.12 });
-                t += d;
+                const dur = d * beat * 2;
+                this.voice({ t, dur: dur * 0.9, f0: f, vowel: vowels[i % vowels.length], vol: 0.08, voices: 7, detune: 0.014, vibrato: 0.008, attack: 0.05, release: 0.10 });
+                this.kick(t, 0.38);
+                t += dur;
             });
-            this.crowdBurst({ t: 0, dur: t, attack: 0.3, release: 0.6, peak: 0.07, f0: 600, f1: 700 });
         }
+    },
+
+    // Chor aus vielen Stimmen (Torjubel, Raunen, Buhrufe)
+    choir({ t = 0, dur = 1.5, f0 = 160, f1 = 160, vowel = 'a', vol = 0.12, voices = 10 }) {
+        this.voice({ t, dur, f0, f1, vowel, vol, voices, detune: 0.05, vibrato: 0.012, attack: Math.min(0.2, dur * 0.2), release: Math.min(1.0, dur * 0.5) });
     },
 
     // ---------- Ereignisse im Live-Ticker ----------
@@ -303,32 +443,35 @@ const SoundFX = {
         if (!this.enabled() || this.eventsMuted || !this.ensure()) return;
         if (type === 'goal') {
             if (!this.throttle('goal', 1500)) return;
-            // Torjubel: Aufschrei, langer Jubel, Fanfare
-            this.crowdBurst({ t: 0, dur: 2.8, attack: 0.15, release: 2.5, peak: 0.55, f0: 700, f1: 1500, q: 0.6 });
-            this.crowdBurst({ t: 0.05, dur: 2.0, attack: 0.25, release: 2.0, peak: 0.25, f0: 2400, f1: 2800, q: 1.2 });
+            // Torjubel: Aufschrei vieler Stimmen, Fanfare, Applaus, Trommel
+            this.choir({ dur: 2.4, f0: 150, f1: 235, vowel: 'a', vol: 0.5, voices: 12 });
+            this.choir({ t: 0.08, dur: 2.0, f0: 300, f1: 430, vowel: 'a', vol: 0.25, voices: 8 });
+            this.crowdBurst({ t: 0, dur: 1.4, attack: 0.1, release: 1.6, peak: 0.20, f0: 900, f1: 1500, q: 0.9 });
             [0.6, 0.95, 1.3].forEach(t => this.voice({ t, dur: 0.28, f0: 233, vowel: 'a', vol: 0.12, voices: 2, detune: 0.01 }));
             for (let i = 0; i < 14; i++) this.clap(1.0 + i * 0.13 + Math.random() * 0.05, 0.18);
+            [0.4, 0.8, 1.2, 1.6].forEach(t => this.kick(t, 0.5));
         } else if (type === 'opp-goal') {
             if (!this.throttle('opp', 1500)) return;
-            // Enttäuschtes Raunen und Pfiffe der Gäste-Fans
-            this.crowdBurst({ t: 0, dur: 1.6, attack: 0.3, release: 1.4, peak: 0.32, f0: 650, f1: 320, q: 0.9 });
-            this.voice({ t: 0.1, dur: 1.4, f0: 170, f1: 120, vowel: 'o', vol: 0.08, voices: 6, detune: 0.02, attack: 0.25, release: 0.4 });
+            // Enttäuschtes Raunen und Buhrufe
+            this.choir({ dur: 1.6, f0: 175, f1: 110, vowel: 'o', vol: 0.30, voices: 10 });
+            this.choir({ t: 0.2, dur: 1.4, f0: 135, f1: 105, vowel: 'u', vol: 0.20, voices: 8 });
         } else if (type === 'card-red') {
             if (!this.throttle('card', 800)) return;
             this.whistleTone(0, 0.5);
-            this.crowdBurst({ t: 0.3, dur: 1.4, attack: 0.15, release: 1.0, peak: 0.3, f0: 500, f1: 900 });
+            this.choir({ t: 0.3, dur: 1.4, f0: 150, f1: 125, vowel: 'u', vol: 0.25, voices: 10 });
+            this.crowdWhistle();
         } else if (type === 'card-yellow') {
             if (!this.throttle('card', 800)) return;
             this.whistleTone(0, 0.28);
-            this.crowdBurst({ t: 0.2, dur: 0.8, attack: 0.15, release: 0.6, peak: 0.12, f0: 500, f1: 700 });
+            this.choir({ t: 0.2, dur: 0.8, f0: 150, f1: 130, vowel: 'o', vol: 0.15, voices: 6 });
         } else if (type === 'injury') {
             if (!this.throttle('inj', 800)) return;
             this.whistleTone(0, 0.22);
-            this.crowdBurst({ t: 0.15, dur: 0.9, attack: 0.1, release: 0.8, peak: 0.16, f0: 600, f1: 380 });
+            this.choir({ t: 0.15, dur: 0.9, f0: 165, f1: 120, vowel: 'o', vol: 0.18, voices: 6 });
         } else if (type === 'info' && /pfosten|latte|knapp|gefährlich|rettet|pariert/i.test(text)) {
             if (!this.throttle('chance', 2500)) return;
             // Großchance: "Uuuuh!"
-            this.crowdBurst({ t: 0, dur: 0.9, attack: 0.12, release: 0.9, peak: 0.28, f0: 500, f1: 950 });
+            this.choir({ dur: 1.0, f0: 150, f1: 240, vowel: 'u', vol: 0.25, voices: 8 });
         }
     },
 

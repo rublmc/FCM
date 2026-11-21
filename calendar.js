@@ -49,8 +49,7 @@ function startWinterBreakIfNeeded() {
     const country = getLeagueCountry(lid);
     runSeasonFanEvents('winter');
     if (realWeeks <= 0) {
-        // Ohne Winterpause: Winter-Transferfenster in einem Schritt
-runAiTransferRound('winter', 0.4);
+        applyWinterDevelopment();
         addInbox('🎄', 'Keine Winterpause', `In ${COUNTRY_LABELS[country] || country} gibt es keine Winterpause – der Spielbetrieb läuft über die Feiertage durch. Achte auf die Belastung deiner Spieler!`, 'calendar');
         return;
     }
@@ -76,6 +75,7 @@ runAiTransferRound('winter', 0.4);
     calendarSubTab = 'preseason';
     bookingDialogState = null;
     const seasonEnd = getCurrentSeasonEndYear();
+    applyWinterDevelopment();
     const expiring = getClubPlayers().filter(p => (p.contractUntil || seasonEnd) <= seasonEnd).length;
     addInbox('❄️', 'Winterpause beginnt', `Die Hinrunde ist beendet. Die ${GameState.leagues[lid]?.name || 'Liga'} pausiert ${realWeeks} ${realWeeks === 1 ? 'Woche' : 'Wochen'}. Rückrundenstart: ${formatGameDate(getMatchdayDate(lid, GameState.meta.matchday), true)}. Buche jetzt im Kalender ein Wintertrainingslager oder Testspiele!${expiring > 0 ? ` Hinweis: ${expiring} Verträge laufen zum Saisonende aus.` : ''}`, 'calendar');
 }
@@ -248,7 +248,7 @@ function advanceBreakWeek() {
                 p.campDevBonus = Math.min(0.6, (p.campDevBonus || 0) + (b.devBonus || 0.12));
                 adjustPlayerMotivation(p, b.motivationDelta || 10);
                 if (b.u26Boost && (p.age || 25) <= 25 && p.rating < 9.5) {
-                    p.rating = parseFloat(Math.min(10.0, p.rating + 0.1).toFixed(1));
+                    setBaseRating(p, getBaseRating(p) + 0.1);
                     u26Boosted++;
                 }
             });

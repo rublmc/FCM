@@ -147,6 +147,7 @@ function renderLiveTickerView(viewport) {
         halftimeHtml = `
             <div class="negotiation-box" style="padding:8px; margin-bottom:6px;">
                 <h3 style="font-size:0.78rem; margin-bottom:2px;">🗣️ HALBZEIT-ANSPRACHE</h3>
+                ${um ? buildHalftimeGradesHtml() : ''}
                 <p style="font-size:0.65rem; color:#d3f9d8; margin-bottom:6px;">Wähle eine Option (oder „Keine Ansprache“), um die 2. Halbzeit freizuschalten:</p>
 
                 <div class="teamtalk-grid" style="gap:4px; margin-bottom:8px;">
@@ -206,26 +207,7 @@ function renderLiveTickerView(viewport) {
             </div>
         `;
     } else if (st.activeSubTab === 'conference') {
-        const leagueMatches = st.leaguesMatches[st.confKey || st.userLeagueId] || [];
-        subContentHtml = `
-            <div class="bmh-box" style="padding:8px;">
-                <h3 style="font-size:0.82rem; color:#184d25; margin-bottom:6px;">📻 KONFERENZ • ${(st.label || leagueName).toUpperCase()}</h3>
-                ${leagueMatches.map(m => {
-                    const lastEv = m.events.length > 0 ? m.events[m.events.length - 1] : null;
-                    const lastTxt = lastEv ? `⚽ ${lastEv.minute}' ${lastEv.playerName}` : '';
-                    return `
-                        <div class="fixture-row ${m.isUserMatch ? 'user-match' : ''}" style="flex-direction:column; align-items:stretch; gap:2px;">
-                            <div style="display:flex; justify-content:space-between; align-items:center; gap:4px;">
-                                <span class="fixture-team" title="${m.homeName}">${m.homeName}</span>
-                                <span class="fixture-score">${m.homeGoals} : ${m.awayGoals}</span>
-                                <span class="fixture-team away" title="${m.awayName}">${m.awayName}</span>
-                            </div>
-                            ${lastTxt ? `<div style="font-size:0.62rem; color:#184d25; text-align:center;">${lastTxt}</div>` : ''}
-                        </div>
-                    `;
-                }).join('')}
-            </div>
-        `;
+        subContentHtml = buildConferenceHtml(st, leagueName);
     } else if (st.activeSubTab === 'livetable' && isCup) {
         const comp = GameState.cups.comps[st.cupCtx.compId];
         const round = comp.rounds[st.cupCtx.roundIdx];
@@ -336,6 +318,7 @@ function renderLiveTickerView(viewport) {
         let pitchOrListHtml = "";
         if (liveTacticsDisplayMode === 'pitch') {
             const formEdit = liveFormationEditMode && st.phase === 'HALFTIME';
+            const liveGrades = getLiveGrades();
             const livePitchNodesHtml = slots.map((slotPos, idx) => {
                 const isRedLocked = st.lockedRedSlots.includes(idx);
                 const pid = GameState.tactics.lineup[idx];
@@ -359,6 +342,7 @@ function renderLiveTickerView(viewport) {
                             <span class="pitch-node-rating">${player ? effRating.toFixed(1) : '--'}</span>
                         </div>
                         <div class="pitch-node-name">${labelText}</div>
+                        ${player && typeof liveGrades[player.id] === 'number' ? `<div class="pitch-node-grade ${gradeClass(liveGrades[player.id])}">Note ${gradeLabel(liveGrades[player.id])}</div>` : ''}
                     </div>
                 `;
             }).join('');
@@ -374,7 +358,19 @@ function renderLiveTickerView(viewport) {
                 </div>
                 ${redHintHtml}
             `;
+        } else if (liveTacticsDisplayMode === 'grades') {
+            const gr = getGradeRows(getLiveGrades());
+            pitchOrListHtml = `
+                <div class="bmh-box" style="padding:6px; margin:0 0 6px 0;">
+                    <p style="font-size:0.62rem; color:#444; margin-bottom:4px;">📝 Noten (1,0 = Weltklasse • 6,0 = ungenügend). Ab 15 Spielminuten gibt es eine Note. Wer unter 4,0 liegt, ist ein Wechselkandidat.</p>
+                    ${gr.length === 0 ? '<p style="font-size:0.7rem;">Noch keine Noten – das Spiel läuft erst kurz.</p>' : `
+                    <table class="bmh-table">
+                        <thead><tr><th style="width:12%;">POS</th><th style="width:48%;">SPIELER</th><th style="width:20%;">MIN</th><th style="width:20%;">NOTE</th></tr></thead>
+                        <tbody>${gr.map(r => `<tr><td><strong>${r.pos}</strong></td><td>${r.name}${st.subbedOutIds.includes(r.id) ? ' 🔄' : ''}${st.sentOffIds.includes(r.id) ? ' 🟥' : ''}</td><td>${r.mins}'</td><td>${gradeBadgeHtml(r.grade)}</td></tr>`).join('')}</tbody>
+                    </table>`}
+                </div>`;
         } else {
+            const liveGradesList = getLiveGrades();
             const slotRowsHtml = slots.map((slotPos, idx) => {
                 const isRedLocked = st.lockedRedSlots.includes(idx);
                 const pid = GameState.tactics.lineup[idx];
@@ -386,7 +382,7 @@ function renderLiveTickerView(viewport) {
                     <div class="live-sub-row ${(!p && isRedLocked) ? 'sent-off' : ''}" style="${isSel ? 'border:2px solid #e5b822; background:#fff3bf;' : ''}">
                         <span style="width:14%; font-weight:bold; color:#184d25;">${slotPos}</span>
                         <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                            ${p ? `<strong>${p.name}</strong> ${hasYellow ? '🟨' : ''} (${calculateSlotEffectiveRating(p, slotPos).toFixed(1)})` : (isRedLocked ? '🟥 UNTERZAHL (Position frei)' : '— Freier Platz —')}
+                          ${p ? `<strong>${p.name}</strong> ${hasYellow ? '🟨' : ''} (${calculateSlotEffectiveRating(p, slotPos).toFixed(1)}) ${typeof liveGradesList[p.id] === 'number' ? gradeBadgeHtml(liveGradesList[p.id]) : ''}` : (isRedLocked ? '🟥 UNTERZAHL (Position frei)' : '— Freier Platz —')}
                         </span>
                         <button class="mini-action-btn btn-pick-live-pitch" data-slot="${idx}" style="width:auto; padding:3px 7px;">
                             ${isSel ? '✓ GEWÄHLT' : 'WÄHLEN'}
@@ -419,6 +415,7 @@ function renderLiveTickerView(viewport) {
                     <div style="display:flex; gap:4px;">
                         <button type="button" class="sort-btn btn-live-tac-mode ${liveTacticsDisplayMode === 'pitch' ? 'active' : ''}" data-mode="pitch" style="padding:2px 7px; font-size:0.64rem;">⚽ SPIELFELD</button>
                         <button type="button" class="sort-btn btn-live-tac-mode ${liveTacticsDisplayMode === 'list' ? 'active' : ''}" data-mode="list" style="padding:2px 7px; font-size:0.64rem;">☰ LISTE</button>
+                        <button type="button" class="sort-btn btn-live-tac-mode ${liveTacticsDisplayMode === 'grades' ? 'active' : ''}" data-mode="grades" style="padding:2px 7px; font-size:0.64rem;">📝 NOTEN</button>
                     </div>
                 </div>
 
@@ -567,10 +564,19 @@ function renderLiveTickerView(viewport) {
     document.querySelectorAll('.btn-live-tac-mode').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const m = e.currentTarget.dataset.mode;
-            if (m === 'pitch' || m === 'list') {
+            if (m === 'pitch' || m === 'list' || m === 'grades') {
                 liveTacticsDisplayMode = m;
                 renderLiveTickerView(viewport);
             }
+        });
+    });
+
+    const confSel = document.getElementById('live-conf-league');
+    if (confSel) confSel.addEventListener('change', (ev) => { liveConfLeagueId = ev.currentTarget.value; liveConfOpenKey = null; renderLiveTickerView(viewport); });
+    viewport.querySelectorAll('.conf-row[data-ckey]').forEach(row => {
+        row.addEventListener('click', () => {
+            liveConfOpenKey = liveConfOpenKey === row.dataset.ckey ? null : row.dataset.ckey;
+            renderLiveTickerView(viewport);
         });
     });
 
@@ -672,3 +678,128 @@ function renderLiveTickerView(viewport) {
     });
 }
 
+
+
+// ==========================================
+// KONFERENZ: alle Spiele mit Torschützen, Karten, Wechseln & Aufstellungen
+// ==========================================
+function getConfCurrentMinute(st) {
+    if (st.phase === 'FULLTIME') return 999;
+    if (st.phase === 'HALFTIME') return 45;
+    return st.minute;
+}
+
+function getConfScore(m, cur) {
+    if (!m.instant) return { h: m.homeGoals, a: m.awayGoals };
+    let h = 0, a = 0;
+    (m.events || []).forEach(ev => {
+        if (ev.type === 'goal' && ev.minute <= cur) { if (ev.side === 'home') h++; else a++; }
+    });
+    return { h, a };
+}
+
+const CONF_FALLBACK_POS = ['TW', 'LV', 'IV', 'IV', 'RV', 'LM', 'ZM', 'ZM', 'RM', 'ST', 'ST'];
+
+// Aufstellung, Bank, Wechsel & Karten eines fremden Spiels (wird erst beim Aufklappen erzeugt)
+function ensureMatchDetail(m) {
+    if (m.detail) return m.detail;
+    const buildSide = (cid, side) => {
+        let xi = [], bench = [];
+        const sq = [...getClubPlayers(cid)].sort((a, b) => b.rating - a.rating);
+        if (isExtClub(cid) || sq.length < 11) {
+            xi = CONF_FALLBACK_POS.map(pos => ({ name: randomForeignScorerName(), pos }));
+            bench = Array.from({ length: 5 }, () => ({ name: randomForeignScorerName(), pos: 'ZM' }));
+        } else {
+            xi = sq.slice(0, 11).sort((a, b) => (POS_ORDER[a.pos] || 99) - (POS_ORDER[b.pos] || 99)).map(p => ({ name: p.name, pos: p.pos }));
+            bench = sq.slice(11, 18).map(p => ({ name: p.name, pos: p.pos }));
+        }
+        const subs = [];
+        const usedOut = new Set();
+        const usedIn = new Set();
+        const n = Math.min(bench.length, 2 + Math.floor(Math.random() * 3));
+        const minutes = Array.from({ length: n }, () => 55 + Math.floor(Math.random() * 34)).sort((x, y) => x - y);
+        minutes.forEach(minute => {
+            const outs = xi.filter(p => p.pos !== 'TW' && !usedOut.has(p.name));
+            const ins = bench.filter(p => !usedIn.has(p.name) && p.pos !== 'TW');
+            if (!outs.length || !ins.length) return;
+            const out = outs[Math.floor(Math.random() * outs.length)];
+            const same = ins.filter(p => (POS_GROUP_OF[p.pos] || 'MID') === (POS_GROUP_OF[out.pos] || 'MID'));
+            const inn = (same.length ? same : ins)[Math.floor(Math.random() * (same.length ? same.length : ins.length))];
+            usedOut.add(out.name);
+            usedIn.add(inn.name);
+            subs.push({ minute, side, out: out.name, inn: inn.name });
+        });
+        const cards = [];
+        const nCards = Math.floor(Math.random() * 3.2);
+        for (let i = 0; i < nCards; i++) {
+            const pl = xi[1 + Math.floor(Math.random() * 10)];
+            cards.push({ minute: 8 + Math.floor(Math.random() * 82), side, name: pl.name, red: false });
+        }
+        if (Math.random() < 0.04) {
+            const pl = xi[1 + Math.floor(Math.random() * 10)];
+            cards.push({ minute: 30 + Math.floor(Math.random() * 58), side, name: pl.name, red: true });
+        }
+        return { xi, bench, subs, cards };
+    };
+    m.detail = { home: buildSide(m.homeId, 'home'), away: buildSide(m.awayId, 'away') };
+    return m.detail;
+}
+
+function buildConferenceHtml(st, leagueName) {
+    const keys = Object.keys(st.leaguesMatches).filter(k => (st.leaguesMatches[k] || []).length > 0);
+    if (!liveConfLeagueId || !st.leaguesMatches[liveConfLeagueId]) liveConfLeagueId = st.confKey || st.userLeagueId;
+    const nameOf = (k) => (GameState.leagues[k] ? `${COUNTRY_FLAGS[GameState.leagues[k].country || 'DE'] || ''} ${GameState.leagues[k].name}` : (GameState.cups && GameState.cups.comps[k] ? `${GameState.cups.comps[k].icon} ${GameState.cups.comps[k].name}` : k));
+    const cur = getConfCurrentMinute(st);
+    const matches = st.leaguesMatches[liveConfLeagueId] || [];
+    const goalsTotal = matches.reduce((s, m) => { const sc = getConfScore(m, cur); return s + sc.h + sc.a; }, 0);
+    const rows = matches.map((m, idx) => {
+        const key = `${liveConfLeagueId}:${idx}`;
+        const sc = getConfScore(m, cur);
+        const open = liveConfOpenKey === key;
+        let detailHtml = '';
+        if (open) {
+            const goals = (m.events || []).filter(ev => ev.type === 'goal' && ev.minute <= cur);
+            const lines = goals.map(ev => ({ min: ev.minute, text: `⚽ <strong>${ev.minute}'</strong> ${ev.playerName} <span style="color:#555;">(${ev.side === 'home' ? m.homeName : m.awayName})</span>` }));
+            let lineupHtml = '';
+            if (!m.isUserMatch) {
+                const d = ensureMatchDetail(m);
+                ['home', 'away'].forEach(side => {
+                    d[side].subs.filter(x => x.minute <= cur).forEach(x => lines.push({ min: x.minute, text: `🔄 <strong>${x.minute}'</strong> ${side === 'home' ? m.homeName : m.awayName}: <span style="color:#184d25;">${x.inn}</span> für <span style="color:#a82424;">${x.out}</span>` }));
+                    d[side].cards.filter(x => x.minute <= cur).forEach(x => lines.push({ min: x.minute, text: `${x.red ? '🟥' : '🟨'} <strong>${x.minute}'</strong> ${x.name} <span style="color:#555;">(${side === 'home' ? m.homeName : m.awayName})</span>` }));
+                });
+                const col = (side, name) => `
+                    <div style="flex:1; min-width:0;">
+                        <strong style="font-size:0.64rem;">${name}</strong><br>
+                        ${d[side].xi.map(p => `<span style="font-size:0.60rem;"><em>${p.pos}</em> ${p.name}</span>`).join('<br>')}
+                        <br><span style="font-size:0.56rem; color:#555;">Bank: ${d[side].bench.map(p => p.name).join(', ')}</span>
+                    </div>`;
+                lineupHtml = `<div style="display:flex; gap:8px; margin-top:6px; border-top:1px dashed #b5bab7; padding-top:4px;">${col('home', m.homeName)}${col('away', m.awayName)}</div>`;
+            } else {
+                lineupHtml = '<p style="font-size:0.60rem; color:#555; margin-top:4px;">Dein Spiel – alle Details findest du im 📺 TICKER und unter 📋 TAKTIK.</p>';
+            }
+            lines.sort((a, b) => a.min - b.min);
+            detailHtml = `
+                <div class="conf-detail">
+                    ${lines.length ? lines.map(l => `<div style="font-size:0.66rem;">${l.text}</div>`).join('') : '<div style="font-size:0.64rem; color:#555;">Noch keine Ereignisse.</div>'}
+                    ${lineupHtml}
+                </div>`;
+        }
+        return `
+            <div class="fixture-row conf-row ${m.isUserMatch ? 'user-match' : ''}" data-ckey="${key}" style="flex-direction:column; align-items:stretch; gap:2px; cursor:pointer;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:4px;">
+                    <span class="fixture-team" title="${m.homeName}">${m.homeName}</span>
+                    <span class="fixture-score">${sc.h} : ${sc.a}</span>
+                    <span class="fixture-team away" title="${m.awayName}">${m.awayName}</span>
+                    <span style="font-size:0.62rem; color:#777;">${open ? '▴' : '▾'}</span>
+                </div>
+                ${detailHtml}
+            </div>`;
+    }).join('');
+    return `
+        <div class="bmh-box" style="padding:8px;">
+            <h3 style="font-size:0.82rem; color:#184d25; margin-bottom:4px;">📻 KONFERENZ • ${goalsTotal} Tore</h3>
+            ${keys.length > 1 ? `<select id="live-conf-league" class="bmh-select" style="margin-bottom:6px;">${keys.map(k => `<option value="${k}" ${k === liveConfLeagueId ? 'selected' : ''}>${nameOf(k)} (${st.leaguesMatches[k].length})</option>`).join('')}</select>` : ''}
+            <p style="font-size:0.60rem; color:#444; margin-bottom:4px;">👆 Tippe auf ein Spiel: Torschützen, Karten, Wechsel und Aufstellungen.</p>
+            ${rows || '<p style="font-size:0.72rem;">Keine Spiele.</p>'}
+        </div>`;
+}

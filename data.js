@@ -2,8 +2,8 @@
 // FC MANAGER 27 - MODUL: DATA & KONSTANTEN
 // ==========================================
 window.FCM_APP_STARTED = true;
-const GAME_VERSION = "1.11.0";
-const GAME_BUILD_DATE = "20.11.2026";
+const GAME_VERSION = "1.12.0";
+const GAME_BUILD_DATE = "21.11.2026";
 
 
 const FORMATIONS = {
@@ -273,7 +273,7 @@ const WINTER_EVENTS = [
 
 let GameState = {
     meta: {
-        coreVersion: "1.11.0",
+        coreVersion: "1.12.0",
         season: "2026/27",
         phase: "preseason", // 'preseason' | 'season' | 'winter'
         preseasonWeek: 1,   // 1..4
@@ -306,6 +306,10 @@ let GameState = {
     transferRecords: null, // Ablöse-Rekord je Liga (für Zeitungsmeldungen)
     fans: null,            // Fan-Stimmung
     seasonEvents: null,    // gebuchte Fan-Termine während der Saison
+    pendingTransfers: [],  // vereinbarte Wechsel, die zum Transferfenster vollzogen werden
+    board: null,           // Stimmung im Präsidium
+    press: null,           // Öffentlichkeit / Medienbild
+    interviews: null,      // Interview-Statistik
     preseason: null,
     winterBreak: null,
     lastBreakReport: null,
@@ -356,6 +360,10 @@ function resetCareerFields(clubId) {
     GameState.transferRecords = null;
     GameState.fans = null;
     GameState.seasonEvents = null;
+    GameState.pendingTransfers = [];
+    GameState.board = null;
+    GameState.press = null;
+    GameState.interviews = null;
     GameState.preseason = null;
     GameState.winterBreak = null;
     GameState.lastBreakReport = null;
@@ -416,6 +424,10 @@ let calendarOpenReportKey = null;   // aufgeklappter Spielbericht im Kalender
 let playerCardId = null;            // geöffnete Spielerkarte im Kader
 let tacticsEditMode = false;        // Formations-Editor aktiv
 let liveFormationEditMode = false;  // Formations-Editor in der Halbzeitpause
+let viewedClubId = null;            // Kader eines anderen Vereins (aus der Tabelle)
+let liveConfLeagueId = null;        // Liga-Auswahl in der Live-Konferenz
+let liveConfOpenKey = null;         // aufgeklapptes Konferenz-Spiel
+let interviewState = null;          // laufendes Trainer-Interview
 
 // Maximale Kadergröße (Profikader)
 const MAX_SQUAD_SIZE = 25;
@@ -638,7 +650,7 @@ const WEATHER_COMMENTS = {
 // FINANZEN: BUCHUNGSKATEGORIEN
 // ==========================================
 const FINANCE_CATEGORIES = {
-    tickets:   { label: "Zuschauereinnahmen", icon: "🎟️" },
+      tickets:   { label: "Zuschauereinnahmen", icon: "🎟️" },
     sponsors:  { label: "Sponsoren", icon: "💼" },
     tv:        { label: "TV-Gelder (Raten je Spieltag)", icon: "📺" },
     merch:     { label: "Merchandising & Vermarktung", icon: "👕" },
@@ -651,6 +663,11 @@ const FINANCE_CATEGORIES = {
     operations: { label: "Betriebskosten (Geschäftsstelle, Infrastruktur)", icon: "🏢" },
     preseason: { label: "Testspiele, Camps & Events", icon: "📅" },
     youth:     { label: "Nachwuchs & Scouting", icon: "🌱" },
+    bonuses:   { label: "Spielerprämien (Siege & Remis)", icon: "🏅" },
+    matchops:  { label: "Spieltagskosten (Ordner, Sicherheit)", icon: "🦺" },
+    travel:    { label: "Reisekosten (Auswärtsspiele)", icon: "🚌" },
+    agents:    { label: "Beraterhonorare", icon: "🤝" },
+    interest:  { label: "Zinsen auf Schulden", icon: "🏦" },
     other:     { label: "Sonstiges", icon: "📎" }
 };
 

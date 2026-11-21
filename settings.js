@@ -5,7 +5,8 @@
 const SETTINGS_KEY = 'fcm_settings';
 const SETTINGS_DEFAULTS = {
     sound: true,       // Sounds an/aus
-    wakeLock: true     // Bildschirm bleibt an, solange das Spiel geöffnet ist
+    wakeLock: true,    // Bildschirm bleibt an, solange das Spiel geöffnet ist
+    interviews: true   // Trainer-Interviews vor/nach manchen Spielen
 };
 
 function getSettings() {
@@ -107,6 +108,13 @@ function buildSettingsHtml() {
                 </div>
                 ${toggle('set-wakelock', s.wakeLock)}
             </div>
+            <div class="setting-row">
+                <div>
+                    <strong>🎙️ Trainer-Interviews</strong><br>
+                    <span>Pressekonferenzen vor oder nach manchen Spielen (5–6 Fragen)</span>
+                </div>
+                ${toggle('set-interviews', s.interviews)}
+            </div>
             <p style="font-size:0.60rem; color:#555; margin-top:4px;">Kein Ton? Lautstärke-Taste drücken (Medienlautstärke, nicht Klingelton) und einmal auf „Ton testen“ tippen. Ab iOS 17 klingt das Spiel auch bei eingeschaltetem Stummschalter, bei älteren iPhones bitte den Stummschalter ausschalten.</p>
         </div>`;
 }
@@ -124,6 +132,11 @@ function bindSettings(rerender) {
         SoundFX.lastPlay = {};
         SoundFX.playTickerEvent('goal');
         setTimeout(rerender, 400);
+    });
+    const iv = document.getElementById('set-interviews');
+    if (iv) iv.addEventListener('click', () => {
+        setSetting('interviews', !getSetting('interviews'));
+        rerender();
     });
     const wl = document.getElementById('set-wakelock');
     if (wl) wl.addEventListener('click', async () => {

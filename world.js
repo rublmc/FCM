@@ -144,7 +144,19 @@ function syncGameClock() {
     const newISO = getCurrentGameDate();
     const oldISO = GameState.meta.currentDate;
     if (oldISO && newISO > oldISO) processBirthdays(oldISO, newISO);
-    if (!oldISO || newISO > oldISO) GameState.meta.currentDate = newISO;
+    if (!oldISO || newISO > oldISO) {
+        GameState.meta.currentDate = newISO;
+        onTransferClockAdvance(oldISO, newISO);
+        processStadiumProject();
+    }
+}
+
+// Alte Spielstände / Spielstart: Transferlisten passend zum aktuellen Fenster aufbauen
+function ensureTransferWindowInitialized() {
+    ensureTransferState();
+    const w = getTransferWindow();
+    if (w.open && GameState.meta.aiListKey !== w.key) refreshAiTransferList(w.key);
+    if (!w.open && GameState.players.some(p => p.aiListed)) endAiTransferList();
 }
 
 // ==========================================
@@ -228,6 +240,9 @@ function movePlayerToClub(p, clubId) {
     p.clubId = clubId;
     p.transferListed = false;
     p.askingMult = 1;
+    p.aiListed = false;
+    p.aiListKey = undefined;
+    p.pendingMove = false;
 }
 
 function bookMoney(cat, amount, clubId = GameState.activeClubId) {
@@ -497,6 +512,7 @@ function generateRoutineEvents() {
     generatePrivateLifeEvent();
     processEmployeeEvents();
     updateFansWeekly();
+    rollStadiumConstructionEvent();
 }
 
 // ==========================================
@@ -717,7 +733,11 @@ addInbox('📰', 'Transfer-Ticker der Konkurrenz', `Sommerpause bei der Konkurre
 // ==========================================
 // TV-GELD & VERMARKTUNG (Raten je Liga-Spieltag)
 // ==========================================
-function getAnnualTvMoney(leagueId, rank) {
+function getAnnualTvMoney(leagueId, rank, clubId) {
+    return getRawTvMoney(leagueId, rank) * getRevCalib(clubId);
+}
+
+function getRawTvMoney(leagueId, rank) {
     const tier = GameState.leagues[leagueId]?.tier || 1;
     const n = Math.max(2, Object.values(GameState.clubs).filter(c => c.leagueId === leagueId).length);
     const pos = Math.max(0, Math.min(1, (n - rank) / (n - 1)));
@@ -731,13 +751,13 @@ function getAnnualMerchMoney(clubId) {
     const tier = GameState.leagues[club?.leagueId]?.tier || 1;
     const avg = getClubAverageRating(clubId);
     const base = tier === 1 ? 12000000 : (tier === 2 ? 2500000 : 800000);
-    let v = base * Math.pow(avg / 7.0, 9);
+    let v = base * Math.pow(avg / 7.0, 6);
     if (clubId === GameState.activeClubId) {
-        v *= getFanMerchMult();
+        v *= getFanMerchMult() * getPressMerchMult();
         const kit = GameState.sponsors && GameState.sponsors.kit;
         if (kit && typeof kit.share === 'number') v *= (1 + kit.share * 2);   // Fanartikel-Beteiligung des Ausrüsters
     }
-    return v;
+    return v * getRevCalib(clubId);
 }
 
 // Wird nach jedem eigenen Liga-Spieltag gebucht
@@ -745,23 +765,13 @@ function bookLeagueMatchdayIncome(leagueId, totalMds) {
     const uid = GameState.activeClubId;
     const st = computeLeagueStandings(leagueId);
     const rank = Math.max(1, st.findIndex(r => r.clubId === uid) + 1);
-    const tv = Math.round(getAnnualTvMoney(leagueId, rank) / Math.max(1, totalMds));
+    const tv = Math.round(getAnnualTvMoney(leagueId, rank, uid) / Math.max(1, totalMds));
     const merch = Math.round(getAnnualMerchMoney(uid) / Math.max(1, totalMds));
     const ops = Math.round(getAnnualOperatingCosts(uid) / Math.max(1, totalMds));
     bookMoney('tv', tv);
     bookMoney('merch', merch);
     bookMoney('operations', -ops);
     return { tv, merch, ops };
-}
-
-// Laufende Betriebskosten (Geschäftsstelle, Infrastruktur, Nachwuchsleistungszentrum)
-function getAnnualOperatingCosts(clubId) {
-    const club = GameState.clubs[clubId];
-    const tier = GameState.leagues[club?.leagueId]?.tier || 1;
-    const cap = club?.stadium?.capacity || 20000;
-    if (tier === 1) return 8000000 + cap * 150;
-    if (tier === 2) return 2500000 + cap * 60;
-    return 800000 + cap * 25;
 }
 
 // ==========================================
@@ -872,11 +882,12 @@ function recordTransferNews(p, fromId, toId, fee) {
 }
 
 function isInTransferWindow() {
-    return GameState.meta.phase === 'preseason' || GameState.meta.phase === 'winter';
+    return isTransferWindowOpen();
 }
 
 // Eine Runde KI-Transfers. intensity = Anteil der KI-Vereine, die einen Transfer versuchen
 function runAiTransferRound(windowKey, intensity = 0.08) {
+    if (!isTransferWindowOpen()) return [];
     const uid = GameState.activeClubId;
     const seasonEnd = getCurrentSeasonEndYear();
     const aiClubs = Object.values(GameState.clubs).filter(c => c.id !== uid);
@@ -903,7 +914,7 @@ function runAiTransferRound(windowKey, intensity = 0.08) {
     };
 
     // Markt: alle Spieler bei KI-Vereinen + Vereinslose (nicht vom eigenen Verein, nicht frisch gewechselt)
-    const market = GameState.players.filter(p => p.clubId !== uid && (p.clubId === 'free' || GameState.clubs[p.clubId]) && p.lastMoveSeason !== GameState.meta.season + windowKey);
+    const market = GameState.players.filter(p =>p.clubId !== uid && !p.pendingMove && (p.clubId === 'free' || GameState.clubs[p.clubId]) && p.lastMoveSeason !== GameState.meta.season + windowKey);
     const done = [];
     const attempts = Math.max(1, Math.round(aiClubs.length * intensity));
 
@@ -953,7 +964,7 @@ function runAiTransferRound(windowKey, intensity = 0.08) {
             const seller = GameState.clubs[fromId];
             const sSquad = [...squadOf(fromId)].sort((x, y) => y.rating - x.rating);
             const rank = sSquad.indexOf(target) + 1;
-            const acceptChance = rank <= 3 ? 0.4 : (rank <= 6 ? 0.6 : 0.85);
+            const acceptChance = target.aiListed ? 0.95 : (rank <= 3 ? 0.4 : (rank <= 6 ? 0.6 : 0.85));
             if (Math.random() > acceptChance) continue;
             fee = Math.round(calculateTransferFee(target) * (0.95 + Math.random() * 0.3) / 50000) * 50000;
             if (fee > budget) continue;
@@ -992,21 +1003,6 @@ function runAiTransferRound(windowKey, intensity = 0.08) {
         addInbox('📰', `Transfer-Ticker (${windowKey === 'winter' ? 'Winterfenster' : 'Sommerfenster'})`, `${done.length} Wechsel diese Woche (Ablösen gesamt ${formatMoneyShort(total)}). Die wichtigsten:\n${lines.join('\n')}${relevant.length > 8 ? `\n… und ${relevant.length - 8} weitere (👥 KADER → TRANSFERMARKT → Letzte Transfers).` : ''}`, 'transfer');
     }
     return done;
-}
-
-// Transfereinnahmen der KI-Vereine am Saisonende (TV-Geld etc.), damit sie weiter einkaufen können
-function replenishAiBudgets() {
-    const uid = GameState.activeClubId;
-    Object.values(GameState.leagues).forEach(lg => {
-        const st = (GameState.prevStandings && GameState.prevStandings[lg.id]) || [];
-        st.forEach((cid, i) => {
-            if (cid === uid) return;
-            const c = GameState.clubs[cid];
-            if (!c) return;
-            const income = getAnnualTvMoney(lg.id, i + 1) * 0.35 + getAnnualMerchMoney(c.id) * 0.25;
-            c.budget = Math.round(Math.min((c.budget || 0) + income, 400000000));
-        });
-    });
 }
 
 // Anfragen anderer Vereine für eigene Spieler (auch ohne Transferliste) – nur im Transferfenster

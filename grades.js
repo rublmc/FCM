@@ -1,0 +1,240 @@
+// ==========================================
+// FC MANAGER 27 - MODUL: NOTEN, FORM & ZWISCHENZEUGNIS
+// - Spielernoten (1,0 = Weltklasse … 6,0 = ungenügend) live, zur Halbzeit & nach dem Spiel
+// - Form: kleine Stärkeschwankungen nach jedem Spiel (Leistung, Motivation)
+// - Der große Stärkesprung kommt erst in der Winterpause (halb) bzw. zum Saisonende (voll)
+// ==========================================
+
+function clampNum(v, lo, hi) {
+    return Math.max(lo, Math.min(hi, v));
+}
+
+function gaussRandom() {
+    let u = 0, v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+// ---------- Anzeige ----------
+function gradeLabel(g) {
+    if (typeof g !== 'number') return '–';
+    return (Math.round(g * 2) / 2).toFixed(1).replace('.', ',');
+}
+
+function gradeAvgLabel(g) {
+    if (typeof g !== 'number') return '–';
+    return g.toFixed(1).replace('.', ',');
+}
+
+function gradeClass(g) {
+    if (typeof g !== 'number') return 'g-none';
+    if (g <= 2.5) return 'g-top';
+    if (g <= 3.4) return 'g-good';
+    if (g <= 4.2) return 'g-ok';
+    return 'g-bad';
+}
+
+function gradeBadgeHtml(g) {
+    return `<span class="grade-badge ${gradeClass(g)}">${gradeLabel(g)}</span>`;
+}
+
+// ---------- Basis-Stärke & Form ----------
+function getBaseRating(p) {
+    return typeof p.base === 'number' ? p.base : p.rating;
+}
+
+// Basis neu setzen (Form bleibt erhalten)
+function setBaseRating(p, v) {
+    const base = clampNum(v, 1.0, 10.0);
+    if (!p.form) {
+        p.rating = parseFloat(base.toFixed(1));
+        p.base = undefined;
+    } else {
+        p.base = parseFloat(base.toFixed(2));
+        p.rating = parseFloat(clampNum(p.base + p.form, 1.0, 10.0).toFixed(2));
+    }
+}
+
+function getFormArrow(p) {
+    const f = p.form || 0;
+    if (f >= 0.08) return '<span class="form-up" title="In Form">▲</span>';
+    if (f <= -0.08) return '<span class="form-down" title="Formtief">▼</span>';
+    return '';
+}
+
+function updatePlayerForm(p, grade, played) {
+    const base = getBaseRating(p);
+    let f = p.form || 0;
+    const motPull = ((p.motivation || 78) - 75) * 0.0006;
+    if (typeof grade === 'number') {
+        // Abweichung von der Erwartung (gute Spieler dürfen gute Noten haben): besser als erwartet = Formhoch
+        const expected = clampNum(3.55 - 0.27 * (getBaseRating(p) - 6.5), 2.7, 4.3);
+        const s = clampNum(expected - grade, -1.5, 1.5);
+        f = f * 0.90 + 0.036 * s + motPull;
+    } else {
+        f = f * 0.90 + motPull * (played ? 1 : 0.6);
+    }
+    f = clampNum(f, -0.35, 0.35);
+    f = Math.abs(f) < 0.005 ? 0 : parseFloat(f.toFixed(3));
+    p.form = f;
+    if (f === 0) {
+        p.rating = parseFloat(base.toFixed(1));
+        p.base = undefined;
+    } else {
+        p.base = parseFloat(base.toFixed(2));
+        p.rating = parseFloat(clampNum(p.base + f, 1.0, 10.0).toFixed(2));
+    }
+}
+
+// ---------- Live-Noten ----------
+function initLiveGrades(st) {
+    st.gradeNoise = {};
+    st.gradeSnap = {};
+}
+
+function computeLiveGradeFor(player, slotPos, mins, st) {
+    const um = st.userMatch;
+    if (!um || !player || mins < 15) return null;
+    const uid = GameState.activeClubId;
+    const isHome = um.homeId === uid;
+    const gf = isHome ? um.homeGoals : um.awayGoals;
+    const ga = isHome ? um.awayGoals : um.homeGoals;
+    const eff = calculateSlotEffectiveRating(player, slotPos || player.pos);
+    let g = clampNum(3.55 - 0.27 * (eff - 6.5), 2.7, 4.3);
+    g += (75 - (player.motivation || 78)) * 0.005;
+    if (st.gradeNoise[player.id] === undefined) st.gradeNoise[player.id] = clampNum(gaussRandom() * 0.4, -0.9, 0.9);
+    g += st.gradeNoise[player.id];
+    if (gf > ga) g -= 0.12; else if (gf < ga) g += 0.12;
+    const pos = player.pos;
+    if (pos === 'TW') g += ga === 0 ? -0.35 : 0.28 * ga - 0.10;
+    else if (['IV', 'LV', 'RV'].includes(pos)) g += ga === 0 ? -0.25 : 0.18 * ga - 0.10;
+    else if (['DM', 'ZM', 'LM', 'RM', 'OM'].includes(pos)) g += 0.07 * ga - 0.05 * Math.min(gf, 3);
+    else g += -0.05 * Math.min(gf, 3);
+    const myGoals = (um.events || []).filter(ev => ev.type === 'goal' && ev.scorerId === player.id).length;
+    if (myGoals > 0) g -= 0.85 + 0.55 * (myGoals - 1);
+    if (st.yellowCardIds.includes(player.id)) g += 0.15;
+    if (st.sentOffIds.includes(player.id)) g += 2.0;
+    if (mins < 90) {
+        const w = Math.max(0.35, mins / 90);
+        g = 3.55 + (g - 3.55) * w;
+    }
+    return clampNum(g, 1.0, 6.0);
+}
+
+// Note im Moment des Auswechselns / Platzverweises merken
+function snapshotPlayerGrade(pid, slotIdx) {
+    const st = liveMatchState;
+    if (!st || !st.userMatch || !st.gradeSnap) return;
+    const p = getClubPlayers().find(x => x.id === pid);
+    if (!p) return;
+    const slotPos = (slotIdx !== undefined && slotIdx !== null) ? getFormationSlots()[slotIdx] : p.pos;
+    st.gradeSnap[pid] = computeLiveGradeFor(p, slotPos, st.minutesPlayedMap[pid] || 0, st);
+}
+
+// Map: playerId -> Note (oder null) für alle eingesetzten Spieler
+function getLiveGrades() {
+    const st = liveMatchState;
+    const out = {};
+    if (!st || !st.userMatch || !st.gradeSnap) return out;
+    const squad = getClubPlayers();
+    const slots = getFormationSlots();
+    Object.keys(st.gradeSnap).forEach(pid => { out[pid] = st.gradeSnap[pid]; });
+    GameState.tactics.lineup.forEach((pid, idx) => {
+        if (!pid) return;
+        const p = squad.find(x => x.id === pid);
+        if (!p) return;
+        out[pid] = computeLiveGradeFor(p, slots[idx], st.minutesPlayedMap[pid] || 0, st);
+    });
+    return out;
+}
+
+// Liste für Anzeige (beste Note zuerst)
+function getGradeRows(grades) {
+    const squad = getClubPlayers();
+    const st = liveMatchState;
+    return Object.keys(grades).map(pid => {
+        const p = squad.find(x => x.id === pid);
+        return p ? { id: pid, name: p.name, pos: p.pos, grade: grades[pid], mins: (st && st.minutesPlayedMap[pid]) || 0 } : null;
+    }).filter(Boolean).sort((a, b) => {
+        if (typeof a.grade !== 'number') return 1;
+        if (typeof b.grade !== 'number') return -1;
+        return a.grade - b.grade;
+    });
+}
+
+function buildHalftimeGradesHtml() {
+    const grades = getLiveGrades();
+    const rows = getGradeRows(grades).filter(r => typeof r.grade === 'number');
+    if (rows.length === 0) return '';
+    const best = rows.slice(0, 3);
+    const worst = rows.slice(-3).reverse().filter(r => !best.includes(r));
+    const line = (r) => `<span class="grade-line">${gradeBadgeHtml(r.grade)} ${getShortName(r.name)} <em>(${r.pos})</em></span>`;
+    return `
+        <div class="ht-grades">
+            <strong style="font-size:0.70rem;">📝 NOTEN ZUR HALBZEIT</strong>
+            <div style="display:flex; gap:8px; margin-top:3px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:120px;"><span style="font-size:0.60rem; color:#6ee787;">STARK</span><br>${best.map(line).join('<br>')}</div>
+                <div style="flex:1; min-width:120px;"><span style="font-size:0.60rem; color:#ff8787;">SCHWACH</span><br>${worst.length ? worst.map(line).join('<br>') : '<span style="font-size:0.64rem;">–</span>'}</div>
+            </div>
+            <p style="font-size:0.58rem; color:#c3dec9; margin-top:3px;">Alle Noten findest du unter 📋 TAKTIK → NOTEN. Wer schwächelt, kann ausgewechselt werden.</p>
+        </div>`;
+}
+
+// ---------- Abpfiff: Noten verbuchen ----------
+// Rückgabe: Liste für den Spielbericht
+function applyFinalGrades(grades, minMap) {
+    const squad = getClubPlayers();
+    const report = [];
+    squad.forEach(p => {
+        const mins = minMap[p.id] || 0;
+        const g = grades[p.id];
+        if (typeof g === 'number') {
+            p.gradeSum = (p.gradeSum || 0) + g;
+            p.gradeCount = (p.gradeCount || 0) + 1;
+            report.push({ id: p.id, name: p.name, pos: p.pos, grade: parseFloat(g.toFixed(2)), mins });
+            updatePlayerForm(p, g, true);
+        } else {
+            updatePlayerForm(p, null, mins > 0);
+        }
+    });
+    report.sort((a, b) => a.grade - b.grade);
+    return report;
+}
+
+function buildGradesReportHtml(grades) {
+    if (!Array.isArray(grades) || grades.length === 0) return '';
+    const motm = grades.find(r => r.mins >= 45) || grades[0];
+    return `
+        <div class="match-events-list" style="margin-top:4px;">
+            <strong style="color:#e5b822;">📝 NOTEN</strong> <span style="font-size:0.60rem;">(1,0 = Weltklasse • 6,0 = ungenügend)</span><br>
+            ${grades.map(r => `<span class="grade-chip ${gradeClass(r.grade)}">${gradeLabel(r.grade)} ${getShortName(r.name)}</span>`).join(' ')}
+            ${motm ? `<br>⭐ <strong>Spieler des Spiels:</strong> ${motm.name} (${gradeLabel(motm.grade)})` : ''}
+        </div>`;
+}
+
+// ==========================================
+// STÄRKESPRUNG: WINTERPAUSE (halb) & SAISONENDE (voll)
+// ==========================================
+function applyWinterDevelopment() {
+    const uid = GameState.activeClubId;
+    const changes = [];
+    GameState.players.forEach(p => {
+        if (!p.clubId || p.clubId === 'free' || p.winterDelta) return;
+        const isUser = p.clubId === uid;
+        const res = evaluatePlayerSeasonDevelopment(p, 0, isUser, true);
+        const delta = Math.round(res.rawScore * 0.5 * 20) / 20;
+        const base = getBaseRating(p);
+        const newBase = clampNum(base + delta, 1.0, 10.0);
+        p.winterDelta = parseFloat((newBase - base).toFixed(2));
+        setBaseRating(p, newBase);
+        if (isUser) changes.push({ name: p.name, pos: p.pos, delta: p.winterDelta, rating: p.rating });
+    });
+    if (changes.length > 0) {
+        changes.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+        const up = changes.filter(c => c.delta > 0).slice(0, 4);
+        const down = changes.filter(c => c.delta < 0).slice(0, 4);
+        const line = (c) => `${c.pos} ${c.name}: ${c.delta > 0 ? '+' : ''}${c.delta.toFixed(2)} → ${c.rating.toFixed(1)}`;
+        addInbox('🎓', 'Winter-Zwischenzeugnis: Stärkeentwicklung', `Zur Winterpause wurden die Leistungen der Hinrunde bewertet – der halbe Entwicklungssprung wird jetzt wirksam. Den Rest gibt es zum Saisonende.\n\n⬆️ Gewinner:\n${up.length ? up.map(line).join('\n') : 'niemand'}\n\n⬇️ Verlierer:\n${down.length ? down.map(line).join('\n') : 'niemand'}`, 'squad');
+    }
+}

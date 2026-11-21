@@ -255,8 +255,8 @@ function migrateLegacySave() {
 // ==========================================
 function backupFileName(meta) {
     const clean = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
-    const md = meta.phase === 'preseason' ? `Vorb${meta.preseasonWeek}` : `ST${meta.matchday}`;
-    return `FCM_${clean(meta.club)}_${clean(meta.season)}_${md}.json`;
+    // Immer derselbe Dateiname je Verein: beim Sichern in "Dateien" einfach "Ersetzen" wählen
+    return `FCM27_Backup_${clean(meta.club) || 'Spielstand'}.json`;
 }
 
 function exportSlotBackup(id) {

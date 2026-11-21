@@ -229,7 +229,7 @@ function checkLineupBeforeKickoff() {
     return true;
 }
 
-function startLiveMatchday() {
+function startLiveMatchday(skipInterview = false) {
     const club = GameState.clubs[GameState.activeClubId];
     if (!club) {
         alert("Bitte zuerst im Adminbereich ein Datenpaket einspielen!");
@@ -251,6 +251,13 @@ function startLiveMatchday() {
 
     // 2. Nächstes eigenes Ereignis
     const ev = getNextUserEvent();
+    if (!skipInterview && !interviewState && ev && (ev.type === 'league' || ev.type === 'cup')) {
+        const ictx = buildPreInterviewCtx(ev);
+        if (shouldTriggerInterview('pre', ictx)) {
+            startInterview(ictx, () => startLiveMatchday(true));
+            return;
+        }
+    }
     if (ev && ev.type === 'catchup') {
         if (!checkLineupBeforeKickoff()) return;
         startLiveSession({ mode: 'catchup', catchUp: ev.ref });
@@ -465,6 +472,8 @@ function startLiveSessionInner(opts) {
         subsUsed: 0,
         maxSubs: 5,
         initialFormation: initialFormationSnapshot,
+        initialMentality: GameState.tactics.mentality || 'normal',
+        initialAggression: GameState.tactics.aggression || 'normal',
         initialCustomCoords: Array.isArray(GameState.tactics.customCoords) ? GameState.tactics.customCoords.map(c => ({ ...c })) : null,
         initialLineup: initialLineupSnapshot,
         initialBench: initialBenchSnapshot,
@@ -481,6 +490,7 @@ function startLiveSessionInner(opts) {
         tickerLog: []
     };
 
+    initLiveGrades(liveMatchState);
     if (cancelledLines.length > 0) {
         addLiveTickerEntry("0'", "system", "card-red", `❌ WETTERBEDINGTE ABSAGE: ${cancelledLines.join(' • ')} – Nachholtermin folgt.`);
     }
@@ -625,6 +635,7 @@ function calculateLiveClubStrength(clubId, isHome) {
 
 function performAutomaticInjurySub(slotIdx, injuredPlayer) {
     if (!liveMatchState) return null;
+    snapshotPlayerGrade(injuredPlayer.id, slotIdx);
     const squad = getClubPlayers();
     const slots = getFormationSlots();
     const slotPos = slots[slotIdx] || injuredPlayer.pos;
@@ -712,7 +723,7 @@ function handleEmergencyGoalkeeperRedCard(gkSlotIdx) {
 
     const sacrificedId = GameState.tactics.lineup[sacrificeSlot];
     const sacrificedPlayer = squad.find(pl => pl.id === sacrificedId);
-
+    snapshotPlayerGrade(sacrificedId, sacrificeSlot);
     GameState.tactics.lineup[sacrificeSlot] = null;
     liveMatchState.lockedRedSlots.push(sacrificeSlot);
     liveMatchState.subbedOutIds.push(sacrificedId);
@@ -944,8 +955,8 @@ function tickLiveMatchday(silentRender = false) {
                 }
             } else {
                 // Im Live-Modus: Verletzten Spieler vom Platz nehmen, KEIN heimlicher Bank-Wechsel -> Manager entscheidet per In-App-Benachrichtigung!
+                snapshotPlayerGrade(victimObj.player.id, victimObj.slotIdx);
                 GameState.tactics.lineup[victimObj.slotIdx] = null;
-
                 const canSub = liveMatchState.subsUsed < liveMatchState.maxSubs && GameState.tactics.bench.some(Boolean);
                 const subHint = canSub
                     ? `Position ist frei – wechsle jetzt einen Ersatzspieler ein (${liveMatchState.subsUsed}/${liveMatchState.maxSubs} Wechsel genutzt).`
@@ -992,6 +1003,7 @@ function tickLiveMatchday(silentRender = false) {
                     cardType: cardLabel
                 });
 
+                snapshotPlayerGrade(pl.id, offenderObj.slotIdx);
                 GameState.tactics.lineup[offenderObj.slotIdx] = null;
                 liveMatchState.lockedRedSlots.push(offenderObj.slotIdx);
                 if (userIsHome) liveMatchState.stats.homeReds++;
@@ -1090,6 +1102,7 @@ function performManualLiveSub(pitchSlotIdx, benchIdx) {
     if (!inPlayer) return;
 
     if (outPlayer) {
+        snapshotPlayerGrade(outPlayer.id, pitchSlotIdx);
         liveMatchState.subbedOutIds.push(outPlayer.id);
     }
     GameState.tactics.lineup[pitchSlotIdx] = inPlayer.id;
@@ -1281,7 +1294,8 @@ function finalizeLiveMatchdayInner() {
     let prizeIncome = 0;
     let salaryCost = 0;
     let staffCost = 0;
-
+    let gradeReport = [];
+    let userResult = null;
     if (um) {
         const isHome = um.homeId === club.id;
         const userGoals = isHome ? um.homeGoals : um.awayGoals;
@@ -1289,6 +1303,7 @@ function finalizeLiveMatchdayInner() {
         const won = um.winnerId ? um.winnerId === club.id : userGoals > oppGoals;
         const draw = !um.winnerId && userGoals === oppGoals;
         const cleanSheet = oppGoals === 0;
+        userResult = { won, draw, isHome };
         squad.forEach(p => {
             const mins = minMap[p.id] || 0;
             if (mins > 0) {
@@ -1306,6 +1321,8 @@ function finalizeLiveMatchdayInner() {
         // Leistungsträger reißen die Mitspieler mit
         const leaders = squad.filter(p => (minMap[p.id] || 0) >= 45 && hasTrait(p, 'leader')).length;
         if (leaders > 0) squad.forEach(p => { if ((minMap[p.id] || 0) > 0) adjustPlayerMotivation(p, Math.min(2, leaders)); });
+        // Noten verbuchen & Form aktualisieren (vor dem Wiederherstellen der Aufstellung)
+        gradeReport = applyFinalGrades(getLiveGrades(), minMap);
         // Zuschauereinnahmen nur bei echten Heimspielen (nicht im Endspiel auf neutralem Platz)
         if (isHome && !um.neutral) {
             const forecast = calculateStadiumForecast(club, um.weather, mode === 'cup' ? st.cupCtx.compId : null);
@@ -1346,34 +1363,16 @@ function finalizeLiveMatchdayInner() {
     }
     let tvMerch = { tv: 0, merch: 0, ops: 0 };
     if (mode === 'league') tvMerch = bookLeagueMatchdayIncome(club.leagueId, totalMds);
-    const netBalance = ticketIncome + sponsorIncome + prizeIncome + tvMerch.tv + tvMerch.merch - tvMerch.ops - salaryCost - staffCost;
-
-    // 3. Stadion-Bauprojekt (zählt Liga-Spieltage)
-    let buildStatusMsg = "";
-    if (mode === 'league' && GameState.stadiumProject && GameState.stadiumProject.clubId === club.id) {
-        GameState.stadiumProject.remainingMatchdays--;
-        if (GameState.stadiumProject.remainingMatchdays <= 0) {
-            const proj = GameState.stadiumProject;
-            if (club.stadium) {
-                if (proj.type === 'standing') {
-                    club.stadium.standing = (club.stadium.standing || 0) + proj.amount;
-                    club.stadium.capacity = (club.stadium.capacity || 0) + proj.amount;
-                } else if (proj.type === 'seated') {
-                    club.stadium.seated = (club.stadium.seated || 0) + proj.amount;
-                    club.stadium.capacity = (club.stadium.capacity || 0) + proj.amount;
-                } else if (proj.type === 'roof') {
-                    club.stadium.roof = true;
-                } else if (proj.type === 'vip') {
-                    club.stadium.vipLevel = (club.stadium.vipLevel || 0) + 1;
-                } else if (proj.type === 'heating') {
-                    club.stadium.heating = true;
-                }
-            }
-            buildStatusMsg = ` 🏗️ ${proj.title} fertig!`;
-            addInbox('🏗️', 'Stadionausbau abgeschlossen', `Die Bauarbeiten sind beendet: „${proj.title}“ ist ab sofort in Betrieb. Kapazität: ${(club.stadium.capacity || 0).toLocaleString('de-DE')} Plätze.`, 'stadium', st.dateISO);
-            GameState.stadiumProject = null;
-        }
+    let matchCosts = { bonuses: 0, matchops: 0, travel: 0, interest: 0 };
+    if (um && userResult) {
+        const compType = st.cupCtx ? GameState.cups.comps[st.cupCtx.compId].type : null;
+        matchCosts = bookUserMatchCosts({ mode, isHome: userResult.isHome, neutral: um.neutral, won: userResult.won, draw: userResult.draw, visitors, totalMds, compType });
     }
+    const matchCostSum = matchCosts.bonuses + matchCosts.matchops + matchCosts.travel + matchCosts.interest;
+    const netBalance = ticketIncome + sponsorIncome + prizeIncome + tvMerch.tv + tvMerch.merch - tvMerch.ops - salaryCost - staffCost - matchCostSum;
+
+    // 3. Stadion-Bauprojekt: läuft nach Kalendertagen (siehe stadium.js)
+    const buildStatusMsg = "";
 
     // 4. Verletzungen heilen, Sperren abbauen & neue eintragen (nur wenn wir gespielt haben)
     const newBans = Array.isArray(st.pendingSuspensions) ? st.pendingSuspensions : [];
@@ -1425,6 +1424,9 @@ function finalizeLiveMatchdayInner() {
 
     // 5. Ausgangsaufstellung wiederherstellen – gesperrte/verletzte Spieler bleiben LEER (manuell ersetzen!)
     if (st.initialCustomCoords) GameState.tactics.customCoords = st.initialCustomCoords;
+    // Ausrichtung & Einsatz springen nach dem Spiel auf den Stand vor dem Anpfiff zurück
+    if (st.initialMentality) GameState.tactics.mentality = st.initialMentality;
+    if (st.initialAggression) GameState.tactics.aggression = st.initialAggression;
     if (st.initialFormation && isValidFormation(st.initialFormation)) GameState.tactics.formation = st.initialFormation;
     liveFormationEditMode = false;
     const baseLineup = Array.isArray(st.initialLineup) && st.initialLineup.length === 11 ? [...st.initialLineup] : [...GameState.tactics.lineup];
@@ -1485,6 +1487,11 @@ function finalizeLiveMatchdayInner() {
         merchIncome: tvMerch.merch,
         salaryCost: salaryCost + staffCost,
         opsCost: tvMerch.ops,
+        bonusCost: matchCosts.bonuses,
+        matchopsCost: matchCosts.matchops,
+        travelCost: matchCosts.travel,
+        interestCost: matchCosts.interest,
+        grades: gradeReport,
         netBalance,
         buildStatusMsg
     };
@@ -1509,6 +1516,7 @@ function finalizeLiveMatchdayInner() {
     if (mode === 'league') runSeasonFanEvents('md');
     generateRoutineEvents();
     processTransferListOffers();
+    if (mode === 'league') runAiTransferRound(getTransferWindow().key || 'x', 0.12);
     if (mode === 'league' && currentMd === getFirstHalfLastMatchday(club.leagueId)) {
         startWinterBreakIfNeeded();
     }
@@ -1517,7 +1525,7 @@ function finalizeLiveMatchdayInner() {
 }
 
 function finalizeLiveMatchdayUi(st, um, currentMd) {
-    autosaveAfterRound(st.mode === 'league' ? `Spieltag ${currentMd}` : (st.shortLabel || 'Spiel'));
+    autosaveAfterRound(st.mode === 'league' ? `Spieltag ${currentMd}` : (st.shortLabel || 'Spiel'), Boolean(um));
     renderHeader();
     switchToView('office');
     if (um) {
@@ -1528,6 +1536,16 @@ function finalizeLiveMatchdayUi(st, um, currentMd) {
     const ls = getLineupStatus();
     if (!ls.ok && GameState.meta.phase === 'season') {
         setStatus(`⚠️ Startelf unvollständig (${ls.onPitch}/${ls.required}) – bitte Verletzte/Gesperrte ersetzen!`);
+    }
+    // Pressekonferenz nach dem Spiel (nur manchmal)
+    if (um) {
+        const uid = GameState.activeClubId;
+        const isHome = um.homeId === uid;
+        const gf = isHome ? um.homeGoals : um.awayGoals;
+        const ga = isHome ? um.awayGoals : um.homeGoals;
+        const result = um.winnerId ? (um.winnerId === uid ? 'win' : 'loss') : (gf > ga ? 'win' : (gf < ga ? 'loss' : 'draw'));
+        const ictx = { kind: 'post', result, bigWin: gf - ga >= 3, bigLoss: ga - gf >= 3, cup: st.mode === 'cup' };
+        if (shouldTriggerInterview('post', ictx)) startInterview(ictx, () => switchToView('office'));
     }
 }
 

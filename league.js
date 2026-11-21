@@ -338,14 +338,16 @@ function simulateSingleMatch(match, isOfficialLeagueMatch = true) {
 // ==========================================
 // SAISONÜBERGANG & STÄRKEENTWICKLUNG (v0.9)
 // ==========================================
-function evaluatePlayerSeasonDevelopment(player, teamSuccessDelta, isUserClub) {
-    const oldRating = player.rating || 6.0;
+// half = true: Zwischenbewertung zur Winterpause (Hinrunden-Werte werden auf eine Saison hochgerechnet)
+function evaluatePlayerSeasonDevelopment(player, teamSuccessDelta, isUserClub, half = false) {
+    const oldRating = (getBaseRating(player) - (player.winterDelta || 0)) || 6.0;
     const age = player.age || 25;
     const talent = player.talent || computeDefaultTalent(player);
-    const apps = player.seasonApps || 0;
-    const minutes = player.seasonMinutes || 0;
-    const goals = player.seasonGoals || 0;
-    const cleanSheets = player.seasonCleanSheets || 0;
+    const sc = half ? 2 : 1;
+    const apps = (player.seasonApps || 0) * sc;
+    const minutes = (player.seasonMinutes || 0) * sc;
+    const goals = (player.seasonGoals || 0) * sc;
+    const cleanSheets = (player.seasonCleanSheets || 0) * sc;
     const mot = typeof player.motivation === 'number' ? player.motivation : 78;
     const campBonus = player.campDevBonus || 0;
 
@@ -480,6 +482,7 @@ function evaluatePlayerSeasonDevelopment(player, teamSuccessDelta, isUserClub) {
     const actualDelta = parseFloat((newRating - oldRating).toFixed(1));
 
     return {
+        rawScore: Math.max(-0.6, Math.min(0.7, score)),
         playerId: player.id,
         name: player.name,
         pos: player.pos,
@@ -535,6 +538,7 @@ function finishSeasonAndAdvance() {
     if (!isTopTier && myRank <= getPromoCount(club.leagueId)) titles.push('Aufsteiger');
     runSeasonFanEvents('end', { title: titles.join(' & ') });
     if (titles.length > 0) changeFanMood(12, `Titel: ${titles.join(' & ')}`);
+    postSeasonFinanceReport();
 
     // 2. Auf- und Abstieg zwischen 1. und 2. Liga je Land
     let promoRelMsg = "";
@@ -558,6 +562,7 @@ function finishSeasonAndAdvance() {
     if (myRank === 1 || userPromoted) teamSuccessDelta = 0.14;
     else if (myRank <= 4) teamSuccessDelta = 0.07;
     else if (userRelegated || myRank >= standings.length - 1) teamSuccessDelta = -0.14;
+    evaluateBoardAfterSeason(myRank, standings.length, userPromoted, userRelegated, titles, isTopTier);
 
     // 3. Stärkeentwicklung aller Spieler berechnen & Saisonwerte zurücksetzen
     let leftPlayersCount = 0;
@@ -573,6 +578,11 @@ function finishSeasonAndAdvance() {
             );
 
             p.rating = devResult.newRating;
+            p.base = undefined;
+            p.form = 0;
+            p.winterDelta = 0;
+            p.gradeSum = 0;
+            p.gradeCount = 0;
             if (isUserPlayer) {
                 userDevList.push(devResult);
             }
@@ -607,9 +617,9 @@ function finishSeasonAndAdvance() {
             p.seasonGoals = 0;
             p.seasonCleanSheets = 0;
             p.campDevBonus = 0;
+            p.winterDelta = 0;
         }
     });
-
     // Nach größter Veränderung sortieren (Aufsteiger & Absteiger sofort erkennbar)
     userDevList.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || b.newRating - a.newRating);
 
@@ -635,7 +645,7 @@ function finishSeasonAndAdvance() {
     }
     processStaffContractsAtSeasonEnd(seasonEnd);
     maintainAiSquadsAtSeasonEnd(seasonEnd);
-    replenishAiBudgets();
+    settleAiSeasonFinances();
     ensureSquadsPlayable();
     // 5. Neue Saison in der SAISONVORBEREITUNG (4 Wochen) starten!
     GameState.meta.season = nextSeasonLabel;
@@ -807,7 +817,10 @@ function renderLeagueView(viewport) {
     const nextMatchBanner = buildNextEventBannerHtml(true);
 
     let contentHtml = "";
-    if (leagueSubTab === 'table') {
+    if (leagueSubTab === 'club' && viewedClubId && GameState.clubs[viewedClubId]) {
+        contentHtml = buildTransferNegotiationPanelHtml() + buildTransferWindowBannerHtml(true) + buildClubSquadHtml(viewedClubId);
+    } else if (leagueSubTab === 'table' || leagueSubTab === 'club') {
+        leagueSubTab = 'table';
         contentHtml = buildStandingsTableHtml(selectedLeagueViewId);
     } else if (leagueSubTab === 'fixtures') {
         contentHtml = buildFixturesTabHtml(selectedLeagueViewId, selectedFixtureMatchday, totalMds);
@@ -839,21 +852,35 @@ function renderLeagueView(viewport) {
 
 
     bindNextEventBanner();
-
-
-
-
     document.getElementById('league-view-select').addEventListener('change', (e) => {
         selectedLeagueViewId = e.currentTarget.value;
+        viewedClubId = null;
+        if (leagueSubTab === 'club') leagueSubTab = 'table';
+        activeNegotiation = null;
         renderLeagueView(viewport);
     });
-
     document.querySelectorAll('[data-lsub]').forEach(btn => {
         btn.addEventListener('click', (e) => {
             leagueSubTab = e.currentTarget.dataset.lsub;
+            viewedClubId = null;
+            activeNegotiation = null;
             renderLeagueView(viewport);
         });
     });
+    // Kader eines Vereins aus der Tabelle öffnen
+    viewport.querySelectorAll('.club-row[data-clubid]').forEach(row => {
+        row.addEventListener('click', () => {
+            viewedClubId = row.dataset.clubid;
+            leagueSubTab = 'club';
+            activeNegotiation = null;
+            renderLeagueView(viewport);
+            document.getElementById('main-viewport').scrollTop = 0;
+        });
+    });
+    if (leagueSubTab === 'club' && viewedClubId) {
+        bindClubSquadView(viewport, () => renderLeagueView(viewport));
+        bindTransferNegotiationPanel(() => renderLeagueView(viewport));
+    }
 
     if (leagueSubTab === 'fixtures') {
         const prevBtn = document.getElementById('btn-md-prev');
@@ -901,9 +928,9 @@ function buildStandingsTableHtml(leagueId) {
                         const isUser = row.clubId === GameState.activeClubId;
                         const badgeClass = getRankZone(leagueId, rank, standings.length);
                         return `
-                        <tr class="${isUser ? 'table-row-user' : ''}">
-                            <td><span class="rank-badge ${badgeClass}">${rank}</span></td>
-                            <td title="${row.name}">${row.name}</td>
+                          <tr class="club-row ${isUser ? 'table-row-user' : ''}" data-clubid="${row.clubId}" style="cursor:pointer;" title="Kader anzeigen">
+                              <td><span class="rank-badge ${badgeClass}">${rank}</span></td>
+                              <td title="${row.name}">${row.name} <span style="font-size:0.6rem; color:#777;">›</span></td>
                             <td>${row.played}</td>
                             <td style="font-size:0.68rem;">${row.won}-${row.drawn}-${row.lost}</td>
                             <td style="font-size:0.68rem;">${row.gf}:${row.ga}</td>
@@ -913,7 +940,7 @@ function buildStandingsTableHtml(leagueId) {
                 </tbody>
             </table>
             <p style="font-size:0.64rem; color:#444; margin-top:6px;">
-                ${getRankZoneLegend(leagueId)}
+                ${getRankZoneLegend(leagueId)}<br>👆 Tippe auf einen Verein, um den Kader zu sehen und Spieler abzuwerben.
             </p>
         </div>
     `;
