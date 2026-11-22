@@ -98,15 +98,20 @@ function buildSoundHelpHtml() {
                     <table class="bmh-table finance-table"><tbody>
                         ${diag.map(r => `<tr><td style="width:42%;"><strong>${r[0]}</strong></td><td style="white-space:normal;">${r[1]}</td></tr>`).join('')}
                     </tbody></table>
-                    <p style="font-size:0.64rem; margin:6px 0 4px 0;"><strong>1.</strong> Tippe nacheinander auf die beiden Tests und merke dir, was du hörst:</p>
+                    <p style="font-size:0.64rem; margin:6px 0 4px 0;"><strong>1.</strong> Tippe nacheinander auf die Tests und merke dir, was du hörst:</p>
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px;">
                         <button id="set-test-web" type="button" class="bmh-btn small-btn">🔊 TEST A<br><span style="font-weight:normal; font-size:0.58rem;">Piep über Web-Audio</span></button>
                         <button id="set-test-media" type="button" class="bmh-btn small-btn">🔊 TEST B<br><span style="font-weight:normal; font-size:0.58rem;">Piep über Medien-Audio</span></button>
+                        <button id="set-test-speech" type="button" class="bmh-btn small-btn">🗣️ TEST D<br><span style="font-weight:normal; font-size:0.58rem;">Sprachausgabe</span></button>
+                        <a href="ton-test.html" class="bmh-btn small-btn" style="text-decoration:none; text-align:center; display:block;">🧪 TESTSEITE<br><span style="font-weight:normal; font-size:0.58rem;">ohne Spielcode öffnen</span></a>
                     </div>
+                    <p style="font-size:0.62rem; margin:6px 0 2px 0;"><strong>Test C:</strong> normaler Player des Browsers – tippe auf ▶:</p>
+                    <audio controls playsinline src="${SoundFX.beepUri()}" style="width:100%;"></audio>
+                    <div class="test-result">${SoundFX.testResult || 'Ergebnis des letzten Tests erscheint hier.'}</div>
                     <p style="font-size:0.62rem; color:#333; margin:6px 0;">
-                        • <strong>Beide zu hören:</strong> Alles in Ordnung – dann liegt es an einzelnen Sounds, sag mir bitte welche.<br>
-                        • <strong>Nur Test B zu hören:</strong> Schalte unten den <em>Kompatibilitätsmodus</em> ein und teste erneut.<br>
-                        • <strong>Keinen von beiden:</strong> Prüfe den <strong>Stummschalter</strong> (Seitentaste/Aktionstaste), die <strong>Medien-Lautstärke</strong> (bei geöffnetem Spiel die Lautstärketasten drücken), ob Bluetooth-Kopfhörer verbunden sind, und starte das Spiel einmal neu.
+                        • <strong>Test A zu hören:</strong> Alles in Ordnung – dann liegt es an einzelnen Sounds, sag mir bitte welche.<br>
+                        • <strong>Nur B oder C zu hören:</strong> Schalte unten den <em>Kompatibilitätsmodus</em> ein und teste erneut.<br>
+                        • <strong>Nichts zu hören:</strong> Dann spielt das Gerät keinen Browser-Ton ab. Öffne die <strong>🧪 Testseite</strong> und prüfe: Stummschalter, Lautstärke <em>während</em> Test C läuft (Tasten drücken), Bluetooth/AirPods (Kontrollzentrum → Ausgabe „iPhone“) und ob YouTube in Safari Ton hat.
                     </p>
                     <div class="setting-row" style="border-top:1px dashed #b5bab7;">
                         <div><strong>🧩 Kompatibilitätsmodus</strong><br><span>Ton läuft über ein Medien-Element statt direkt über Web-Audio – hilft, wenn nur Test B zu hören ist</span></div>
@@ -162,9 +167,11 @@ function bindSettings(rerender) {
     const help = document.getElementById('set-sound-help');
     if (help) help.addEventListener('click', () => { soundHelpOpen = !soundHelpOpen; rerender(); });
     const tw = document.getElementById('set-test-web');
-    if (tw) tw.addEventListener('click', () => { SoundFX.testBeepWeb(); setTimeout(rerender, 700); });
+    if (tw) tw.addEventListener('click', () => { SoundFX.testBeepWeb(); setTimeout(rerender, 1500); });
     const tm = document.getElementById('set-test-media');
-    if (tm) tm.addEventListener('click', () => { SoundFX.unlock(); SoundFX.testBeepMedia(); setTimeout(rerender, 700); });
+    if (tm) tm.addEventListener('click', () => { SoundFX.unlock(); SoundFX.testBeepMedia(); setTimeout(rerender, 1700); });
+    const ts = document.getElementById('set-test-speech');
+    if (ts) ts.addEventListener('click', () => { SoundFX.testSpeech(); setTimeout(rerender, 2500); });
     const rt = document.getElementById('set-sound-route');
     if (rt) rt.addEventListener('click', () => {
         setSetting('soundRoute', getSetting('soundRoute') === 'media' ? 'webaudio' : 'media');

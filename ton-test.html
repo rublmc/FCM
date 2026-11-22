@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>FC Manager – Ton-Test</title>
+<style>
+  body { font-family: -apple-system, Arial, sans-serif; background: #122918; color: #f4f4f4; margin: 0; padding: 14px; padding-top: max(14px, env(safe-area-inset-top)); }
+  h1 { font-size: 1.15rem; color: #e5b822; margin: 0 0 6px 0; }
+  p, li { font-size: 0.85rem; line-height: 1.4; }
+  .box { background: #1d3a26; border: 2px solid #246b35; padding: 10px; margin: 10px 0; }
+  button { display: block; width: 100%; font-size: 1rem; font-weight: bold; padding: 14px; margin: 8px 0; background: #e5b822; color: #111; border: 2px solid #111; border-radius: 6px; }
+  button.alt { background: #e9ecea; }
+  audio { width: 100%; margin: 6px 0; }
+  #log { font-family: ui-monospace, Menlo, monospace; font-size: 0.72rem; background: #0b1c10; padding: 8px; white-space: pre-wrap; min-height: 90px; border: 1px solid #246b35; }
+  a { color: #e5b822; }
+</style>
+</head>
+<body>
+<h1>🔊 FC Manager – Ton-Test</h1>
+<p>Diese Seite enthält <strong>keinen Spielcode</strong>. Sie zeigt, ob dein Gerät und Browser überhaupt Ton abspielen.</p>
+
+<div class="box">
+  <strong>Test 1 – normaler Audio-Player</strong>
+  <p>Tippe auf ▶ im Player. Das ist der einfachste Weg, Ton abzuspielen.</p>
+  <audio id="player" controls playsinline></audio>
+</div>
+
+<div class="box">
+  <strong>Test 2 – Piepton per Knopf</strong>
+  <button id="b-html">▶ PIEPTON (Medien-Audio)</button>
+  <button id="b-web" class="alt">▶ PIEPTON (Web-Audio)</button>
+  <button id="b-speech" class="alt">▶ SPRACHAUSGABE „Test“</button>
+</div>
+
+<div class="box">
+  <strong>Ergebnis (bitte Screenshot oder Text an Copilot)</strong>
+  <div id="log">wird geladen …</div>
+</div>
+
+<div class="box">
+  <strong>Wenn du bei allen Tests nichts hörst:</strong>
+  <ol>
+    <li><strong>Stummschalter</strong> (Seitentaste / Aktionstaste): Orange = stumm. Bei Medien-Audio egal, bei Web-Audio entscheidend.</li>
+    <li><strong>Lautstärke:</strong> Spiele Test 1 ab und drücke dabei die Lautstärketasten. Die Anzeige muss „Lautstärke“ zeigen, nicht „Klingelton“.</li>
+    <li><strong>Bluetooth / AirPods / Auto:</strong> Kontrollzentrum öffnen und die Ausgabe auf „iPhone“ stellen.</li>
+    <li><strong>Funktioniert YouTube in Safari?</strong> Wenn nein, liegt es am Gerät oder an Safari-Einstellungen.</li>
+    <li>Seite in Safari <strong>als normale Seite</strong> öffnen (nicht als Home-Bildschirm-App) und noch einmal testen.</li>
+  </ol>
+</div>
+<p><a href="index.html">← zurück zum Spiel</a></p>
+
+<script>
+(function () {
+  var logEl = document.getElementById('log'), lines = [];
+  function log(t) { lines.push(t); logEl.textContent = lines.join('\n'); }
+  function wav(freqs, seconds, rate, vol) {
+    var n = Math.floor(rate * seconds), buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+    function w(o, s) { for (var i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); }
+    w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+    v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+    for (var i = 0; i < n; i++) {
+      var t = i / rate, f = freqs[Math.min(freqs.length - 1, Math.floor(t / seconds * freqs.length))];
+      var fade = Math.min(1, Math.min(i, n - i) / (rate * 0.03));
+      v.setInt16(44 + i * 2, Math.round(Math.sin(2 * Math.PI * f * t) * vol * 32767 * fade), true);
+    }
+    var bytes = new Uint8Array(buf), bin = '';
+    for (var k = 0; k < bytes.length; k += 4096) bin += String.fromCharCode.apply(null, bytes.subarray(k, k + 4096));
+    return 'data:audio/wav;base64,' + btoa(bin);
+  }
+  var uri = wav([660, 880, 660, 880], 2.0, 22050, 0.8);
+  var player = document.getElementById('player');
+  player.src = uri;
+
+  var ua = navigator.userAgent;
+  log('Gerät/Browser: ' + ua.replace(/\s+/g, ' ').slice(0, 110));
+  log('Als Web-App gestartet: ' + (navigator.standalone ? 'JA' : 'nein'));
+  log('AudioSession-Typ: ' + (navigator.audioSession ? navigator.audioSession.type : 'nicht vorhanden'));
+  log('Web-Audio vorhanden: ' + (window.AudioContext || window.webkitAudioContext ? 'ja' : 'NEIN'));
+  log('--- Ergebnisse ---');
+
+  ['play', 'playing', 'pause', 'ended', 'error', 'stalled'].forEach(function (ev) {
+    player.addEventListener(ev, function () {
+      log('Test 1 Player: ' + ev + (ev === 'error' && player.error ? ' (Code ' + player.error.code + ')' : '') + '  Position ' + player.currentTime.toFixed(2) + ' s  Lautst. ' + player.volume + (player.muted ? ' STUMM' : ''));
+    });
+  });
+
+  function playHtml() {
+    var a = new Audio(uri); a.volume = 1;
+    var maxT = 0;
+    a.addEventListener('timeupdate', function () { maxT = Math.max(maxT, a.currentTime); });
+    a.addEventListener('ended', function () { log('Test 2 Medien-Audio: fertig abgespielt (' + maxT.toFixed(2) + ' s). Gehört? Ja/Nein'); });
+    a.addEventListener('error', function () { log('Test 2 Medien-Audio: FEHLER Code ' + (a.error && a.error.code)); });
+    var p = a.play();
+    if (p && p.then) p.then(function () { log('Test 2 Medien-Audio: Wiedergabe gestartet'); }).catch(function (e) { log('Test 2 Medien-Audio: BLOCKIERT ' + (e && e.name)); });
+  }
+  function playWeb() {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) { log('Test 2 Web-Audio: nicht verfügbar'); return; }
+    var ctx = new AC();
+    var t0 = null;
+    function go() {
+      t0 = ctx.currentTime;
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = 880; g.gain.value = 0.8;
+      o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 1.2);
+      setTimeout(function () { log('Test 2 Web-Audio: Zustand ' + ctx.state + ', Audio-Uhr lief ' + (ctx.currentTime - t0).toFixed(2) + ' s (soll ca. 1,2 s). Gehört? Ja/Nein'); }, 1300);
+    }
+    log('Test 2 Web-Audio: Start-Zustand ' + ctx.state);
+    var r = ctx.resume(); if (r && r.then) r.then(go).catch(function (e) { log('Test 2 Web-Audio: BLOCKIERT ' + (e && e.name)); go(); }); else go();
+  }
+  function playSpeech() {
+    if (!window.speechSynthesis) { log('Test 2 Sprachausgabe: nicht verfügbar'); return; }
+    var u = new SpeechSynthesisUtterance('Test, eins, zwei, drei'); u.lang = 'de-DE'; u.volume = 1;
+    u.onstart = function () { log('Test 2 Sprachausgabe: gestartet'); };
+    u.onend = function () { log('Test 2 Sprachausgabe: fertig. Gehört? Ja/Nein'); };
+    u.onerror = function (e) { log('Test 2 Sprachausgabe: FEHLER ' + (e && e.error)); };
+    window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
+  }
+  document.getElementById('b-html').addEventListener('click', playHtml);
+  document.getElementById('b-web').addEventListener('click', playWeb);
+  document.getElementById('b-speech').addEventListener('click', playSpeech);
+})();
+</script>
+</body>
+</html>

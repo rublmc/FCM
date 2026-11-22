@@ -173,8 +173,14 @@ const SoundFX = {
         const nav = typeof navigator !== 'undefined' ? navigator : {};
         const state = !AC ? '❌ nicht verfügbar' : (!this.ctx ? '⏳ noch nicht gestartet (irgendwo tippen)' : (this.ctx.state === 'running' ? '✅ läuft' : `⚠️ ${this.ctx.state} (tippen, um zu starten)`));
         const loop = this.silentEl ? (this.silentEl.paused ? '⚠️ pausiert' : '✅ läuft') : '⏳ noch nicht gestartet';
+        const ua = (nav.userAgent || '');
+        const ios = (ua.match(/OS (\d+[_\.]\d+)/) || [])[1];
+        const dev = /iPhone|iPad/.test(ua) ? `iPhone/iPad${ios ? ' (iOS ' + ios.replace('_', '.') + ')' : ''}` : (/Android/.test(ua) ? 'Android' : (/Macintosh|Windows|Linux/.test(ua) ? 'Computer' : 'unbekannt'));
+        const clock = this.ctx ? `${this.ctx.currentTime.toFixed(1)} s` : '–';
         return [
+            ['Gerät', `${dev}${nav.standalone ? ' • als Web-App' : ' • im Browser'}`],
             ['Web-Audio', state],
+            ['Audio-Uhr', clock],
             ['Stummschalter-Schutz', loop],
             ['Audio-Modus', nav.audioSession ? String(nav.audioSession.type) : 'nicht vorhanden'],
             ['Ausgabe', this.route() === 'media' ? 'Kompatibilitätsmodus (Medien)' : 'Standard (Web-Audio)'],
@@ -182,11 +188,34 @@ const SoundFX = {
         ];
     },
 
+    testResult: '',        // Ergebniszeile des letzten Tests (wird in den Einstellungen angezeigt)
+
+    beepUri() {
+        if (!this._beepUri) {
+            const rate = 22050, n = Math.floor(rate * 1.2);
+            const smp = new Int16Array(n);
+            for (let i = 0; i < n; i++) {
+                const t = i / rate;
+                const f = t < 0.6 ? 660 : 880;
+                const fade = Math.min(1, Math.min(i, n - i) / (rate * 0.03));
+                smp[i] = Math.round(Math.sin(2 * Math.PI * f * t) * 0.8 * 32767 * fade);
+            }
+            this._beepUri = this.makeWavUri(smp, rate);
+        }
+        return this._beepUri;
+    },
+
     // Test A: einfacher Piepton direkt über Web-Audio (über denselben Weg wie alle Spielsounds)
     testBeepWeb() {
         this.unlock();
         const ctx = this.ensure();
-        if (!ctx) return false;
+        if (!ctx) { this.testResult = 'Test A: Web-Audio konnte nicht gestartet werden. ' + (this.lastError || ''); return false; }
+        const clock0 = ctx.currentTime;
+        const st0 = ctx.state;
+        setTimeout(() => {
+            const ran = this.ctx ? this.ctx.currentTime - clock0 : 0;
+            this.testResult = `Test A: Zustand ${st0} → ${this.ctx ? this.ctx.state : '–'}, Audio-Uhr lief ${ran.toFixed(2)} s (sollte ca. 1 s sein). ${ran < 0.3 ? '⚠️ Die Audio-Uhr steht – das Gerät gibt keinen Ton aus.' : 'Das Gerät hat den Ton verarbeitet – wenn du nichts hörst, liegt es an Stummschalter, Lautstärke oder Ausgabegerät.'}`;
+        }, 1100);
         try {
             const t0 = ctx.currentTime + 0.02;
             [660, 880].forEach((f, i) => {
@@ -204,20 +233,36 @@ const SoundFX = {
     // Test B: Piepton über ein normales HTML-Audio-Element (unabhängig von Web-Audio)
     testBeepMedia() {
         try {
-            const rate = 22050, n = Math.floor(rate * 0.7);
-            const smp = new Int16Array(n);
-            for (let i = 0; i < n; i++) {
-                const t = i / rate;
-                const f = t < 0.35 ? 660 : 880;
-                const fade = Math.min(1, Math.min(i, n - i) / (rate * 0.02));
-                smp[i] = Math.round(Math.sin(2 * Math.PI * f * t) * 0.6 * 32767 * fade);
-            }
-            const a = new Audio(this.makeWavUri(smp, rate));
+            const a = new Audio(this.beepUri());
             a.setAttribute('playsinline', '');
+            a.volume = 1;
+            let maxT = 0;
+            a.addEventListener('timeupdate', () => { maxT = Math.max(maxT, a.currentTime); });
+            a.addEventListener('ended', () => { this.testResult = `Test B: Wiedergabe lief ${maxT.toFixed(2)} s bis zum Ende (soll ca. 1,2 s). ${maxT < 0.3 ? '⚠️ Der Player ist nicht vorangekommen.' : 'Der Browser hat den Ton abgespielt – wenn du nichts hörst, liegt es am Gerät (Lautstärke, Ausgabegerät).'}`; });
+            a.addEventListener('error', () => { this.testResult = `Test B: FEHLER beim Abspielen (Code ${a.error ? a.error.code : '?'})`; });
             const p = a.play();
-            if (p && p.catch) p.catch((e) => this.noteError('Test B', e));
+            if (p && p.then) {
+                p.then(() => { this.testResult = 'Test B: Wiedergabe gestartet …'; })
+                    .catch((e) => { this.noteError('Test B', e); this.testResult = `Test B: vom Browser BLOCKIERT (${(e && e.name) || 'Fehler'}). Tippe noch einmal darauf.`; });
+            }
             return true;
-        } catch (e) { this.noteError('Test B', e); return false; }
+        } catch (e) { this.noteError('Test B', e); this.testResult = 'Test B: Fehler – ' + ((e && e.name) || e); return false; }
+    },
+
+    // Test D: Sprachausgabe des Betriebssystems (anderer Ausgabeweg)
+    testSpeech() {
+        try {
+            if (typeof speechSynthesis === 'undefined') { this.testResult = 'Test D: Sprachausgabe nicht verfügbar'; return false; }
+            const u = new SpeechSynthesisUtterance('Test, eins, zwei, drei');
+            u.lang = 'de-DE';
+            u.volume = 1;
+            u.onstart = () => { this.testResult = 'Test D: Sprachausgabe gestartet …'; };
+            u.onend = () => { this.testResult = 'Test D: Sprachausgabe fertig – gehört? (Wenn Test D zu hören ist, aber A–C nicht, liegt es am Browser-Audio.)'; };
+            u.onerror = (ev) => { this.testResult = `Test D: Fehler (${ev && ev.error})`; };
+            speechSynthesis.cancel();
+            speechSynthesis.speak(u);
+            return true;
+        } catch (e) { this.testResult = 'Test D: Fehler – ' + ((e && e.name) || e); return false; }
     },
 
     // Ausgabeweg wechseln (Standard <-> Kompatibilitätsmodus): Engine neu aufbauen
