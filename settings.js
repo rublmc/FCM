@@ -100,7 +100,20 @@ function buildSettingsHtml() {
                 </div>
                 ${toggle('set-sound', s.sound)}
             </div>
-            ${s.sound ? `<button id="set-sound-test" type="button" class="bmh-btn small-btn" style="width:100%; margin-bottom:4px;">🔊 TON TESTEN (Torjubel)</button>` : ''}
+            ${s.sound && navigator.standalone ? `<p class="sound-warn">⚠️ Du hast das Spiel über den <strong>Home-Bildschirm</strong> gestartet. iOS blockiert dort oft den Ton. Öffne das Spiel stattdessen in <strong>Safari</strong> – dann klingt alles.</p>` : ''}
+            ${s.sound ? `
+                <div class="sound-preview">
+                    <strong style="font-size:0.70rem;">🏟️ STADION-KLÄNGE ANHÖREN</strong>
+                    <span style="font-size:0.60rem; color:#444; display:block; margin-bottom:4px;">Publikum: ${SoundFX.crowdStatusLabel()}</span>
+                    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:4px;">
+                        <button type="button" class="bmh-btn small-btn btn-prev" data-k="stadium">🏟️ STADION<br><span style="font-weight:normal; font-size:0.56rem;">14 Sek.</span></button>
+                        <button type="button" class="bmh-btn small-btn btn-prev" data-k="goal">⚽ TOR<br><span style="font-weight:normal; font-size:0.56rem;">Jubel</span></button>
+                        <button type="button" class="bmh-btn small-btn btn-prev" data-k="ooh">😮 CHANCE<br><span style="font-weight:normal; font-size:0.56rem;">Ooooh</span></button>
+                        <button type="button" class="bmh-btn small-btn btn-prev" data-k="groan">😞 GEGENTOR<br><span style="font-weight:normal; font-size:0.56rem;">Raunen</span></button>
+                        <button type="button" class="bmh-btn small-btn btn-prev" data-k="chant">🎶 GESANG<br><span style="font-weight:normal; font-size:0.56rem;">Fans</span></button>
+                        <button type="button" class="bmh-btn small-btn btn-prev" data-k="applause">👏 APPLAUS<br><span style="font-weight:normal; font-size:0.56rem;">&nbsp;</span></button>
+                    </div>
+                </div>` : ''}
             <div class="setting-row">
                 <div>
                     <strong>📱 Bildschirm anlassen</strong><br>
@@ -126,13 +139,11 @@ function bindSettings(rerender) {
         if (getSetting('sound')) SoundFX.playUi('on');
         rerender();
     });
-    const test = document.getElementById('set-sound-test');
-    if (test) test.addEventListener('click', () => {
-        SoundFX.unlock();
-        SoundFX.lastPlay = {};
-        SoundFX.playTickerEvent('goal');
-        setTimeout(rerender, 400);
-    });
+    document.querySelectorAll('.btn-prev').forEach(btn => btn.addEventListener('click', (ev) => {
+        const res = SoundFX.preview(ev.currentTarget.dataset.k);
+        if (res === 'wait') setStatus('⏳ Die Stadion-Klänge werden noch berechnet – gleich noch einmal versuchen.');
+        setTimeout(rerender, 600);
+    }));
     const iv = document.getElementById('set-interviews');
     if (iv) iv.addEventListener('click', () => {
         setSetting('interviews', !getSetting('interviews'));

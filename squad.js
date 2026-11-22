@@ -639,13 +639,14 @@ function buildRosterTabHtml(mySquad) {
             <table class="bmh-table">
                 <thead>
                     <tr>
-                        <th style="width:9%;">ST.</th>
-                        <th style="width:10%;">POS</th>
-                        <th style="width:33%;">NAME / FORM</th>
+                        <th style="width:8%;">ST.</th>
+                        <th style="width:9%;">POS</th>
+                        <th style="width:8%;" title="Aktuelle Form">FORM</th>
+                        <th style="width:29%;">NAME</th>
                         <th style="width:10%;">STÄ</th>
-                        <th style="width:15%;">GEH.</th>
+                        <th style="width:14%;">GEH.</th>
                         <th style="width:11%;">SP/⚽</th>
-                        <th style="width:12%;">AKT.</th>
+                        <th style="width:11%;">AKT.</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -675,9 +676,10 @@ function buildRosterTabHtml(mySquad) {
                         <tr class="roster-row" data-pid="${p.id}" style="${rowStyle} cursor:pointer;" title="Spielerkarte öffnen">
                             <td>${statusBadge}</td>
                             <td><strong>${p.pos}</strong></td>
+                            <td class="form-cell">${getFormArrow(p)}</td>
                             <td title="${p.name} (${p.age} J. | Mot: ${mot}%)">
-<strong>${youthIcon}${p.name}</strong> ${getFormArrow(p)}${traitBadgeHtml(p)}${p.lifeEvent && (GameState.meta.tick || 0) - p.lifeEvent.tick <= 6 ? `<span title="Privat: ${p.lifeEvent.title}">${p.lifeEvent.icon}</span>` : ''}<br>
-                                <span style="font-size:0.60rem; color:#444;">${p.age}J • ${getMotivationIcon(mot)}${mot}% • '${String(p.contractUntil).slice(-2)}${suspNote}</span>
+<strong>${youthIcon}${p.name}</strong> ${traitBadgeHtml(p)}${p.lifeEvent && (GameState.meta.tick || 0) - p.lifeEvent.tick <= 6 ? `<span title="Privat: ${p.lifeEvent.title}">${p.lifeEvent.icon}</span>` : ''}<br>
+<span style="font-size:0.60rem; color:#444;">${p.age}J • ${getMotivationIcon(mot)}${mot}%${p.wantsOut ? '🚪' : ((p.unhappyWeeks || 0) >= 3 ? '⚠️' : '')} • '${String(p.contractUntil).slice(-2)}${suspNote}</span>
                             </td>
                             <td><strong>${p.rating.toFixed(1)}</strong></td>
                             <td>${formatMoneyShort(p.salary)}</td>
@@ -798,7 +800,7 @@ function buildTransferMarketTabHtml() {
                         <tr class="mkt-row" data-pid="${p.id}" style="cursor:pointer;" title="Spielerkarte öffnen">
                             <td><strong>${p.pos}</strong></td>
                             <td title="${p.name} (${p.clubLabel})">
-                                <strong>${p.name}</strong> ${getFormArrow(p)}<br>
+                                ${getFormArrow(p)} <strong>${p.name}</strong><br>
                                 <span style="font-size:0.62rem; color:#444;">${p.clubLabel}${p.aiListed ? ' • 📋 Transferliste' : ''}</span>
                             </td>
                             <td>${p.age}</td>
@@ -1122,6 +1124,7 @@ function buildPlayerCardHtml(p) {
             </div>
             <div class="pc-status"><span class="contract-pill ${statusCls}">${status}</span> <span style="font-size:0.66rem;">• ${role} • ${getMotivationIcon(p.motivation)} Motivation ${p.motivation || 78}%</span></div>
             <div class="pc-trait"><strong>${PLAYER_TRAITS[getPlayerTrait(p)].icon || '🙂'} Charakter: ${PLAYER_TRAITS[getPlayerTrait(p)].label}</strong><br><span>${PLAYER_TRAITS[getPlayerTrait(p)].desc}</span></div>
+            ${buildMotivationCardHtml(p)}
             ${p.lifeEvent ? `<div class="pc-trait" style="background:${p.lifeEvent.mot >= 0 ? '#d3f9d8' : '#ffe3e3'};"><strong>${p.lifeEvent.icon} Privat:</strong> ${p.name} ${p.lifeEvent.title}${p.lifeEvent.date ? ` (${formatGameDate(p.lifeEvent.date)})` : ''} • Motivation ${p.lifeEvent.mot > 0 ? '+' : ''}${p.lifeEvent.mot}%</div>` : ''}
             <div class="pc-grid">
                 <div class="pc-cell"><span>SPIELE SAISON</span><strong>${p.seasonApps || 0}</strong><em>${p.seasonMinutes || 0} Min.</em></div>

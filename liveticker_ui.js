@@ -329,7 +329,7 @@ function renderLiveTickerView(viewport) {
                 const isSelected = liveSelectedPitchSlot === idx;
                 const hasYellow = player && st.yellowCardIds.includes(player.id);
                 const labelText = player
-                    ? `${getShortName(player.name)}${hasYellow ? ' 🟨' : ''} ${getFormArrow(player)}`
+                    ? `${getShortName(player.name)}${hasYellow ? ' 🟨' : ''}`
                     : (isRedLocked ? '🟥 ROT' : '+ FREI');
 
                 const editCls = formEdit ? ('edit-node' + (idx === 0 ? ' locked' : '')) : 'btn-pick-live-pitch';
@@ -339,6 +339,7 @@ function renderLiveTickerView(viewport) {
                          data-slot="${idx}" data-index="${idx}">
                         <div class="pitch-node-top">
                             <span class="pitch-node-pos">${slotPos}</span>
+                            <span class="pitch-node-form">${player ? getFormArrow(player) : ''}</span>
                             <span class="pitch-node-rating">${player ? effRating.toFixed(1) : '--'}</span>
                         </div>
                         <div class="pitch-node-name">${labelText}</div>

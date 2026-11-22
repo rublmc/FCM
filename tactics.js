@@ -437,9 +437,10 @@ function renderTacticsView(viewport) {
                  data-playerid="${player ? player.id : ''}">
                 <div class="pitch-node-top">
                     <span class="pitch-node-pos">${slotPos}</span>
+                    <span class="pitch-node-form">${player ? getFormArrow(player) : ''}</span>
                     <span class="pitch-node-rating">${player ? effRating.toFixed(1) : '--'}</span>
                 </div>
-                <div class="pitch-node-name">${player ? getShortName(player.name) + ' ' + getFormArrow(player) : '+ FREI'}</div>
+                <div class="pitch-node-name">${player ? getShortName(player.name) : '+ FREI'}</div>
             </div>
         `;
     }).join('');
@@ -465,9 +466,10 @@ function renderTacticsView(viewport) {
                  data-zone="bench"
                  data-index="${idx}"
                  data-playerid="${player.id}">
-                <span class="chip-pos">${player.pos}</span>
-                <span class="chip-name">${getShortName(player.name)} ${getFormArrow(player)}</span>
-                <span class="chip-rating">${player.rating.toFixed(1)}</span>
+                  <span class="chip-pos">${player.pos}</span>
+                  <span class="chip-name">${getShortName(player.name)}</span>
+                  <span class="chip-form">${getFormArrow(player)}</span>
+                  <span class="chip-rating">${player.rating.toFixed(1)}</span>
             </div>
         `;
     }).join('');
@@ -491,8 +493,9 @@ function renderTacticsView(viewport) {
                          data-playerid="${player.id}"
                          title="${unavailable ? `${player.name}: ${getUnavailableLabel(player)}` : player.name}">
                         <span class="chip-pos" style="${unavailable ? 'background:#a82424; color:#fff; width:auto; padding:0 2px;' : ''}">${badgeTxt}</span>
-                        <span class="chip-name">${getShortName(player.name)} ${getFormArrow(player)}</span>
-                        <span class="chip-rating">${player.rating.toFixed(1)}</span>
+                          <span class="chip-name">${getShortName(player.name)}</span>
+                          <span class="chip-form">${getFormArrow(player)}</span>
+                          <span class="chip-rating">${player.rating.toFixed(1)}</span>
                     </div>
                 `;
             }).join('')}

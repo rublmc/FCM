@@ -596,6 +596,9 @@ function finishSeasonAndAdvance() {
             p.campDevBonus = 0;
             // Motivation pendelt sich zur neuen Saison leicht Richtung 75% ein
             p.motivation = Math.round(((p.motivation || 78) + 75) / 2);
+            p.motF = undefined;
+            p.playEma = undefined;          // neue Saison: Einsatzzeit-Bilanz startet neutral
+            p.unhappyWeeks = 0;
 
             if ((p.contractUntil || seasonEnd + 1) <= seasonEnd) {
                 if (isUserPlayer) {

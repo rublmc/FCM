@@ -1578,3 +1578,16 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
 .mrow:hover { background: #d0dfd4; }
 .club-player-row:hover td, .mkt-row:hover td { background: #d0dfd4; }
 .match-detail-wrap { background: #fff; border: 1px solid #b5bab7; padding: 5px 6px; margin: 0 0 4px 0; }
+
+/* ==========================================
+   v1.14: FORM-SPALTE, MOTIVATION
+   ========================================== */
+.form-cell { text-align: center; }
+.form-cell .form-up, .form-cell .form-down, .form-cell .form-flat { font-size: 0.80rem; }
+.pitch-node-form { flex: 1; text-align: center; font-size: 0.62rem; line-height: 1; }
+.pitch-node-form .form-up { color: #6ee787; }
+.pitch-node-form .form-down { color: #ff8787; }
+.pitch-node-form .form-flat { color: #c3dec9; }
+.chip-form { flex-shrink: 0; width: 12px; text-align: center; }
+.sound-warn { font-size: 0.62rem; background: #fff3bf; border: 2px solid #b58900; padding: 5px 7px; margin: 4px 0; color: #5c4400; }
+.sound-preview { background: #e9ecea; border: 1px solid var(--panel-shadow); padding: 6px; margin: 4px 0 6px 0; }

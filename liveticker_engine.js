@@ -1317,13 +1317,10 @@ function finalizeLiveMatchdayInner() {
                 p.clubApps = (p.clubApps || 0) + 1;
                 p.seasonMinutes = (p.seasonMinutes || 0) + mins;
                 if (cleanSheet && mins >= 60 && ["TW", "IV", "LV", "RV", "DM"].includes(p.pos)) p.seasonCleanSheets = (p.seasonCleanSheets || 0) + 1;
-                adjustPlayerMotivation(p, won ? 3 : (draw ? 1 : -1));
-            } else if (benchAllSet.has(p.id)) {
-                adjustPlayerMotivation(p, hasTrait(p, 'diva') ? -3 : -1);
-            } else {
-                adjustPlayerMotivation(p, hasTrait(p, 'diva') ? -5 : -2);
             }
         });
+        // Motivation 2.0: Einsatzzeit, Rolle und Ergebnis (siehe motivation.js)
+        updateMotivationAfterMatch(minMap, won, draw);
         // Leistungsträger reißen die Mitspieler mit
         const leaders = squad.filter(p => (minMap[p.id] || 0) >= 45 && hasTrait(p, 'leader')).length;
         if (leaders > 0) squad.forEach(p => { if ((minMap[p.id] || 0) > 0) adjustPlayerMotivation(p, Math.min(2, leaders)); });

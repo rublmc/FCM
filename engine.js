@@ -69,7 +69,8 @@ const PLAYER_DEFAULTS = {
     seasonYellows: 0, clubApps: 0, clubGoals: 0, motivation: 78, campDevBonus: 0,
     suspendedMatches: 0, suspensionReason: "", injuredMatches: 0, injuryReason: "",
     transferListed: false, askingMult: 1, freeSeasons: 0, lastMoveSeason: undefined,
-    form: 0, gradeSum: 0, gradeCount: 0, pendingMove: false, aiListed: false
+    form: 0, gradeSum: 0, gradeCount: 0, pendingMove: false, aiListed: false,
+    unhappyWeeks: 0, wantsOut: false
 };
 
 function compactPlayer(p) {
@@ -287,10 +288,15 @@ function ensurePlayerStatsInitialized() {
     });
 }
 
+// Die Motivation wird intern als Kommazahl (motF) geführt, damit kleine Wochenschritte nicht verloren gehen.
 function adjustPlayerMotivation(player, delta) {
     if (!player) return;
-    const cur = typeof player.motivation === 'number' ? player.motivation : 78;
-    player.motivation = Math.max(25, Math.min(100, Math.round(cur + delta)));
+    const base = (typeof player.motF === 'number' && Math.round(player.motF) === player.motivation)
+        ? player.motF
+        : (typeof player.motivation === 'number' ? player.motivation : 78);
+    const next = Math.max(25, Math.min(100, base + delta));
+    player.motF = parseFloat(next.toFixed(2));
+    player.motivation = Math.round(next);
 }
 
 function getMotivationIcon(mot) {

@@ -241,6 +241,11 @@ function movePlayerToClub(p, clubId) {
     p.aiListed = false;
     p.aiUntil = undefined;
     p.pendingMove = false;
+    // Motivation 2.0: Neustart beim neuen Verein (kurze Eingewöhnung ohne Einsatzzeit-Strafe)
+    p.playEma = undefined;
+    p.unhappyWeeks = 0;
+    p.wantsOut = false;
+    p.joinedTick = GameState.meta.tick || 0;
 }
 
 function bookMoney(cat, amount, clubId = GameState.activeClubId) {
@@ -468,7 +473,7 @@ function generateRoutineEvents() {
         }
     }
 
-    const low = squad.filter(p => (p.motivation || 78) < 58);
+    const low = squad.filter(p => (p.motivation || 78) < 58 && (p.unhappyWeeks || 0) < 3);
     if (low.length > 0 && Math.random() < 0.45) {
         const p = pick(low);
         const reason = lineupSet.has(p.id)
@@ -507,6 +512,7 @@ function generateRoutineEvents() {
         }
     }
 
+    updateMotivationWeekly();
     generatePrivateLifeEvent();
     processEmployeeEvents();
     updateFansWeekly();

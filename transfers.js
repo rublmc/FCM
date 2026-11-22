@@ -290,7 +290,8 @@ function buildClubSquadHtml(clubId) {
         return `
             <tr class="club-player-row" data-pid="${p.id}" style="cursor:pointer;" title="Spielerkarte öffnen">
                 <td><strong>${p.pos}</strong></td>
-                <td title="${p.name}"><strong>${p.name}</strong> ${getFormArrow(p)} ${p.aiListed ? '<span title="Steht auf der Transferliste">📋</span>' : ''}<br><span style="font-size:0.60rem; color:#444;">${p.age} J. • Vertrag '${String(p.contractUntil).slice(-2)}${yrs <= 0 ? ' ⚠️' : ''} • Ablöse ${fee === 0 ? 'frei' : formatMoneyShort(fee)}</span></td>
+<td class="form-cell">${getFormArrow(p)}</td>
+                  <td title="${p.name}"><strong>${p.name}</strong> ${p.aiListed ? '<span title="Steht auf der Transferliste">📋</span>' : ''}<br><span style="font-size:0.60rem; color:#444;">${p.age} J. • Vertrag '${String(p.contractUntil).slice(-2)}${yrs <= 0 ? ' ⚠️' : ''} • Ablöse ${fee === 0 ? 'frei' : formatMoneyShort(fee)}</span></td>
                 <td><strong>${p.rating.toFixed(1)}</strong></td>
                 <td style="font-size:0.66rem;">${formatMoneyShort(calculateMarketValue(p))}</td>
                 <td>${action}</td>
@@ -309,8 +310,8 @@ function buildClubSquadHtml(clubId) {
 ${isOwn ? '<p style="font-size:0.68rem; color:#555; margin-bottom:4px;">Das ist dein eigener Kader.</p>' : '<p style="font-size:0.64rem; color:#444; margin-bottom:6px;">👆 Tippe auf einen Spieler für die <strong>Spielerkarte</strong>. Mit <strong>ANGEBOT</strong> wirbst du ihn ab: erst Ablöse mit dem Verein, dann Vertrag mit dem Spieler. Stammspieler sind teuer, und andere Vereine können mitbieten.</p>'}
             ${viewedPlayerId && squad.some(p => p.id === viewedPlayerId) ? buildOtherPlayerCardHtml(squad.find(p => p.id === viewedPlayerId)) : ''}
             <table class="bmh-table">
-                <thead><tr><th style="width:10%;">POS</th><th style="width:44%;">SPIELER</th><th style="width:11%;">STÄ</th><th style="width:18%;">WERT</th><th style="width:17%;">AKT.</th></tr></thead>
-                <tbody>${rows || '<tr><td colspan="5">Keine Spieler.</td></tr>'}</tbody>
+<thead><tr><th style="width:9%;">POS</th><th style="width:8%;">FORM</th><th style="width:38%;">SPIELER</th><th style="width:11%;">STÄ</th><th style="width:17%;">WERT</th><th style="width:17%;">AKT.</th></tr></thead>
+<tbody>${rows || '<tr><td colspan="6">Keine Spieler.</td></tr>'}</tbody>
             </table>
         </div>`;
 }

@@ -8,7 +8,6 @@ const SoundFX = {
     master: null,
     noise: null,
     amb: null,             // laufende Stadion-Atmosphäre
-    chantTimer: null,
     eventsMuted: false,    // true während "Bis zur Pause vorspulen"
     lastPlay: {},
     unlocked: false,       // iPhone: Audio wurde per Berührung freigeschaltet
@@ -78,6 +77,7 @@ const SoundFX = {
             src.start(0);
         } catch (e) { /* ignorieren */ }
         if (ctx.state === 'running') this.unlocked = true;
+        this.ensureCrowd();      // Publikums-Klänge im Hintergrund berechnen
     },
 
     statusLabel() {
@@ -222,123 +222,181 @@ const SoundFX = {
         }
     },
 
-    // ---------- Stadion-Atmosphäre ----------
-    // Kein durchgehendes Rauschen (klingt wie Meeresrauschen), sondern ein Gewirr aus vielen einzelnen
-    // Stimmen mit Silben-Rhythmus + Zurufe, Klatschen, Raunen, Pfiffe, Trommel und Gesänge. Dazu ein
-    // kurzer Stadion-Hall.
+    // ---------- Stadion-Atmosphäre (vorab berechnetes Publikum, siehe crowd.js) ----------
+    crowd: {},                // fertig berechnete Audio-Puffer
+    crowdQueued: false,
+    crowdProgress: 0,
+    excite: 0.3,              // Stimmung im Stadion 0..1 (Jubel/Chancen heizen an, danach beruhigt es sich)
+    previewUntil: 0,
+
+    // Berechnet alle Publikums-Klänge im Hintergrund (einmalig, ca. 2–8 Sekunden Rechenzeit in kleinen Scheiben)
+    ensureCrowd() {
+        if (this.crowdQueued || typeof CrowdSynth === 'undefined') return;
+        const ctx = this.ensure();
+        if (!ctx) return;
+        this.crowdQueued = true;
+        const names = CrowdSynth.JOB_NAMES.slice();
+        const next = () => {
+            const name = names.shift();
+            if (!name) { this.crowdProgress = CrowdSynth.JOB_NAMES.length; return; }
+            CrowdSynth.runJob(CrowdSynth.makeJob(name), (arr) => {
+                try {
+                    const buf = this.ctx.createBuffer(1, arr.length, CrowdSynth.RATE);
+                    if (buf.copyToChannel) buf.copyToChannel(arr, 0);
+                    else buf.getChannelData(0).set(arr);
+                    this.crowd[name] = buf;
+                } catch (e) { this.noteError('Publikum ' + name, e); }
+                this.crowdProgress++;
+                next();
+            });
+        };
+        next();
+    },
+
+    crowdReady() {
+        return Boolean(this.crowd.calm && this.crowd.excited);
+    },
+
+    crowdStatusLabel() {
+        const total = typeof CrowdSynth !== 'undefined' ? CrowdSynth.JOB_NAMES.length : 0;
+        if (!this.enabled()) return 'aus';
+        if (this.crowdProgress >= total) return '✅ fertig berechnet';
+        if (!this.crowdQueued) return '⏳ startet beim nächsten Tippen';
+        return `⏳ wird berechnet (${this.crowdProgress}/${total})`;
+    },
+
+    // Einen vorberechneten Klang abspielen
+    playBuf(name, { gain = 1, rate = 1, offset = 0, dur = null } = {}) {
+        const buf = this.crowd[name];
+        if (!buf || !this.ctx || !this.master) return false;
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        if (src.playbackRate) src.playbackRate.value = rate;
+        const g = this.ctx.createGain();
+        g.gain.value = gain;
+        src.connect(g); g.connect(this.master);
+        if (dur != null) src.start(0, offset, dur); else src.start(0, offset);
+        return true;
+    },
+
+    // Stimmung im Stadion anheizen (z. B. Tor = 1, Chance = 0,6)
+    bump(v) {
+        this.excite = Math.max(this.excite, v);
+        this.applyExcite(0.35);
+    },
+
+    baseExcite() {
+        const st = typeof liveMatchState !== 'undefined' ? liveMatchState : null;
+        if (!st || !st.userMatch) return 0.3;
+        const m = st.minute || 0;
+        let b = m <= 3 ? 0.5 : (m < 70 ? 0.22 : (m < 82 ? 0.32 : 0.42));
+        const um = st.userMatch;
+        if (m >= 60 && Math.abs((um.homeGoals || 0) - (um.awayGoals || 0)) <= 1) b += 0.15;
+        return Math.min(0.7, b);
+    },
+
+    applyExcite(ramp = 1.2) {
+        const a = this.amb;
+        if (!a || !this.ctx) return;
+        const e = Math.max(0, Math.min(1, this.excite));
+        const t = this.ctx.currentTime;
+        try {
+            a.cg.gain.cancelScheduledValues(t);
+            a.eg.gain.cancelScheduledValues(t);
+            a.cg.gain.linearRampToValueAtTime(Math.cos(e * Math.PI / 2), t + ramp);
+            a.eg.gain.linearRampToValueAtTime(Math.sin(e * Math.PI / 2), t + ramp);
+        } catch (err) { /* ignorieren */ }
+    },
+
     startAmbience() {
-        if (this.amb || !this.ensure()) return;
+        if (this.amb || !this.ensure()) return false;
+        this.ensureCrowd();
+        if (!this.crowdReady()) return false;            // wird nach der Berechnung beim nächsten syncAmbience() gestartet
         const ctx = this.ctx;
         const now = ctx.currentTime;
         const out = ctx.createGain();
         out.gain.setValueAtTime(0.0001, now);
-        out.gain.linearRampToValueAtTime(1.0, now + 1.5);
-        // Stadion-Hall (kurzes Echo mit dunklem Feedback)
-        const delay = ctx.createDelay(1.0);
-        delay.delayTime.value = 0.16;
-        const fb = ctx.createGain();
-        fb.gain.value = 0.30;
-        const fbLp = this.filter('lowpass', 1600, 0.5);
-        delay.connect(fbLp); fbLp.connect(fb); fb.connect(delay);
-        const wet = ctx.createGain();
-        wet.gain.value = 0.30;
-        out.connect(this.master); out.connect(delay); delay.connect(wet); wet.connect(this.master);
-        const stoppers = [];
-        // Nur ein Hauch dunkles Grundrauschen ("Luft" im Stadion)
-        const bed = this.noiseSource(true);
-        const bedHp = this.filter('highpass', 180, 0.7);
-        const bedLp = this.filter('lowpass', 700, 0.5);
-        const bedG = ctx.createGain();
-        bedG.gain.value = 0.05;
-        bed.connect(bedHp); bedHp.connect(bedLp); bedLp.connect(bedG); bedG.connect(out);
-        bed.start();
-        stoppers.push(bed);
-        // Stimmengewirr: 10 "Zuschauer" mit eigener Tonhöhe, Vokal und Sprech-Rhythmus
-        const voices = [];
-        for (let i = 0; i < 10; i++) {
-            const osc = ctx.createOscillator();
-            osc.type = 'sawtooth';
-            const base = i < 7 ? 95 + Math.random() * 100 : 190 + Math.random() * 70;
-            osc.frequency.value = base;
-            const f1 = this.filter('bandpass', 600, 5);
-            const f2 = this.filter('bandpass', 1100, 6);
+        out.gain.linearRampToValueAtTime(1.0, now + 1.6);
+        out.connect(this.master);
+        const mkLoop = (buf) => {
+            const src = ctx.createBufferSource();
+            src.buffer = buf;
+            src.loop = true;
             const g = ctx.createGain();
             g.gain.value = 0.0001;
-            osc.connect(f1); osc.connect(f2); f1.connect(g); f2.connect(g); g.connect(out);
-            osc.start();
-            stoppers.push(osc);
-            voices.push({ osc, f1, f2, g, base, next: now + Math.random() * 2.5 });
-        }
-        this.amb = { out, voices, stoppers, babbleTimer: null, eventTimer: null };
-        this.scheduleBabble();
-        this.scheduleCrowdEvents();
+            src.connect(g); g.connect(out);
+            return { src, g };
+        };
+        const calm = mkLoop(this.crowd.calm), exc = mkLoop(this.crowd.excited);
+        const off = Math.random() * 10;
+        calm.src.start(0, off % this.crowd.calm.duration);
+        exc.src.start(0, off % this.crowd.excited.duration);
+        this.amb = { out, cg: calm.g, eg: exc.g, srcs: [calm.src, exc.src], tick: null, shout: null, chant: null, whistle: null };
+        this.excite = this.baseExcite();
+        this.applyExcite(0.5);
+        this.scheduleAmbTick();
+        this.scheduleShout();
         this.scheduleChant();
+        this.scheduleCrowdWhistle();
+        return true;
     },
 
-    // Silben der "Zuschauer" jeweils ca. 6 Sekunden im Voraus planen
-    scheduleBabble() {
-        const a = this.amb;
-        if (!a || !this.ctx) return;
-        const ctx = this.ctx;
-        const horizon = ctx.currentTime + 6;
-        const VOWELS = [[800, 1200], [500, 900], [450, 1900], [330, 800], [600, 1700]];
-        a.voices.forEach(v => {
-            while (v.next < horizon) {
-                const t = Math.max(v.next, ctx.currentTime + 0.02);
-                const len = 0.10 + Math.random() * 0.22;
-                const peak = 0.06 + Math.random() * 0.09;
-                const vow = VOWELS[Math.floor(Math.random() * VOWELS.length)];
-                const pitch = v.base * (0.85 + Math.random() * 0.4);
-                v.osc.frequency.setValueAtTime(pitch, t);
-                v.osc.frequency.linearRampToValueAtTime(pitch * (0.9 + Math.random() * 0.2), t + len);
-                v.f1.frequency.setValueAtTime(vow[0], t);
-                v.f2.frequency.setValueAtTime(vow[1], t);
-                v.g.gain.setValueAtTime(0.0001, t);
-                v.g.gain.linearRampToValueAtTime(peak, t + len * 0.3);
-                v.g.gain.linearRampToValueAtTime(0.0001, t + len);
-                v.next = t + len + 0.05 + Math.random() * 0.9;
-            }
-        });
-        a.babbleTimer = setTimeout(() => this.scheduleBabble(), 2500);
-    },
-
-    // Zurufe, Raunen, Klatschen, Pfiffe in unregelmäßigen Abständen
-    scheduleCrowdEvents() {
+    scheduleAmbTick() {
         const a = this.amb;
         if (!a) return;
-        a.eventTimer = setTimeout(() => {
+        a.tick = setTimeout(() => {
             if (!this.amb) return;
-            if (!this.eventsMuted && this.ctx) {
-                const r = Math.random();
-                if (r < 0.42) this.shout();
-                else if (r < 0.72) this.murmurSwell();
-                else if (r < 0.88) this.clapBurst();
-                else this.crowdWhistle();
+            const base = this.baseExcite();
+            this.excite = base + (this.excite - base) * 0.90;       // Halbwertszeit ca. 6–7 Sekunden
+            this.applyExcite(1.0);
+            this.scheduleAmbTick();
+        }, 1000);
+    },
+
+    // Einzelne Zurufe aus dem Publikum
+    scheduleShout() {
+        const a = this.amb;
+        if (!a) return;
+        a.shout = setTimeout(() => {
+            if (!this.amb) return;
+            if (!this.eventsMuted) {
+                const i = Math.floor(Math.random() * 8);
+                this.playBuf('shouts', { offset: i * 1.25, dur: 1.2, gain: 0.55 + this.excite * 0.6, rate: 0.96 + Math.random() * 0.08 });
             }
-            this.scheduleCrowdEvents();
-        }, 2200 + Math.random() * 5000);
+            this.scheduleShout();
+        }, (2600 + Math.random() * 5200) / (0.6 + this.excite));
     },
 
-    shout() {
-        const f = 120 + Math.random() * 90;
-        const vowels = ['a', 'e', 'o'];
-        this.voice({ dur: 0.20 + Math.random() * 0.18, f0: f * 1.1, f1: f * 0.9, vowel: vowels[Math.floor(Math.random() * 3)], vol: 0.06 + Math.random() * 0.04, voices: 2, detune: 0.02, attack: 0.02, release: 0.10 });
+    // Fangesang: nur wenn Stimmung da ist, selten
+    scheduleChant() {
+        const a = this.amb;
+        if (!a) return;
+        a.chant = setTimeout(() => {
+            if (!this.amb) return;
+            if (!this.eventsMuted && this.excite > 0.25) this.playChant();
+            this.scheduleChant();
+        }, 28000 + Math.random() * 30000);
     },
 
-    murmurSwell() {
-        const f = 125 + Math.random() * 45;
-        this.voice({ dur: 1.0 + Math.random() * 0.9, f0: f, f1: f * (0.9 + Math.random() * 0.3), vowel: 'o', vol: 0.07, voices: 8, detune: 0.03, vibrato: 0.01, attack: 0.35, release: 0.6 });
+    playChant() {
+        const names = ['chantClap', 'chantOle', 'chantOh'].filter(n => this.crowd[n]);
+        if (!names.length || !this.ensure()) return;
+        const n = names[Math.floor(Math.random() * names.length)];
+        this.playBuf(n, { gain: 0.9 });
+        this.bump(Math.max(this.excite, 0.55));
     },
 
-    clapBurst() {
-        const n = 4 + Math.floor(Math.random() * 6);
-        let t = 0;
-        for (let i = 0; i < n; i++) {
-            this.clap(t, 0.16 + Math.random() * 0.1);
-            t += 0.12 + Math.random() * 0.14;
-        }
+    scheduleCrowdWhistle() {
+        const a = this.amb;
+        if (!a) return;
+        a.whistle = setTimeout(() => {
+            if (!this.amb) return;
+            if (!this.eventsMuted && this.ctx) this.crowdWhistle();
+            this.scheduleCrowdWhistle();
+        }, 30000 + Math.random() * 40000);
     },
 
+    // Pfiffe aus dem Publikum (leise, hoch)
     crowdWhistle() {
         const ctx = this.ctx;
         const t0 = ctx.currentTime;
@@ -357,29 +415,10 @@ const SoundFX = {
         }
     },
 
-    // Bass-Trommel der Ultras
-    kick(t, vol = 0.45) {
-        const ctx = this.ctx;
-        const t0 = ctx.currentTime + t;
-        const osc = ctx.createOscillator();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(95, t0);
-        osc.frequency.exponentialRampToValueAtTime(42, t0 + 0.14);
-        const g = this.envGain(t0, 0.004, 0.02, 0.2, vol);
-        osc.connect(g); g.connect(this.master);
-        osc.start(t0);
-        osc.stop(t0 + 0.3);
-    },
-
     stopAmbience() {
         const a = this.amb;
         if (!a) return;
-        if (a.babbleTimer) clearTimeout(a.babbleTimer);
-        if (a.eventTimer) clearTimeout(a.eventTimer);
-        if (this.chantTimer) {
-            clearTimeout(this.chantTimer);
-            this.chantTimer = null;
-        }
+        ['tick', 'shout', 'chant', 'whistle'].forEach(k => { if (a[k]) clearTimeout(a[k]); });
         this.amb = null;
         if (!this.ctx) return;
         const t = this.ctx.currentTime;
@@ -387,53 +426,11 @@ const SoundFX = {
             a.out.gain.cancelScheduledValues(t);
             a.out.gain.setValueAtTime(a.out.gain.value || 1.0, t);
             a.out.gain.linearRampToValueAtTime(0.0001, t + 0.8);
-            a.stoppers.forEach(n => { try { n.stop(t + 0.9); } catch (e) { /* bereits gestoppt */ } });
+            a.srcs.forEach(n => { try { n.stop(t + 0.9); } catch (e) { /* bereits gestoppt */ } });
         } catch (e) { /* ignorieren */ }
     },
 
-    scheduleChant() {
-        if (this.chantTimer) clearTimeout(this.chantTimer);
-        this.chantTimer = setTimeout(() => {
-            this.chantTimer = null;
-            if (!this.amb) return;
-            this.playChant();
-            this.scheduleChant();
-        }, 9000 + Math.random() * 14000);
-    },
-
-    // Fangesang: Trommel + Klatschrhythmus oder mehrstimmiger Gesang
-    playChant() {
-        if (!this.ensure() || this.eventsMuted) return;
-        const kind = Math.floor(Math.random() * 3);
-        const beat = 60 / (96 + Math.random() * 24);
-        if (kind === 0) {
-            // Klatsch – Klatsch – Klatsch-Klatsch-Klatsch (zweimal) mit Trommel auf 1 und 3
-            const pat = [0, 1, 2, 2.5, 3];
-            [0, 4].forEach(off => pat.forEach((p, i) => {
-                this.clap((off + p) * beat, 0.22);
-                if (i === 0 || i === 2) this.kick((off + p) * beat, 0.42);
-            }));
-        } else {
-            const melodies = [
-                [[0, 0.5], [2, 0.5], [4, 0.5], [2, 0.5], [0, 1.0]],            // "O-lé, o-lé …"
-                [[0, 0.33], [0, 0.33], [5, 0.67], [4, 0.33], [2, 0.33], [0, 1.0]], // "Steht auf, wenn …"
-                [[7, 0.5], [4, 0.5], [7, 0.5], [4, 0.5], [0, 1.0]]              // "Oh-oh, oh-oh"
-            ];
-            const mel = melodies[kind === 1 ? Math.floor(Math.random() * 2) : 2];
-            const base = 170 + Math.random() * 25;
-            const vowels = ['o', 'a', 'o', 'e', 'a'];
-            let t = 0;
-            mel.forEach(([semi, d], i) => {
-                const f = base * Math.pow(2, semi / 12);
-                const dur = d * beat * 2;
-                this.voice({ t, dur: dur * 0.9, f0: f, vowel: vowels[i % vowels.length], vol: 0.08, voices: 7, detune: 0.014, vibrato: 0.008, attack: 0.05, release: 0.10 });
-                this.kick(t, 0.38);
-                t += dur;
-            });
-        }
-    },
-
-    // Chor aus vielen Stimmen (Torjubel, Raunen, Buhrufe)
+    // Chor aus vielen Stimmen (Notbehelf, solange die Publikums-Klänge noch berechnet werden)
     choir({ t = 0, dur = 1.5, f0 = 160, f1 = 160, vowel = 'a', vol = 0.12, voices = 10 }) {
         this.voice({ t, dur, f0, f1, vowel, vol, voices, detune: 0.05, vibrato: 0.012, attack: Math.min(0.2, dur * 0.2), release: Math.min(1.0, dur * 0.5) });
     },
@@ -441,38 +438,61 @@ const SoundFX = {
     // ---------- Ereignisse im Live-Ticker ----------
     playTickerEvent(type, text = '') {
         if (!this.enabled() || this.eventsMuted || !this.ensure()) return;
+        this.ensureCrowd();
+        const has = (n) => Boolean(this.crowd[n]);
         if (type === 'goal') {
             if (!this.throttle('goal', 1500)) return;
-            // Torjubel: Aufschrei vieler Stimmen, Fanfare, Applaus, Trommel
-            this.choir({ dur: 2.4, f0: 150, f1: 235, vowel: 'a', vol: 0.5, voices: 12 });
-            this.choir({ t: 0.08, dur: 2.0, f0: 300, f1: 430, vowel: 'a', vol: 0.25, voices: 8 });
-            this.crowdBurst({ t: 0, dur: 1.4, attack: 0.1, release: 1.6, peak: 0.20, f0: 900, f1: 1500, q: 0.9 });
-            [0.6, 0.95, 1.3].forEach(t => this.voice({ t, dur: 0.28, f0: 233, vowel: 'a', vol: 0.12, voices: 2, detune: 0.01 }));
-            for (let i = 0; i < 14; i++) this.clap(1.0 + i * 0.13 + Math.random() * 0.05, 0.18);
-            [0.4, 0.8, 1.2, 1.6].forEach(t => this.kick(t, 0.5));
+            if (has('roar')) { this.playBuf('roar', { gain: 1 }); this.bump(1); }
+            else this.choir({ dur: 2.4, f0: 150, f1: 235, vowel: 'a', vol: 0.5, voices: 12 });
         } else if (type === 'opp-goal') {
             if (!this.throttle('opp', 1500)) return;
-            // Enttäuschtes Raunen und Buhrufe
-            this.choir({ dur: 1.6, f0: 175, f1: 110, vowel: 'o', vol: 0.30, voices: 10 });
-            this.choir({ t: 0.2, dur: 1.4, f0: 135, f1: 105, vowel: 'u', vol: 0.20, voices: 8 });
+            if (has('groan')) { this.playBuf('groan', { gain: 1 }); this.excite = Math.min(this.excite, 0.2); this.applyExcite(0.6); }
+            else this.choir({ dur: 1.6, f0: 175, f1: 110, vowel: 'o', vol: 0.30, voices: 10 });
         } else if (type === 'card-red') {
             if (!this.throttle('card', 800)) return;
             this.whistleTone(0, 0.5);
-            this.choir({ t: 0.3, dur: 1.4, f0: 150, f1: 125, vowel: 'u', vol: 0.25, voices: 10 });
+            if (has('groan')) { this.playBuf('groan', { gain: 0.8, offset: 0.1 }); this.bump(0.7); }
             this.crowdWhistle();
         } else if (type === 'card-yellow') {
             if (!this.throttle('card', 800)) return;
             this.whistleTone(0, 0.28);
-            this.choir({ t: 0.2, dur: 0.8, f0: 150, f1: 130, vowel: 'o', vol: 0.15, voices: 6 });
+            if (has('groan')) this.playBuf('groan', { gain: 0.4, rate: 1.1 });
+            this.bump(0.45);
         } else if (type === 'injury') {
             if (!this.throttle('inj', 800)) return;
             this.whistleTone(0, 0.22);
-            this.choir({ t: 0.15, dur: 0.9, f0: 165, f1: 120, vowel: 'o', vol: 0.18, voices: 6 });
+            if (has('applause')) this.playBuf('applause', { gain: 0.5 });        // Applaus für den Verletzten
         } else if (type === 'info' && /pfosten|latte|knapp|gefährlich|rettet|pariert/i.test(text)) {
             if (!this.throttle('chance', 2500)) return;
-            // Großchance: "Uuuuh!"
-            this.choir({ dur: 1.0, f0: 150, f1: 240, vowel: 'u', vol: 0.25, voices: 8 });
+            if (has('ooh')) { this.playBuf('ooh', { gain: 1 }); this.bump(0.65); }
+            else this.choir({ dur: 1.0, f0: 150, f1: 240, vowel: 'u', vol: 0.25, voices: 8 });
         }
+    },
+
+    // Vorschau in den Einstellungen
+    preview(kind) {
+        this.unlock();
+        this.ensureCrowd();
+        if (!this.crowdReady() && kind === 'stadium') return 'wait';
+        const map = { goal: 'roar', groan: 'groan', ooh: 'ooh', applause: 'applause', chant: null };
+        if (kind === 'stadium') {
+            this.previewUntil = Date.now() + 14000;
+            this.stopAmbience();
+            this.startAmbience();
+            this.excite = 0.35;
+            this.applyExcite(0.5);
+            setTimeout(() => { if (Date.now() >= this.previewUntil) { this.previewUntil = 0; this.syncAmbience(); } }, 14200);
+            return 'ok';
+        }
+        if (kind === 'chant') {
+            if (!this.crowd.chantOle) return 'wait';
+            this.playChant();
+            return 'ok';
+        }
+        const buf = map[kind];
+        if (!buf || !this.crowd[buf]) return 'wait';
+        this.playBuf(buf, { gain: 1 });
+        return 'ok';
     },
 
     // Pfiffe: Anpfiff (1 lang), Halbzeit (2), Abpfiff (3, der letzte lang)
@@ -597,8 +617,14 @@ const SoundFX = {
         const shouldRun = this.enabled() && st && st.userMatch && !st.isPaused &&
             (st.phase === 'FIRST_HALF' || st.phase === 'SECOND_HALF') &&
             (typeof document === 'undefined' || document.visibilityState !== 'hidden');
-        if (shouldRun && !this.amb) this.startAmbience();
-        else if (!shouldRun && this.amb) this.stopAmbience();
+        if (this.previewUntil && Date.now() < this.previewUntil) return;     // Vorschau läuft
+        if (shouldRun && !this.amb) {
+            const ok = this.startAmbience();
+            // Publikum wird noch berechnet: kurz später erneut versuchen
+            if (!ok && !this.retryTimer && this.enabled()) {
+                this.retryTimer = setTimeout(() => { this.retryTimer = null; this.syncAmbience(); }, 1500);
+            }
+        } else if (!shouldRun && this.amb) this.stopAmbience();
     },
 
     onSettingChanged(on) {
