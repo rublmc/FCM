@@ -1054,17 +1054,21 @@ function renderCupsView(viewport) {
         }
         const round = comp.rounds[selectedCupRoundIdx];
         const posInDrawn = drawnIdx.indexOf(selectedCupRoundIdx);
-        const matchesHtml = round.matches.map(m => {
+        const matchesHtml = round.matches.map((m, midx) => {
             const isUser = m.homeId === uid || m.awayId === uid;
             const leg1 = round.stage === 'leg2' ? comp.rounds[selectedCupRoundIdx - 1].matches[m.tie] : null;
             const winMark = (id) => (m.winnerId === id ? ' ✅' : '');
+            const mkey = `C:${comp.id}:${selectedCupRoundIdx}:${midx}`;
+            const open = m.played && openMatchKey === mkey;
             return `
-                <div class="fixture-row ${isUser ? 'user-match' : ''}" style="flex-wrap:wrap;">
+                <div class="fixture-row ${isUser ? 'user-match' : ''} ${m.played ? 'mrow' : ''}" style="flex-wrap:wrap;" ${m.played ? `data-mkey="${mkey}" role="button" tabindex="0" title="Torschützen, Karten & Wechsel anzeigen"` : ''}>
                     <span class="fixture-team" title="${getAnyClubName(m.homeId)}">${getAnyClubName(m.homeId)}${winMark(m.homeId)}</span>
                     <span class="fixture-score ${!m.played ? 'unplayed' : ''}" style="min-width:58px;">${formatCupScore(m)}</span>
                     <span class="fixture-team away" title="${getAnyClubName(m.awayId)}">${getAnyClubName(m.awayId)}${winMark(m.awayId)}</span>
+                    ${m.played ? `<span style="font-size:0.62rem; color:#777;">${open ? '▴' : '▾'}</span>` : ''}
                     ${leg1 && leg1.played ? `<div style="width:100%; font-size:0.58rem; color:#555; text-align:center;">Hinspiel ${leg1.homeGoals}:${leg1.awayGoals}</div>` : ''}
-                </div>`;
+                </div>
+                ${open ? `<div class="match-detail-wrap">${buildFinishedMatchDetailHtml(m, `${m.homeId}|${m.awayId}|${comp.id}|${selectedCupRoundIdx}|${midx}`, mkey)}</div>` : ''}`;
         }).join('');
         bodyHtml = `
             <div class="bmh-box" style="padding:6px;">
@@ -1110,16 +1114,25 @@ function renderCupsView(viewport) {
     viewport.querySelectorAll('[data-cupsub]').forEach(btn => {
         btn.addEventListener('click', (e) => {
             cupsSubTab = e.currentTarget.dataset.cupsub;
+            openMatchKey = null;
             renderCupsView(viewport);
         });
+    });
+    viewport.querySelectorAll('.mrow[data-mkey]').forEach(row => {
+        const toggle = () => {
+            openMatchKey = openMatchKey === row.dataset.mkey ? null : row.dataset.mkey;
+            renderCupsView(viewport);
+        };
+        row.addEventListener('click', toggle);
+        row.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } });
     });
     if (cupsSubTab === 'rounds') {
         const drawnIdx = comp.rounds.map((r, i) => (r.drawn ? i : -1)).filter(i => i >= 0);
         const posInDrawn = drawnIdx.indexOf(selectedCupRoundIdx);
         const prev = document.getElementById('btn-cup-prev');
-        if (prev) prev.addEventListener('click', () => { if (posInDrawn > 0) { selectedCupRoundIdx = drawnIdx[posInDrawn - 1]; renderCupsView(viewport); } });
+        if (prev) prev.addEventListener('click', () => { if (posInDrawn > 0) { selectedCupRoundIdx = drawnIdx[posInDrawn - 1]; openMatchKey = null; renderCupsView(viewport); } });
         const next = document.getElementById('btn-cup-next');
-        if (next) next.addEventListener('click', () => { if (posInDrawn < drawnIdx.length - 1) { selectedCupRoundIdx = drawnIdx[posInDrawn + 1]; renderCupsView(viewport); } });
+        if (next) next.addEventListener('click', () => { if (posInDrawn < drawnIdx.length - 1) { selectedCupRoundIdx = drawnIdx[posInDrawn + 1]; openMatchKey = null; renderCupsView(viewport); } });
     }
 }
 

@@ -1563,3 +1563,22 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
 .iv-meter.pos { border-color: #246b35; background: #d3f9d8; }
 .iv-meter.neg { border-color: #a82424; background: #ffe3e3; }
 .club-row:hover td { background: #d0dfd4; }
+
+/* ==========================================
+   v1.13: FORM-PFEILE, SPIELERKARTE, BIETERKAMPF, SPIEL-DETAILS
+   ========================================== */
+.form-flat { color: #777; font-size: 0.56rem; font-weight: bold; }
+.pitch-node .form-up, .player-chip .form-up { color: #6ee787; }
+.pitch-node .form-down, .player-chip .form-down { color: #ff8787; }
+.pitch-node .form-flat { color: #c3dec9; }
+.player-chip .form-up { color: #2b8a3e; }
+.player-chip .form-down { color: #c92a2a; }
+.form-legend { font-size: 0.60rem; color: #444; margin: -2px 0 6px 0; }
+.mrow { cursor: pointer; }
+.mrow:hover { background: #d0dfd4; }
+.club-player-row:hover td, .mkt-row:hover td { background: #d0dfd4; }
+.match-detail-wrap { background: #fff; border: 1px solid #b5bab7; padding: 5px 6px; margin: 0 0 4px 0; }
+
+/* v1.13.1: Ton-Hilfe */
+.sound-help-body { background: #e9ecea; border: 1px solid var(--panel-shadow); padding: 6px; margin-top: 4px; }
+.sound-help-body .setting-row { padding-bottom: 0; }

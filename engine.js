@@ -243,6 +243,8 @@ function switchToView(viewName) {
     selectedSwapSource = null;
     activeNegotiation = null;
     playerCardId = null;
+    viewedPlayerId = null;
+    openMatchKey = null;
     calendarOpenReportKey = null;
     tacticsEditMode = false;
     document.getElementById('main-viewport').scrollTop = 0;

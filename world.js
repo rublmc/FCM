@@ -154,9 +154,7 @@ function syncGameClock() {
 // Alte Spielstände / Spielstart: Transferlisten passend zum aktuellen Fenster aufbauen
 function ensureTransferWindowInitialized() {
     ensureTransferState();
-    const w = getTransferWindow();
-    if (w.open && GameState.meta.aiListKey !== w.key) refreshAiTransferList(w.key);
-    if (!w.open && GameState.players.some(p => p.aiListed)) endAiTransferList();
+    ensureAiListingsSeeded();
 }
 
 // ==========================================
@@ -241,7 +239,7 @@ function movePlayerToClub(p, clubId) {
     p.transferListed = false;
     p.askingMult = 1;
     p.aiListed = false;
-    p.aiListKey = undefined;
+    p.aiUntil = undefined;
     p.pendingMove = false;
 }
 
@@ -513,6 +511,7 @@ function generateRoutineEvents() {
     processEmployeeEvents();
     updateFansWeekly();
     rollStadiumConstructionEvent();
+    updateAiTransferListings(false);
 }
 
 // ==========================================

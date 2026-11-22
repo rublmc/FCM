@@ -323,6 +323,7 @@ function simulateSingleMatch(match, isOfficialLeagueMatch = true) {
                     p.seasonCleanSheets = (p.seasonCleanSheets || 0) + 1;
                 }
             });
+            shiftAiForm(sq.slice(0, 14), cid === match.homeId ? homeGoals : awayGoals, conceded);
             sq.slice(11, 15).forEach(p => {
                 p.seasonApps = (p.seasonApps || 0) + 1;
                 p.seasonMinutes = (p.seasonMinutes || 0) + 22;
@@ -854,7 +855,9 @@ function renderLeagueView(viewport) {
     bindNextEventBanner();
     document.getElementById('league-view-select').addEventListener('change', (e) => {
         selectedLeagueViewId = e.currentTarget.value;
+        openMatchKey = null;
         viewedClubId = null;
+        viewedPlayerId = null;
         if (leagueSubTab === 'club') leagueSubTab = 'table';
         activeNegotiation = null;
         renderLeagueView(viewport);
@@ -862,6 +865,7 @@ function renderLeagueView(viewport) {
     document.querySelectorAll('[data-lsub]').forEach(btn => {
         btn.addEventListener('click', (e) => {
             leagueSubTab = e.currentTarget.dataset.lsub;
+            openMatchKey = null;
             viewedClubId = null;
             activeNegotiation = null;
             renderLeagueView(viewport);
@@ -871,6 +875,7 @@ function renderLeagueView(viewport) {
     viewport.querySelectorAll('.club-row[data-clubid]').forEach(row => {
         row.addEventListener('click', () => {
             viewedClubId = row.dataset.clubid;
+            viewedPlayerId = null;
             leagueSubTab = 'club';
             activeNegotiation = null;
             renderLeagueView(viewport);
@@ -882,18 +887,28 @@ function renderLeagueView(viewport) {
         bindTransferNegotiationPanel(() => renderLeagueView(viewport));
     }
 
+    viewport.querySelectorAll('.mrow[data-mkey]').forEach(row => {
+        const toggle = () => {
+            openMatchKey = openMatchKey === row.dataset.mkey ? null : row.dataset.mkey;
+            renderLeagueView(viewport);
+        };
+        row.addEventListener('click', toggle);
+        row.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } });
+    });
     if (leagueSubTab === 'fixtures') {
         const prevBtn = document.getElementById('btn-md-prev');
         const nextBtn = document.getElementById('btn-md-next');
         if (prevBtn) {
             prevBtn.addEventListener('click', () => {
-                selectedFixtureMatchday = Math.max(1, selectedFixtureMatchday - 1);
+            selectedFixtureMatchday = Math.max(1, selectedFixtureMatchday - 1);
+                openMatchKey = null;
                 renderLeagueView(viewport);
             });
         }
         if (nextBtn) {
             nextBtn.addEventListener('click', () => {
                 selectedFixtureMatchday = Math.min(totalMds, selectedFixtureMatchday + 1);
+                openMatchKey = null;
                 renderLeagueView(viewport);
             });
         }
@@ -985,7 +1000,7 @@ function buildFixturesTabHtml(leagueId, mdNum, totalMds) {
         `;
     }
 
-    const matchesHtml = !mdObj ? '<p>Kein Spielplan gefunden.</p>' : mdObj.matches.map(m => {
+    const matchesHtml = !mdObj ? '<p>Kein Spielplan gefunden.</p>' : mdObj.matches.map((m, midx) => {
         const homeName = GameState.clubs[m.homeId]?.name || m.homeId;
         const awayName = GameState.clubs[m.awayId]?.name || m.awayId;
         const isUserMatch = m.homeId === GameState.activeClubId || m.awayId === GameState.activeClubId;
@@ -994,13 +1009,18 @@ function buildFixturesTabHtml(leagueId, mdNum, totalMds) {
             : 'vs.';
         if (m.postponed) scoreText = `${getWeather(m.weather).icon} ABG.`;
         const wIcon = (m.weather && !m.postponed) ? `<span style="font-size:0.62rem;" title="${getWeather(m.weather).label}">${getWeather(m.weather).icon}</span>` : '';
+        const mkey = `L:${leagueId}:${mdNum}:${midx}`;
+        const played = m.homeGoals !== null && m.awayGoals !== null && !m.postponed;
+        const open = played && openMatchKey === mkey;
         return `
-            <div class="fixture-row ${isUserMatch ? 'user-match' : ''}">
+            <div class="fixture-row ${isUserMatch ? 'user-match' : ''} ${played ? 'mrow' : ''}" ${played ? `data-mkey="${mkey}" role="button" tabindex="0" title="Torschützen, Karten & Wechsel anzeigen"` : ''}>
                 <span class="fixture-team" title="${homeName}">${homeName}</span>
                 <span class="fixture-score ${m.homeGoals === null ? 'unplayed' : ''}" title="${m.postponed ? 'Abgesagt: ' + getWeather(m.weather).label + ' – wird nachgeholt' : (m.wasPostponed ? 'Nachholspiel' : '')}">${scoreText}</span>
                 <span class="fixture-team away" title="${awayName}">${awayName}</span>
                 ${wIcon}
+                ${played ? `<span style="font-size:0.62rem; color:#777;">${open ? '▴' : '▾'}</span>` : ''}
             </div>
+            ${open ? `<div class="match-detail-wrap">${buildFinishedMatchDetailHtml(m, `${m.homeId}|${m.awayId}|${leagueId}|${mdNum}`, mkey)}</div>` : ''}
         `;
     }).join('');
 

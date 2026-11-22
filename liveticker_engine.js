@@ -1243,8 +1243,8 @@ function finalizeLiveMatchdayInner() {
                     origMatch.postponed = false;
                     origMatch.wasPostponed = true;
                 }
-                // Torschützen nur für die eigene Liga speichern (spart Speicherplatz)
-                origMatch.events = lid === st.userLeagueId ? lm.events.map(ev => ({ minute: ev.minute, side: ev.side, type: ev.type, playerName: ev.playerName })) : [];
+                // Torschützen aller Ligen speichern (für die Ansicht nach dem Spiel); ältere Spieltage anderer Ligen werden unten bereinigt
+                origMatch.events = (lid === st.userLeagueId || mode !== 'catchup') ? lm.events.map(ev => ({ minute: ev.minute, side: ev.side, type: ev.type, playerName: ev.playerName })) : [];
                 lm.events.forEach(ev => {
                     if (ev.type === "goal" && ev.scorerId) {
                         const pl = playerById.get(ev.scorerId);
@@ -1264,6 +1264,7 @@ function finalizeLiveMatchdayInner() {
                         p.seasonMinutes = (p.seasonMinutes || 0) + 90;
                         if (conceded === 0 && ["TW", "IV", "LV", "RV", "DM"].includes(p.pos)) p.seasonCleanSheets = (p.seasonCleanSheets || 0) + 1;
                     });
+                    shiftAiForm(sq.slice(0, 14), cid === lm.homeId ? lm.homeGoals : lm.awayGoals, conceded);
                     sq.slice(11, 15).forEach(p => {
                         p.seasonApps = (p.seasonApps || 0) + 1;
                         p.clubApps = (p.clubApps || 0) + 1;
@@ -1279,6 +1280,11 @@ function finalizeLiveMatchdayInner() {
             Object.keys(GameState.schedule).forEach(lid => {
                 const mdObj = GameState.schedule[lid].matchdays.find(m => m.matchday === currentMd);
                 if (mdObj) mdObj.played = true;
+                // Speicherplatz: Torschützen anderer Ligen nur für die letzten 3 Spieltage behalten
+                if (lid !== st.userLeagueId) {
+                    const old = GameState.schedule[lid].matchdays.find(m => m.matchday === currentMd - 3);
+                    if (old) old.matches.forEach(m => { if (m.events && m.events.length) m.events = []; });
+                }
             });
         }
     }

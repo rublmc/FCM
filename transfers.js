@@ -157,8 +157,10 @@ function executePendingTransfers() {
             } else {
                 executeUserSigning(p, pt.fee, pt.salary, pt.years, pt.bonus);
             }
-        } else if (pt.dir === 'out') {
-            if (p.clubId !== uid) return;
+          } else if (pt.dir === 'ai') {
+              executeAiSigning(pt, p);
+          } else if (pt.dir === 'out') {
+              if (p.clubId !== uid) return;
             completePlayerSale(p, pt.toId, pt.fee);
             addInbox('✅', `Wechsel vollzogen: ${p.name}`, `${p.name} ist jetzt offiziell bei ${getAnyClubName(pt.toId)}. Ablöse: ${formatMoneyShort(pt.fee)}.`, 'transfer');
         }
@@ -168,50 +170,84 @@ function executePendingTransfers() {
 }
 
 // ==========================================
-// KI: TRANSFERLISTEN (nur diese Spieler landen auf dem Transfermarkt)
+// KI: TRANSFERLISTEN (laufend das ganze Jahr – nur diese Spieler landen auf dem Transfermarkt)
+// Außerhalb des Fensters kannst du über sie verhandeln (Vorvertrag), der Wechsel erfolgt zum Fensterstart.
 // ==========================================
-function refreshAiTransferList(key) {
+function aiListingWeight(p, club, core, seasonEnd) {
+    let w = 0.02;
+    if (!core.has(p.id)) w += 0.30;
+    const age = p.age || 25;
+    if (age >= 31) w += 0.20;
+    if (age >= 33) w += 0.20;
+    if ((p.contractUntil || seasonEnd + 1) <= seasonEnd) w += 0.30;       // Vertrag läuft aus
+    else if (p.contractUntil === seasonEnd + 1) w += 0.06;
+    if ((club.budget || 0) < 0) w += 0.12;                                // Geldnot
+    if ((p.motivation || 78) < 55) w += 0.10;                             // unzufrieden
+    return w;
+}
+
+function aiListingTarget(club, sq) {
+    let t = 1 + Math.floor(Math.random() * 3);                            // 1–3
+    if (sq.length >= 23) t += 1;
+    if ((club.budget || 0) < 0) t += 1;
+    return Math.min(5, t);
+}
+
+// big = true: große Welle (Fensterstart / Spielbeginn), sonst kleiner Nachschub pro Woche/Spiel
+function updateAiTransferListings(big = false) {
     const uid = GameState.activeClubId;
+    const tick = GameState.meta.tick || 0;
     const seasonEnd = getCurrentSeasonEndYear();
-    GameState.players.forEach(p => { if (p.aiListed) { p.aiListed = false; p.aiListKey = undefined; } });
+    const newlyListed = [];
     const byClub = new Map();
     GameState.players.forEach(p => {
         if (p.clubId === 'free' || p.clubId === uid || !GameState.clubs[p.clubId]) return;
-        if (!byClub.has(p.clubId)) byClub.set(p.clubId, []);
-        byClub.get(p.clubId).push(p);
+        let arr = byClub.get(p.clubId);
+        if (!arr) { arr = []; byClub.set(p.clubId, arr); }
+        arr.push(p);
+        // Abgelaufene Listungen entfernen (der Verein behält den Spieler)
+        if (p.aiListed && tick >= (p.aiUntil || 0)) { p.aiListed = false; p.aiUntil = undefined; }
     });
-    let total = 0;
     byClub.forEach((sq, cid) => {
         const club = GameState.clubs[cid];
         if (sq.length <= 16) return;
+        const listed = sq.filter(p => p.aiListed).length;
+        const target = aiListingTarget(club, sq);
+        if (listed >= target) return;
+        if (!big && Math.random() > 0.40) return;
         const sorted = [...sq].sort((a, b) => b.rating - a.rating);
         const core = new Set(sorted.slice(0, 13).map(p => p.id));
-        const stress = (club.budget || 0) < 0;
-        const cands = sq.filter(p => !p.pendingMove && (
-            (!core.has(p.id) && Math.random() < 0.38) ||
-            ((p.age || 25) >= 32 && Math.random() < 0.30) ||
-            ((p.contractUntil || 0) <= seasonEnd && Math.random() < 0.22) ||
-            (stress && core.has(p.id) && Math.random() < 0.12)
-        ));
-        cands.sort(() => Math.random() - 0.5).slice(0, 3).forEach(p => {
+        const pool = sq.filter(p => !p.aiListed && !p.pendingMove);
+        let add = big ? target - listed : 1;
+        while (add-- > 0 && pool.length > 0) {
+            const p = pickWeighted(pool, x => aiListingWeight(x, club, core, seasonEnd));
+            pool.splice(pool.indexOf(p), 1);
             p.aiListed = true;
-            p.aiListKey = key;
-            total++;
-        });
+            p.aiUntil = tick + 6 + Math.floor(Math.random() * 6);
+            newlyListed.push(p);
+        }
     });
-    GameState.meta.aiListKey = key;
-    return total;
+    // Hinweis im Postfach: ein interessanter Neuzugang auf der Liste (höchstens einer pro Runde)
+    if (!big && newlyListed.length > 0 && Math.random() < 0.40) {
+        const myAvg = getClubTop11Strength(uid);
+        const hot = newlyListed.filter(p => p.rating >= myAvg - 0.3 && (p.age || 25) <= 33).sort((a, b) => b.rating - a.rating)[0];
+        if (hot) {
+            addInbox('📋', `Transferliste: ${hot.name} zu haben`, `${getAnyClubName(hot.clubId)} bietet ${hot.name} (${hot.pos}, ${hot.rating.toFixed(1)}, ${hot.age} J.) zum Verkauf an – Ablöse ca. ${formatMoneyShort(calculateTransferFee(hot))}.${isTransferWindowOpen() ? '' : ' Das Fenster ist zu: Bei Einigung gibt es einen Vorvertrag, der Wechsel erfolgt zum Fensterstart.'} Du findest ihn unter 👥 KADER → TRANSFERMARKT.`, 'transfer');
+        }
+    }
+    return newlyListed;
 }
 
-function endAiTransferList() {
-    GameState.players.forEach(p => { if (p.aiListed) { p.aiListed = false; p.aiListKey = undefined; } });
+function ensureAiListingsSeeded() {
+    if (GameState.meta.aiListSeeded === GameState.meta.season && GameState.players.some(p => p.aiListed)) return;
+    GameState.meta.aiListSeeded = GameState.meta.season;
+    updateAiTransferListings(true);
 }
 
 function isOnTransferMarket(p) {
     if (!p || p.pendingMove) return false;
     if (p.clubId === 'free') return true;
-    const w = getTransferWindow();
-    return Boolean(p.aiListed && w.open && p.aiListKey === w.key);
+    return Boolean(p.aiListed);
 }
 
 // Wird bei jedem Fortschreiten der Spieluhr aufgerufen
@@ -219,14 +255,13 @@ function onTransferClockAdvance(oldISO, newISO) {
     const wOld = oldISO ? getTransferWindow(oldISO) : { open: false, key: null };
     const wNew = getTransferWindow(newISO);
     if (wNew.open && (!wOld.open || wOld.key !== wNew.key)) {
-        const n = refreshAiTransferList(wNew.key);
-        addInbox('🟢', `Transferfenster geöffnet (${wNew.label})`, `Bis zum ${formatGameDate(wNew.closesISO, true)} können Transfers vollzogen werden. ${n} Spieler anderer Vereine stehen auf dem Transfermarkt. Vereinbarte Vorverträge werden jetzt ausgeführt.`, 'transfer');
-    } else if (wNew.open && GameState.meta.aiListKey !== wNew.key) {
-        refreshAiTransferList(wNew.key);
+        updateAiTransferListings(true);
+        const top = GameState.players.filter(p => p.aiListed && !p.pendingMove).sort((a, b) => b.rating - a.rating).slice(0, 5)
+            .map(p => `${p.name} (${p.pos}, ${p.rating.toFixed(1)}) – ${getAnyClubName(p.clubId)}`);
+        addInbox('🟢', `Transferfenster geöffnet (${wNew.label})`, `Bis zum ${formatGameDate(wNew.closesISO, true)} können Transfers vollzogen werden. ${GameState.players.filter(p => p.aiListed).length} Spieler anderer Vereine stehen zum Verkauf.${top.length ? '\nDie Stärksten:\n' + top.join('\n') : ''}\nVereinbarte Vorverträge werden jetzt ausgeführt.`, 'transfer');
     }
     if (!wNew.open && wOld.open) {
-        endAiTransferList();
-        addInbox('🔴', 'Transferfenster geschlossen', `Das ${wOld.label || 'Transferfenster'} ist zu. Neue Wechsel sind erst wieder ab dem ${formatGameDate(wNew.nextOpenISO, true)} möglich. Du kannst aber schon jetzt über die Tabelle (Kader anderer Vereine) verhandeln.`, 'transfer');
+        addInbox('🔴', 'Transferfenster geschlossen', `Das ${wOld.label || 'Transferfenster'} ist zu. Wechsel sind erst wieder ab dem ${formatGameDate(wNew.nextOpenISO, true)} möglich. Verhandeln kannst du aber weiter: Spieler auf dem Transfermarkt oder über die Tabelle (Kader anderer Vereine) – bei Einigung gibt es einen Vorvertrag.`, 'transfer');
     }
     executePendingTransfers();
 }
@@ -251,11 +286,11 @@ function buildClubSquadHtml(clubId) {
             else if (isTransferBlocked(p.id)) action = `<span title="Gesprächssperre">🔒</span>`;
             else action = `<button type="button" class="mini-action-btn btn-club-bid" data-pid="${p.id}">ANGEBOT</button>`;
         }
-        const yrs = (p.contractUntil || seasonEnd) - seasonEnd;
+          const yrs = (p.contractUntil || seasonEnd) - seasonEnd;
         return `
-            <tr>
+            <tr class="club-player-row" data-pid="${p.id}" style="cursor:pointer;" title="Spielerkarte öffnen">
                 <td><strong>${p.pos}</strong></td>
-                <td title="${p.name}"><strong>${p.name}</strong> ${p.aiListed && isTransferWindowOpen() ? '<span title="Steht auf der Transferliste">📋</span>' : ''}<br><span style="font-size:0.60rem; color:#444;">${p.age} J. • Vertrag '${String(p.contractUntil).slice(-2)}${yrs <= 0 ? ' ⚠️' : ''} • Ablöse ${fee === 0 ? 'frei' : formatMoneyShort(fee)}</span></td>
+                <td title="${p.name}"><strong>${p.name}</strong> ${getFormArrow(p)} ${p.aiListed ? '<span title="Steht auf der Transferliste">📋</span>' : ''}<br><span style="font-size:0.60rem; color:#444;">${p.age} J. • Vertrag '${String(p.contractUntil).slice(-2)}${yrs <= 0 ? ' ⚠️' : ''} • Ablöse ${fee === 0 ? 'frei' : formatMoneyShort(fee)}</span></td>
                 <td><strong>${p.rating.toFixed(1)}</strong></td>
                 <td style="font-size:0.66rem;">${formatMoneyShort(calculateMarketValue(p))}</td>
                 <td>${action}</td>
@@ -271,7 +306,8 @@ function buildClubSquadHtml(clubId) {
                 </div>
                 <button id="btn-club-back" type="button" class="bmh-btn small-btn">◀ TABELLE</button>
             </div>
-            ${isOwn ? '<p style="font-size:0.68rem; color:#555; margin-bottom:4px;">Das ist dein eigener Kader.</p>' : '<p style="font-size:0.64rem; color:#444; margin-bottom:6px;">Tippe auf <strong>ANGEBOT</strong>, um den Spieler abzuwerben: erst Ablöse mit dem Verein, dann Vertrag mit dem Spieler. Stammspieler sind teuer.</p>'}
+${isOwn ? '<p style="font-size:0.68rem; color:#555; margin-bottom:4px;">Das ist dein eigener Kader.</p>' : '<p style="font-size:0.64rem; color:#444; margin-bottom:6px;">👆 Tippe auf einen Spieler für die <strong>Spielerkarte</strong>. Mit <strong>ANGEBOT</strong> wirbst du ihn ab: erst Ablöse mit dem Verein, dann Vertrag mit dem Spieler. Stammspieler sind teuer, und andere Vereine können mitbieten.</p>'}
+            ${viewedPlayerId && squad.some(p => p.id === viewedPlayerId) ? buildOtherPlayerCardHtml(squad.find(p => p.id === viewedPlayerId)) : ''}
             <table class="bmh-table">
                 <thead><tr><th style="width:10%;">POS</th><th style="width:44%;">SPIELER</th><th style="width:11%;">STÄ</th><th style="width:18%;">WERT</th><th style="width:17%;">AKT.</th></tr></thead>
                 <tbody>${rows || '<tr><td colspan="5">Keine Spieler.</td></tr>'}</tbody>
@@ -281,23 +317,372 @@ function buildClubSquadHtml(clubId) {
 
 function bindClubSquadView(viewport, rerender) {
     const back = document.getElementById('btn-club-back');
-    if (back) back.addEventListener('click', () => { viewedClubId = null; leagueSubTab = 'table'; activeNegotiation = null; rerender(); });
-    viewport.querySelectorAll('.btn-club-bid').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const pid = e.currentTarget.dataset.pid;
-            const target = GameState.players.find(p => p.id === pid);
-            if (!target) return;
-            if (getClubPlayers().length >= MAX_SQUAD_SIZE) {
-                alert(`Dein Kader ist voll (${MAX_SQUAD_SIZE} Spieler). Verkaufe zuerst einen Spieler!`);
-                return;
-            }
-            if (isTransferBlocked(pid)) {
-                alert(`${target.name} bzw. sein Verein ist vorerst nicht gesprächsbereit.`);
-                return;
-            }
-            startTransferNegotiation(target);
+    if (back) back.addEventListener('click', () => { viewedClubId = null; viewedPlayerId = null; leagueSubTab = 'table'; activeNegotiation = null; rerender(); });
+    viewport.querySelectorAll('.club-player-row').forEach(row => {
+        row.addEventListener('click', () => {
+            viewedPlayerId = viewedPlayerId === row.dataset.pid ? null : row.dataset.pid;
             rerender();
             document.getElementById('main-viewport').scrollTop = 0;
         });
     });
+    viewport.querySelectorAll('.btn-club-bid').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            startBidForPlayer(e.currentTarget.dataset.pid, rerender);
+        });
+    });
+    bindOtherPlayerCard(viewport, rerender);
+}
+
+// Verhandlung mit einem fremden Spieler starten (Tabelle → Kader, Spielerkarte, Transfermarkt)
+function startBidForPlayer(pid, rerender) {
+    const target = GameState.players.find(p => p.id === pid);
+    if (!target) return;
+    if (getClubPlayers().length >= MAX_SQUAD_SIZE) {
+        alert(`Dein Kader ist voll (${MAX_SQUAD_SIZE} Spieler). Verkaufe zuerst einen Spieler!`);
+        return;
+    }
+    if (isTransferBlocked(pid)) {
+        alert(`${target.name} bzw. sein Verein ist vorerst nicht gesprächsbereit.`);
+        return;
+    }
+    if (getPendingFor(pid) || target.pendingMove) {
+        alert(`${target.name} hat sich bereits für einen Wechsel entschieden.`);
+        return;
+    }
+    viewedPlayerId = null;
+    startTransferNegotiation(target);
+    rerender();
+    document.getElementById('main-viewport').scrollTop = 0;
+}
+
+// ==========================================
+// SPIELERKARTE FÜR FREMDE SPIELER
+// ==========================================
+function buildOtherPlayerCardHtml(p) {
+    if (!p) return '';
+    const uid = GameState.activeClubId;
+    const seasonEnd = getCurrentSeasonEndYear();
+    const club = p.clubId === 'free' ? null : GameState.clubs[p.clubId];
+    const isOwn = p.clubId === uid;
+    const fee = calculateTransferFee(p);
+    const yrsLeft = (p.contractUntil || seasonEnd) - seasonEnd;
+    const stars = '★'.repeat(p.talent || 3) + '☆'.repeat(Math.max(0, 5 - (p.talent || 3)));
+    const trait = PLAYER_TRAITS[getPlayerTrait(p)];
+    const pend = getPendingFor(p.id);
+    const blocked = isTransferBlocked(p.id);
+    const f = p.form || 0;
+    let actionHtml = '';
+    if (isOwn) actionHtml = '<p style="font-size:0.68rem; color:#555;">Das ist ein Spieler deines Vereins – Details unter 👥 KADER.</p>';
+    else if (pend || p.pendingMove) actionHtml = '<p style="font-size:0.70rem;">⏳ <strong>Wechsel vereinbart</strong> – der Spieler ist nicht mehr zu haben.</p>';
+    else actionHtml = `<button id="btn-oc-bid" type="button" class="bmh-btn primary small-btn" ${blocked ? 'disabled' : ''} style="width:100%;">${blocked ? '🔒 GESPRÄCHSSPERRE' : (p.clubId === 'free' ? '✍️ VERHANDELN (ablösefrei)' : `💼 ANGEBOT ABGEBEN (Ablöse ca. ${formatMoneyShort(fee)})`)}</button>`;
+    return `
+        <div class="player-card">
+            <div class="pc-head">
+                <div class="pc-pos">${p.pos}</div>
+                <div style="flex:1; min-width:0;">
+                    <div class="pc-name">${p.name} ${getFormArrow(p)}</div>
+                    <div class="pc-sub">${p.age} Jahre • ${club ? club.name : 'vereinslos'} • Talent ${stars}</div>
+                </div>
+                <div class="pc-rating">${p.rating.toFixed(1)}</div>
+                <button id="btn-oc-close" type="button" class="bmh-btn danger small-btn" style="padding:2px 7px; align-self:flex-start;">✕</button>
+            </div>
+            ${p.aiListed ? `<div class="pc-status"><span class="contract-pill medium">📋 Steht zum Verkauf</span></div>` : ''}
+            <div class="pc-trait"><strong>${trait.icon || '🙂'} Charakter: ${trait.label}</strong><br><span>${trait.desc}</span></div>
+            <div class="pc-grid">
+                <div class="pc-cell"><span>SPIELE SAISON</span><strong>${p.seasonApps || 0}</strong><em>${p.seasonMinutes || 0} Min.</em></div>
+                <div class="pc-cell"><span>TORE SAISON</span><strong>${p.seasonGoals || 0}</strong><em>+ ${p.cupGoals || 0} im Pokal</em></div>
+                <div class="pc-cell"><span>AKTUELLE FORM</span><strong>${f >= 0 ? '+' : ''}${f.toFixed(2)} ${getFormArrow(p)}</strong><em>Basis ${getBaseRating(p).toFixed(1)}</em></div>
+                <div class="pc-cell"><span>Ø NOTE</span><strong>${p.gradeCount ? gradeAvgLabel(p.gradeSum / p.gradeCount) : '–'}</strong><em>${p.gradeCount ? p.gradeCount + ' bewertete Spiele' : 'nur für eigene Spieler'}</em></div>
+                <div class="pc-cell"><span>ZU-NULL-SPIELE</span><strong>${p.seasonCleanSheets || 0}</strong><em>${['TW', 'IV', 'LV', 'RV', 'DM'].includes(p.pos) ? 'Defensive' : '–'}</em></div>
+                <div class="pc-cell"><span>MARKTWERT</span><strong>${formatMoneyShort(calculateMarketValue(p))}</strong><em>${fee === 0 ? 'ablösefrei' : 'Ablöse ca. ' + formatMoneyShort(fee)}</em></div>
+                <div class="pc-cell"><span>GEHALT / JAHR</span><strong>${formatMoneyShort(p.salary || 0)}</strong><em>marktüblich ${formatMoneyShort(calculateExpectedSalary(p))}</em></div>
+                <div class="pc-cell"><span>VERTRAG BIS</span><strong>${p.contractUntil || '–'}</strong><em>${yrsLeft <= 0 ? '⚠️ läuft aus' : 'noch ' + (yrsLeft + 1) + ' Saison' + (yrsLeft + 1 === 1 ? '' : 's')}</em></div>
+            </div>
+            <div class="pc-actions">${actionHtml}</div>
+        </div>`;
+}
+
+function bindOtherPlayerCard(viewport, rerender) {
+    const close = document.getElementById('btn-oc-close');
+    if (close) close.addEventListener('click', () => { viewedPlayerId = null; rerender(); });
+    const bid = document.getElementById('btn-oc-bid');
+    if (bid) bid.addEventListener('click', () => startBidForPlayer(viewedPlayerId, rerender));
+}
+
+// ==========================================
+// KONKURRENZ & BIETERKAMPF
+// Mehrere Vereine können in eine Verhandlung einsteigen. Entscheiden tun am Ende der Spieler
+// (Gehalt, Prestige, Einsatzchancen) und sein Verein (Ablöse) – nicht allein das höchste Gebot.
+// ==========================================
+function roundFee(v) {
+    return v >= 1000000 ? Math.round(v / 100000) * 100000 : Math.round(v / 25000) * 25000;
+}
+
+function rollTransferRivals(target, asking) {
+    const uid = GameState.activeClubId;
+    const isFree = target.clubId === 'free';
+    let p = 0.10 + Math.max(0, target.rating - 6.5) * 0.12;
+    if ((target.age || 25) <= 24) p += 0.10;
+    if (target.aiListed) p += 0.06;
+    if (isFree) p += 0.08;
+    p = Math.max(0.08, Math.min(0.75, p));
+    if (Math.random() > p) return [];
+    const marketSal = getPlayerReferenceSalary(target);
+    const cands = Object.values(GameState.clubs).filter(c => {
+        if (c.id === uid || c.id === target.clubId) return false;
+        if (getClubPlayers(c.id).length >= MAX_SQUAD_SIZE) return false;
+        const avg = getClubTop11Strength(c.id);
+        if (avg > target.rating + 0.7 || avg < target.rating - 1.4) return false;
+        return (c.budget || 0) >= (isFree ? marketSal * 1.2 : asking * 0.6);
+    });
+    if (cands.length === 0) return [];
+    let n = Math.random() < 0.30 ? 2 : 1;
+    if (target.rating >= 8.5 && Math.random() < 0.30) n = 3;
+    const rivals = [];
+    for (let i = 0; i < n && cands.length > 0; i++) {
+        const c = pickWeighted(cands, x => Math.max(0.2, 1 - Math.abs(getClubTop11Strength(x.id) - target.rating) * 0.5));
+        cands.splice(cands.indexOf(c), 1);
+        rivals.push({
+            clubId: c.id, name: c.name, leagueId: c.leagueId,
+            fee: isFree ? 0 : roundFee(asking * (0.92 + Math.random() * 0.28)),
+            salary: Math.round((marketSal * (0.95 + Math.random() * 0.25)) / 10000) * 10000,
+            years: 3, bonus: 0
+        });
+    }
+    return rivals;
+}
+
+// Die Konkurrenz legt nach, sobald du nachlegst (bleibt aber im Rahmen ihrer Möglichkeiten)
+function escalateRivals(rivals, asking, chance = 0.55) {
+    (rivals || []).forEach(r => {
+        if (Math.random() > chance) return;
+        const club = GameState.clubs[r.clubId];
+        const up = 1.02 + Math.random() * 0.05;
+        if (r.fee > 0) {
+            const cap = Math.min((club ? club.budget || 0 : 0) * 0.9, asking * 1.7);
+            r.fee = Math.max(r.fee, Math.min(roundFee(r.fee * up), roundFee(cap)));
+        }
+        r.salary = Math.round((r.salary * (1 + (up - 1) * 0.8)) / 10000) * 10000;
+    });
+}
+
+function buildRivalsInfoHtml(rivals) {
+    if (!rivals || rivals.length === 0) return '';
+    return `<p style="font-size:0.66rem; color:#ffe066; margin-top:3px;">⚔️ <strong>Konkurrenz:</strong> ${rivals.map(r => `${r.name} (Ablöse ${r.fee > 0 ? formatMoneyShort(r.fee) : '–'}, Gehalt ${formatMoneyShort(r.salary)}/J.)`).join(' • ')}<br><span style="color:#d3f9d8;">Am Ende entscheiden der Spieler und sein Verein – das höchste Gebot allein reicht nicht.</span></p>`;
+}
+
+function computeBidTotal(bid, target, ctx) {
+    const club = GameState.clubs[bid.clubId];
+    const isFree = target.clubId === 'free';
+    const avg = getClubTop11Strength(bid.clubId);
+    const sellerClub = ctx.sellerId ? GameState.clubs[ctx.sellerId] : null;
+    const feeScore = isFree ? 1 : (bid.fee / Math.max(1, ctx.asking));
+    const sameLeague = !isFree && club && sellerClub && club.leagueId === sellerClub.leagueId;
+    const sellerScore = feeScore - (sameLeague ? 0.05 : 0);
+    const salaryScore = (bid.salary + (bid.bonus || 0) / Math.max(1, bid.years || 3)) / Math.max(1, ctx.marketSalary);
+    const prestige = 1 + Math.max(-0.30, Math.min(0.30, (avg - target.rating) * 0.20));
+    const tier = (GameState.leagues[club && club.leagueId] && GameState.leagues[club.leagueId].tier) || 1;
+    const tierBonus = tier === 1 ? 0.03 : (tier === 2 ? -0.02 : -0.05);
+    const grp = POS_GROUP_OF[target.pos] || 'MID';
+    const better = getClubPlayers(bid.clubId).filter(p => POS_GROUP_OF[p.pos] === grp && p.rating >= target.rating).length;
+    const need = GROUP_STARTERS[grp] || 2;
+    const playtime = better < need ? 0.05 : (better > need ? -0.06 : -0.01);
+    let extra = 0;
+    if (bid.isUser) { ensureBoardPress(); extra = (GameState.press.mood - 60) * 0.0006; }
+    const playerScore = 0.55 * salaryScore + 0.45 * (prestige + tierBonus + playtime + extra);
+    const total = isFree ? playerScore : (0.40 * sellerScore + 0.60 * playerScore);
+    return { total, parts: { seller: sellerScore, salary: salaryScore, prestige: prestige + tierBonus, playtime } };
+}
+
+function explainBid(win, lose) {
+    const d = [
+        { k: 'seller', v: (win.parts.seller - lose.parts.seller) * 0.40, t: 'die höhere Ablöse für den Verein' },
+        { k: 'salary', v: (win.parts.salary - lose.parts.salary) * 0.33, t: 'das bessere Gehalt' },
+        { k: 'prestige', v: (win.parts.prestige - lose.parts.prestige) * 0.27, t: 'mehr sportliches Prestige (stärkerer Kader / höhere Liga)' },
+        { k: 'playtime', v: (win.parts.playtime - lose.parts.playtime) * 0.27, t: 'bessere Aussichten auf Einsatzzeiten' }
+    ].filter(x => x.v > 0.008).sort((a, b) => b.v - a.v).slice(0, 2);
+    return d.map(x => x.t);
+}
+
+function startTransferBid(target, deal) {
+    activeNegotiation = {
+        kind: 'transferBid', voice: 'player', key: 'bid:' + target.id, targetId: target.id, name: target.name,
+        reservation: 1, maxReservation: null, round: 0, maxRounds: 3, log: [], status: 'open', lastMood: null, sel: {},
+        extra: {
+            asking: deal.asking, sellerId: target.clubId === 'free' ? null : target.clubId,
+            marketSalary: getPlayerReferenceSalary(target),
+            fee: deal.fee, salary: deal.salary, years: deal.years, bonus: deal.bonus,
+            rivals: deal.rivals, raises: 0, result: null
+        }
+    };
+}
+
+function getBidStanding(x, target) {
+    const ctx = { asking: x.asking, sellerId: x.sellerId, marketSalary: x.marketSalary };
+    const user = computeBidTotal({ clubId: GameState.activeClubId, fee: x.fee, salary: x.salary, years: x.years, bonus: x.bonus, isUser: true }, target, ctx);
+    const rivals = x.rivals.map(r => ({ r, c: computeBidTotal({ ...r, isUser: false }, target, ctx) }));
+    const best = rivals.slice().sort((a, b) => b.c.total - a.c.total)[0];
+    return { user, rivals, best, margin: user.total - (best ? best.c.total : 0), ctx };
+}
+
+function buildTransferBidHtml() {
+    const n = activeNegotiation;
+    const x = n.extra;
+    const target = GameState.players.find(p => p.id === n.targetId);
+    const club = GameState.clubs[GameState.activeClubId];
+    if (!target || !club) return '';
+    const st = getBidStanding(x, target);
+    const money = (b) => `Ablöse ${b.fee > 0 ? formatMoneyShort(b.fee) + ` (${Math.round(b.fee / Math.max(1, x.asking) * 100)}%)` : '–'} • Gehalt ${formatMoneyShort(b.salary)}/J. (${Math.round(b.salary / Math.max(1, x.marketSalary) * 100)}%)`;
+    let lead;
+    if (st.margin >= 0.05) lead = '✅ Du bist klarer Favorit.';
+    else if (st.margin >= 0.015) lead = '🙂 Du liegst leicht vorn.';
+    else if (st.margin > -0.015) lead = '⚖️ Kopf-an-Kopf – die Entscheidung ist offen.';
+    else if (st.margin > -0.05) lead = `😟 ${st.best.r.name} liegt leicht vorn.`;
+    else lead = `🚨 Spieler und Verein tendieren klar zu ${st.best.r.name}.`;
+    const res = x.result;
+    let footer;
+    if (res) {
+        footer = res.won
+            ? `<div class="nego-result success">🏆 ${res.state === 'done' ? `${target.name} wechselt zu ${club.name}!` : `Vorvertrag unterschrieben – ${target.name} wechselt am ${formatGameDate(getTransferWindow().nextOpenISO, true)}.`}${res.reasons.length ? `<br><span style="font-weight:normal; font-size:0.68rem;">Den Ausschlag gaben ${res.reasons.join(' und ')}.</span>` : ''}</div>`
+            : `<div class="nego-result fail">💔 Überboten! ${target.name} und ${res.winnerFrom} haben sich für ${res.winner.name} entschieden.${res.reasons.length ? `<br><span style="font-weight:normal; font-size:0.68rem;">Den Ausschlag gaben ${res.reasons.join(' und ')}.</span>` : ''}</div>`;
+        footer += '<button id="btn-bid-close" type="button" class="bmh-btn gold-btn" style="width:100%; margin-top:6px;">SCHLIESSEN</button>';
+    } else {
+        const canRaise = x.raises < 2;
+        const raiseFee = x.asking > 0 ? roundFee(x.asking * 0.10) : 0;
+        const raiseSal = Math.round((x.marketSalary * 0.10) / 10000) * 10000;
+        footer = `
+            <p style="font-size:0.66rem; margin:6px 0;">${lead}</p>
+            <div style="display:flex; flex-direction:column; gap:5px;">
+                <button id="btn-bid-raise" type="button" class="bmh-btn primary" ${canRaise ? '' : 'disabled'}>📈 NACHBESSERN (${raiseFee > 0 ? '+' + formatMoneyShort(raiseFee) + ' Ablöse, ' : ''}+${formatMoneyShort(raiseSal)} Gehalt) – noch ${2 - x.raises}×</button>
+                <button id="btn-bid-wait" type="button" class="bmh-btn gold-btn">⚖️ ENTSCHEIDUNG ABWARTEN</button>
+                <button id="btn-bid-withdraw" type="button" class="bmh-btn danger">✕ ZURÜCKZIEHEN</button>
+            </div>`;
+    }
+    return `
+        <div class="negotiation-box">
+            <h3>⚔️ BIETERKAMPF: ${target.name}</h3>
+            <p style="font-size:0.70rem; margin:4px 0;">Spieler und Verein sind mit dir grundsätzlich einig – aber andere Vereine bieten mit:</p>
+            <div class="nego-log-entry" style="border-left-color:#e5b822;"><div class="nego-log-head"><span>🟢 DEIN ANGEBOT (${club.name})</span></div><div style="font-size:0.70rem;">${money({ fee: x.fee, salary: x.salary })}${x.bonus > 0 ? ` • Handgeld ${formatMoneyShort(x.bonus)}` : ''} • ${x.years} Jahre</div></div>
+            ${x.rivals.map(r => `<div class="nego-log-entry" style="border-left-color:#c92a2a;"><div class="nego-log-head"><span>🔴 ${r.name} (${GameState.leagues[r.leagueId] ? GameState.leagues[r.leagueId].name : ''})</span></div><div style="font-size:0.70rem;">${money(r)}</div></div>`).join('')}
+            <p style="font-size:0.62rem; color:#d3f9d8; margin-top:4px;">Der Verein will vor allem die Ablöse, der Spieler Gehalt, Prestige und Einsatzzeiten. Ein bisschen Zufall bleibt immer.</p>
+            ${footer}
+        </div>`;
+}
+
+function bindTransferBid(rerender) {
+    const n = activeNegotiation;
+    if (!n || n.kind !== 'transferBid') return;
+    const x = n.extra;
+    const target = GameState.players.find(p => p.id === n.targetId);
+    const club = GameState.clubs[GameState.activeClubId];
+    const closeBtn = document.getElementById('btn-bid-close');
+    if (closeBtn) closeBtn.addEventListener('click', () => { activeNegotiation = null; rerender(); });
+    const wd = document.getElementById('btn-bid-withdraw');
+    if (wd) wd.addEventListener('click', () => {
+        blockNego('club:' + n.targetId, 3);
+        activeNegotiation = null;
+        setStatus(`Du hast dich aus dem Bieterkampf um ${n.name} zurückgezogen.`);
+        rerender();
+    });
+    const raise = document.getElementById('btn-bid-raise');
+    if (raise) raise.addEventListener('click', () => {
+        const raiseFee = x.asking > 0 ? roundFee(x.asking * 0.10) : 0;
+        const raiseSal = Math.round((x.marketSalary * 0.10) / 10000) * 10000;
+        if (club.budget < x.fee + raiseFee + x.bonus) {
+            alert(`Nicht genügend Budget zum Nachbessern! Benötigt: ${formatMoneyShort(x.fee + raiseFee + x.bonus)}.`);
+            return;
+        }
+        x.fee += raiseFee;
+        x.salary += raiseSal;
+        if (x.asking <= 0) x.bonus += raiseSal;
+        x.raises++;
+        escalateRivals(x.rivals, x.asking, 0.50);
+        rerender();
+    });
+    const wait = document.getElementById('btn-bid-wait');
+    if (wait) wait.addEventListener('click', () => {
+        if (!target || !club) return;
+        if (club.budget < x.fee + x.bonus) {
+            alert(`Dein Budget reicht nicht mehr (${formatMoneyShort(x.fee + x.bonus)} nötig).`);
+            return;
+        }
+        resolveTransferBid(target);
+        saveGame();
+        renderHeader();
+        rerender();
+    });
+}
+
+function resolveTransferBid(target) {
+    const n = activeNegotiation;
+    const x = n.extra;
+    const ctx = { asking: x.asking, sellerId: x.sellerId, marketSalary: x.marketSalary };
+    const user = { clubId: GameState.activeClubId, fee: x.fee, salary: x.salary, years: x.years, bonus: x.bonus, isUser: true };
+    const all = [user, ...x.rivals.map(r => ({ ...r, isUser: false }))].map(b => {
+        const c = computeBidTotal(b, target, ctx);
+        return { b, c, total: c.total + (Math.random() * 0.07 - 0.035) };
+    }).sort((a, b) => b.total - a.total);
+    const win = all[0];
+    const userEntry = all.find(a => a.b.isUser);
+    const fromName = target.clubId === 'free' ? 'der Spieler' : getAnyClubName(target.clubId);
+    if (win.b.isUser) {
+        const best = all.find(a => !a.b.isUser);
+        const state = finalizeUserSigning(target, x.fee, x.salary, x.years, x.bonus);
+        const reasons = best ? explainBid(win.c, best.c) : [];
+        x.result = { won: true, state, reasons };
+        addInbox('🏆', `Bieterkampf gewonnen: ${target.name}`, `Du hast dich gegen ${x.rivals.map(r => r.name).join(' und ')} durchgesetzt.${reasons.length ? ' Den Ausschlag gaben ' + reasons.join(' und ') + '.' : ''}`, 'transfer');
+    } else {
+        const reasons = explainBid(win.c, userEntry.c);
+        const rivalState = applyRivalSigning(target, win.b);
+        x.result = { won: false, winner: win.b, winnerFrom: fromName, reasons, rivalState };
+        blockNego('club:' + target.id, 3);
+        addInbox('💔', `Überboten: ${target.name}`, `${target.name} ${rivalState === 'done' ? 'wechselt' : 'wechselt zum Fensterstart'} zu ${win.b.name}. Dein Angebot: Ablöse ${x.fee > 0 ? formatMoneyShort(x.fee) : '–'}, Gehalt ${formatMoneyShort(x.salary)}/J.${reasons.length ? ' Den Ausschlag gaben ' + reasons.join(' und ') + '.' : ''}`, 'transfer');
+    }
+}
+
+// Konkurrent bekommt den Zuschlag
+function applyRivalSigning(target, rival) {
+    const fromId = target.clubId;
+    const w = getTransferWindow();
+    if (fromId === 'free' || w.open) {
+        executeAiDeal(target, rival, fromId);
+        return 'done';
+    }
+    ensureTransferState();
+    GameState.pendingTransfers.push({
+        id: `pt_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e5)}`,
+        dir: 'ai', playerId: target.id, name: target.name, fromId, toId: rival.clubId,
+        fee: rival.fee, salary: rival.salary, years: rival.years || 3, executeFrom: w.nextOpenISO, createdISO: getTransferDateISO()
+    });
+    target.pendingMove = true;
+    target.aiListed = false;
+    return 'pending';
+}
+
+function executeAiDeal(p, rival, fromId) {
+    const buyer = GameState.clubs[rival.clubId];
+    const seasonEnd = getCurrentSeasonEndYear();
+    let fee = rival.fee || 0;
+    if (buyer) fee = Math.min(fee, Math.max(0, buyer.budget || 0));
+    if (fromId !== 'free' && GameState.clubs[fromId] && buyer) {
+        buyer.budget -= fee;
+        GameState.clubs[fromId].budget = (GameState.clubs[fromId].budget || 0) + fee;
+    }
+    movePlayerToClub(p, rival.clubId);
+    p.contractUntil = seasonEnd + (rival.years || 3);
+    p.salary = rival.salary;
+    p.lastMoveSeason = GameState.meta.season + 'bid';
+    recordTransferNews(p, fromId, rival.clubId, fee);
+}
+
+function executeAiSigning(pt, p) {
+    if (p.clubId !== pt.fromId) return;
+    const buyer = GameState.clubs[pt.toId];
+    if (!buyer || getClubPlayers(pt.toId).length > MAX_SQUAD_SIZE) return;
+    executeAiDeal(p, { clubId: pt.toId, fee: pt.fee, salary: pt.salary, years: pt.years }, pt.fromId);
+    const myLeague = GameState.clubs[GameState.activeClubId] && GameState.clubs[GameState.activeClubId].leagueId;
+    if (buyer.leagueId === myLeague || (GameState.clubs[pt.fromId] && GameState.clubs[pt.fromId].leagueId === myLeague)) {
+        addInbox('📰', `Wechsel vollzogen: ${p.name}`, `${p.name} (${p.pos}, ${p.rating.toFixed(1)}) ist jetzt offiziell bei ${buyer.name} (Ablöse ${pt.fee > 0 ? formatMoneyShort(pt.fee) : 'ablösefrei'}).`, 'transfer');
+    }
 }

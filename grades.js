@@ -56,11 +56,13 @@ function setBaseRating(p, v) {
     }
 }
 
+// Form-Pfeil: immer sichtbar (▲ In Form, ► normal, ▼ Formtief). Die Form ändert sich nach jedem Spiel.
 function getFormArrow(p) {
-    const f = p.form || 0;
-    if (f >= 0.08) return '<span class="form-up" title="In Form">▲</span>';
-    if (f <= -0.08) return '<span class="form-down" title="Formtief">▼</span>';
-    return '';
+    const f = (p && p.form) || 0;
+    const txt = `Form ${f >= 0 ? '+' : ''}${f.toFixed(2)}`;
+    if (f >= 0.05) return `<span class="form-up" title="In Form (${txt})">▲</span>`;
+    if (f <= -0.05) return `<span class="form-down" title="Formtief (${txt})">▼</span>`;
+    return `<span class="form-flat" title="Normale Form (${txt})">►</span>`;
 }
 
 function updatePlayerForm(p, grade, played) {
@@ -71,11 +73,12 @@ function updatePlayerForm(p, grade, played) {
         // Abweichung von der Erwartung (gute Spieler dürfen gute Noten haben): besser als erwartet = Formhoch
         const expected = clampNum(3.55 - 0.27 * (getBaseRating(p) - 6.5), 2.7, 4.3);
         const s = clampNum(expected - grade, -1.5, 1.5);
-        f = f * 0.90 + 0.036 * s + motPull;
+        // Pro Spiel bis zu ca. ±0,1 (z. B. 7,5 -> 7,6); die Form pendelt sich mit der Zeit wieder ein
+        f = f * 0.90 + 0.075 * s + motPull;
     } else {
         f = f * 0.90 + motPull * (played ? 1 : 0.6);
     }
-    f = clampNum(f, -0.35, 0.35);
+    f = clampNum(f, -0.30, 0.30);
     f = Math.abs(f) < 0.005 ? 0 : parseFloat(f.toFixed(3));
     p.form = f;
     if (f === 0) {
@@ -214,27 +217,56 @@ function buildGradesReportHtml(grades) {
 }
 
 // ==========================================
-// STÄRKESPRUNG: WINTERPAUSE (halb) & SAISONENDE (voll)
+// FORM DER COMPUTER-SPIELER (nach jedem Spiel, nur die Stammspieler)
+// ==========================================
+function shiftAiForm(players, gf, ga) {
+    const team = clampNum((gf - ga) * 0.30, -0.9, 0.9);
+    players.forEach(p => {
+        const s = clampNum(team + gaussRandom() * 0.55, -1.5, 1.5);
+        let f = (p.form || 0) * 0.90 + 0.060 * s;
+        f = clampNum(f, -0.35, 0.35);
+        f = Math.abs(f) < 0.02 ? 0 : parseFloat(f.toFixed(3));
+        const base = getBaseRating(p);
+        p.form = f;
+        if (f === 0) {
+            p.rating = parseFloat(base.toFixed(1));
+            p.base = undefined;
+        } else {
+            p.base = parseFloat(base.toFixed(2));
+            p.rating = parseFloat(clampNum(p.base + f, 1.0, 10.0).toFixed(2));
+        }
+    });
+}
+
+// ==========================================
+// STÄRKESPRUNG: WINTERPAUSE (seltener, halber Schritt) & SAISONENDE (alle, voller Schritt)
 // ==========================================
 function applyWinterDevelopment() {
+    if (GameState.meta.winterDevSeason === GameState.meta.season) return;
+    GameState.meta.winterDevSeason = GameState.meta.season;
     const uid = GameState.activeClubId;
     const changes = [];
+    let userTotal = 0;
     GameState.players.forEach(p => {
-        if (!p.clubId || p.clubId === 'free' || p.winterDelta) return;
+        if (!p.clubId || p.clubId === 'free') return;
         const isUser = p.clubId === uid;
+        if (isUser) userTotal++;
         const res = evaluatePlayerSeasonDevelopment(p, 0, isUser, true);
-        const delta = Math.round(res.rawScore * 0.5 * 20) / 20;
+        const half = res.rawScore * 0.5;
+        // Winter: nur deutliche Entwicklungen und nur ein Teil der Spieler – der große Sprung kommt zum Saisonende
+        const takes = Math.abs(half) >= 0.10 && Math.random() < 0.65;
+        const delta = takes ? Math.round(half * 10) / 10 : 0;
         const base = getBaseRating(p);
         const newBase = clampNum(base + delta, 1.0, 10.0);
         p.winterDelta = parseFloat((newBase - base).toFixed(2));
-        setBaseRating(p, newBase);
-        if (isUser) changes.push({ name: p.name, pos: p.pos, delta: p.winterDelta, rating: p.rating });
+        if (p.winterDelta !== 0) setBaseRating(p, newBase);
+        if (isUser && p.winterDelta !== 0) changes.push({ name: p.name, pos: p.pos, delta: p.winterDelta, rating: p.rating });
     });
-    if (changes.length > 0) {
+    if (userTotal > 0) {
         changes.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
         const up = changes.filter(c => c.delta > 0).slice(0, 4);
         const down = changes.filter(c => c.delta < 0).slice(0, 4);
-        const line = (c) => `${c.pos} ${c.name}: ${c.delta > 0 ? '+' : ''}${c.delta.toFixed(2)} → ${c.rating.toFixed(1)}`;
-        addInbox('🎓', 'Winter-Zwischenzeugnis: Stärkeentwicklung', `Zur Winterpause wurden die Leistungen der Hinrunde bewertet – der halbe Entwicklungssprung wird jetzt wirksam. Den Rest gibt es zum Saisonende.\n\n⬆️ Gewinner:\n${up.length ? up.map(line).join('\n') : 'niemand'}\n\n⬇️ Verlierer:\n${down.length ? down.map(line).join('\n') : 'niemand'}`, 'squad');
+        const line = (c) => `${c.pos} ${c.name}: ${c.delta > 0 ? '+' : ''}${c.delta.toFixed(1)} → ${c.rating.toFixed(1)}`;
+        addInbox('🎓', 'Winter-Zwischenzeugnis: Stärkeentwicklung', `Zur Winterpause wurde die Hinrunde bewertet: ${changes.length} von ${userTotal} Spielern haben sich spürbar verändert. Der große Entwicklungssprung für alle folgt zum Saisonende.\n\n⬆️ Gewinner:\n${up.length ? up.map(line).join('\n') : 'niemand'}\n\n⬇️ Verlierer:\n${down.length ? down.map(line).join('\n') : 'niemand'}`, 'squad');
     }
 }

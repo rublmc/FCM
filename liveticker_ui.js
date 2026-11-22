@@ -329,7 +329,7 @@ function renderLiveTickerView(viewport) {
                 const isSelected = liveSelectedPitchSlot === idx;
                 const hasYellow = player && st.yellowCardIds.includes(player.id);
                 const labelText = player
-                    ? `${getShortName(player.name)}${hasYellow ? ' 🟨' : ''}`
+                    ? `${getShortName(player.name)}${hasYellow ? ' 🟨' : ''} ${getFormArrow(player)}`
                     : (isRedLocked ? '🟥 ROT' : '+ FREI');
 
                 const editCls = formEdit ? ('edit-node' + (idx === 0 ? ' locked' : '')) : 'btn-pick-live-pitch';
@@ -700,49 +700,135 @@ function getConfScore(m, cur) {
 
 const CONF_FALLBACK_POS = ['TW', 'LV', 'IV', 'IV', 'RV', 'LM', 'ZM', 'ZM', 'RM', 'ST', 'ST'];
 
-// Aufstellung, Bank, Wechsel & Karten eines fremden Spiels (wird erst beim Aufklappen erzeugt)
-function ensureMatchDetail(m) {
-    if (m.detail) return m.detail;
+// Zufall mit festem Startwert: Aufstellung, Wechsel und Karten sehen bei jedem Öffnen gleich aus
+function seededRandomFn(seedStr) {
+    let h = 1779033703 ^ seedStr.length;
+    for (let i = 0; i < seedStr.length; i++) {
+        h = Math.imul(h ^ seedStr.charCodeAt(i), 3432918353);
+        h = (h << 13) | (h >>> 19);
+    }
+    let a = (h ^ (h >>> 16)) >>> 0;
+    return function () {
+        a = (a + 0x6D2B79F5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+// Aufstellung, Bank, Wechsel & Karten eines fremden Spiels (Live-Konferenz und nach dem Spiel)
+function buildMatchDetail(homeId, awayId, seedKey, events) {
+    const rng = seededRandomFn(seedKey);
+    const rint = (n) => Math.floor(rng() * n);
+    const scorersOf = (side) => (events || []).filter(ev => ev.type === 'goal' && ev.side === side).map(ev => ev.playerName);
     const buildSide = (cid, side) => {
         let xi = [], bench = [];
-        const sq = [...getClubPlayers(cid)].sort((a, b) => b.rating - a.rating);
+        const sq = [...getClubPlayers(cid)].sort((a, b) => (b.rating - a.rating) || (a.id < b.id ? -1 : 1));
         if (isExtClub(cid) || sq.length < 11) {
-            xi = CONF_FALLBACK_POS.map(pos => ({ name: randomForeignScorerName(), pos }));
-            bench = Array.from({ length: 5 }, () => ({ name: randomForeignScorerName(), pos: 'ZM' }));
+            xi = CONF_FALLBACK_POS.map(pos => ({ name: FOREIGN_SURNAMES[rint(FOREIGN_SURNAMES.length)], pos }));
+            bench = Array.from({ length: 5 }, () => ({ name: FOREIGN_SURNAMES[rint(FOREIGN_SURNAMES.length)], pos: 'ZM' }));
         } else {
             xi = sq.slice(0, 11).sort((a, b) => (POS_ORDER[a.pos] || 99) - (POS_ORDER[b.pos] || 99)).map(p => ({ name: p.name, pos: p.pos }));
             bench = sq.slice(11, 18).map(p => ({ name: p.name, pos: p.pos }));
         }
+        // Torschützen müssen auf dem Platz gestanden haben
+        const protect = new Set(scorersOf(side));
+        scorersOf(side).forEach(nm => {
+            if (xi.some(p => p.name === nm)) return;
+            let idx = -1;
+            for (let i = xi.length - 1; i >= 1; i--) { if (!protect.has(xi[i].name)) { idx = i; break; } }
+            if (idx < 0) return;
+            const bi = bench.findIndex(p => p.name === nm);
+            const entry = bi >= 0 ? bench.splice(bi, 1)[0] : { name: nm, pos: 'ST' };
+            bench.push(xi[idx]);
+            xi[idx] = entry;
+        });
         const subs = [];
         const usedOut = new Set();
         const usedIn = new Set();
-        const n = Math.min(bench.length, 2 + Math.floor(Math.random() * 3));
-        const minutes = Array.from({ length: n }, () => 55 + Math.floor(Math.random() * 34)).sort((x, y) => x - y);
+        const n = Math.min(bench.length, 2 + rint(3));
+        const minutes = Array.from({ length: n }, () => 55 + rint(34)).sort((x, y) => x - y);
         minutes.forEach(minute => {
             const outs = xi.filter(p => p.pos !== 'TW' && !usedOut.has(p.name));
             const ins = bench.filter(p => !usedIn.has(p.name) && p.pos !== 'TW');
             if (!outs.length || !ins.length) return;
-            const out = outs[Math.floor(Math.random() * outs.length)];
+            const out = outs[rint(outs.length)];
             const same = ins.filter(p => (POS_GROUP_OF[p.pos] || 'MID') === (POS_GROUP_OF[out.pos] || 'MID'));
-            const inn = (same.length ? same : ins)[Math.floor(Math.random() * (same.length ? same.length : ins.length))];
+            const pool = same.length ? same : ins;
+            const inn = pool[rint(pool.length)];
             usedOut.add(out.name);
             usedIn.add(inn.name);
             subs.push({ minute, side, out: out.name, inn: inn.name });
         });
         const cards = [];
-        const nCards = Math.floor(Math.random() * 3.2);
+        const nCards = Math.floor(rng() * 3.2);
         for (let i = 0; i < nCards; i++) {
-            const pl = xi[1 + Math.floor(Math.random() * 10)];
-            cards.push({ minute: 8 + Math.floor(Math.random() * 82), side, name: pl.name, red: false });
+            const pl = xi[1 + rint(10)];
+            cards.push({ minute: 8 + rint(82), side, name: pl.name, red: false });
         }
-        if (Math.random() < 0.04) {
-            const pl = xi[1 + Math.floor(Math.random() * 10)];
-            cards.push({ minute: 30 + Math.floor(Math.random() * 58), side, name: pl.name, red: true });
+        if (rng() < 0.04) {
+            const pl = xi[1 + rint(10)];
+            cards.push({ minute: 30 + rint(58), side, name: pl.name, red: true });
         }
         return { xi, bench, subs, cards };
     };
-    m.detail = { home: buildSide(m.homeId, 'home'), away: buildSide(m.awayId, 'away') };
-    return m.detail;
+    return { home: buildSide(homeId, 'home'), away: buildSide(awayId, 'away') };
+}
+
+function ensureMatchDetail(m) {
+    const seed = m.detailSeed || `${m.homeId}|${m.awayId}|${liveMatchState ? liveMatchState.dateISO : ''}`;
+    return buildMatchDetail(m.homeId, m.awayId, seed, m.events);
+}
+
+// Torschützen, Karten, Wechsel und Aufstellungen eines Spiels (cur = bis zu welcher Minute)
+function buildMatchDetailHtml(m, cur, opts = {}) {
+    const goals = (m.events || []).filter(ev => ev.type === 'goal' && ev.minute <= cur);
+    const lines = goals.map(ev => ({ min: ev.minute, text: `⚽ <strong>${ev.minute}'</strong> ${ev.playerName} <span style="color:#555;">(${ev.side === 'home' ? m.homeName : m.awayName})</span>` }));
+    let lineupHtml = '';
+    if (!m.isUserMatch) {
+        const d = ensureMatchDetail(m);
+        ['home', 'away'].forEach(side => {
+            d[side].subs.filter(x => x.minute <= cur).forEach(x => lines.push({ min: x.minute, text: `🔄 <strong>${x.minute}'</strong> ${side === 'home' ? m.homeName : m.awayName}: <span style="color:#184d25;">${x.inn}</span> für <span style="color:#a82424;">${x.out}</span>` }));
+            d[side].cards.filter(x => x.minute <= cur).forEach(x => lines.push({ min: x.minute, text: `${x.red ? '🟥' : '🟨'} <strong>${x.minute}'</strong> ${x.name} <span style="color:#555;">(${side === 'home' ? m.homeName : m.awayName})</span>` }));
+        });
+        const col = (side, name) => `
+            <div style="flex:1; min-width:0;">
+                <strong style="font-size:0.64rem;">${name}</strong><br>
+                ${d[side].xi.map(p => `<span style="font-size:0.60rem;"><em>${p.pos}</em> ${p.name}</span>`).join('<br>')}
+                <br><span style="font-size:0.56rem; color:#555;">Bank: ${d[side].bench.map(p => p.name).join(', ')}</span>
+            </div>`;
+        lineupHtml = `<div style="display:flex; gap:8px; margin-top:6px; border-top:1px dashed #b5bab7; padding-top:4px;">${col('home', m.homeName)}${col('away', m.awayName)}</div>`;
+    } else {
+        lineupHtml = `<p style="font-size:0.60rem; color:#555; margin-top:4px;">${opts.userNote || 'Dein Spiel – alle Details findest du im 📺 TICKER und unter 📋 TAKTIK.'}</p>`;
+    }
+    lines.sort((a, b) => a.min - b.min);
+    return `
+        <div class="conf-detail">
+            ${opts.headline ? `<div style="font-size:0.66rem; font-weight:bold; margin-bottom:3px;">${opts.headline}</div>` : ''}
+            ${lines.length ? lines.map(l => `<div style="font-size:0.66rem;">${l.text}</div>`).join('') : `<div style="font-size:0.64rem; color:#555;">${opts.noEvents || 'Noch keine Ereignisse.'}</div>`}
+            ${opts.note ? `<div style="font-size:0.58rem; color:#777; margin-top:3px;">${opts.note}</div>` : ''}
+            ${lineupHtml}
+        </div>`;
+}
+
+// Beendetes Spiel (Tabelle / Pokal): m = Spielplan- oder Pokalspiel mit homeId, awayId, Toren & Ereignissen
+function buildFinishedMatchDetailHtml(m, seedKey, reportKey) {
+    const uid = GameState.activeClubId;
+    const isUser = m.homeId === uid || m.awayId === uid;
+    if (isUser) {
+        const rep = (GameState.matchReports || []).find(r => r.key === reportKey);
+        if (rep) return `<div class="cal-report">${buildLastMatchReportHtml(rep)}</div>`;
+    }
+    const known = (m.events || []).filter(ev => ev.type === 'goal').length;
+    const total = (m.homeGoals || 0) + (m.awayGoals || 0);
+    const wrap = { homeId: m.homeId, awayId: m.awayId, homeName: getAnyClubName(m.homeId), awayName: getAnyClubName(m.awayId), events: m.events || [], isUserMatch: isUser, detailSeed: seedKey };
+    const extra = m.pens ? `Elfmeterschießen ${m.pens}` : (m.et ? 'nach Verlängerung' : '');
+    return buildMatchDetailHtml(wrap, 999, {
+        headline: `${wrap.homeName} ${m.homeGoals}:${m.awayGoals} ${wrap.awayName}${extra ? ' • ' + extra : ''}`,
+        noEvents: total === 0 ? 'Keine Tore gefallen.' : 'Keine Ereignisse.',
+        note: total > known ? (known > 0 ? 'Nicht alle Torschützen sind gespeichert.' : '⚽ Die Torschützen dieses Spiels sind nicht mehr gespeichert (andere Ligen: nur die letzten 3 Spieltage).') : '',
+        userNote: 'Der Spielbericht dieses Spiels ist nicht mehr gespeichert.'
+    });
 }
 
 function buildConferenceHtml(st, leagueName) {
@@ -756,34 +842,7 @@ function buildConferenceHtml(st, leagueName) {
         const key = `${liveConfLeagueId}:${idx}`;
         const sc = getConfScore(m, cur);
         const open = liveConfOpenKey === key;
-        let detailHtml = '';
-        if (open) {
-            const goals = (m.events || []).filter(ev => ev.type === 'goal' && ev.minute <= cur);
-            const lines = goals.map(ev => ({ min: ev.minute, text: `⚽ <strong>${ev.minute}'</strong> ${ev.playerName} <span style="color:#555;">(${ev.side === 'home' ? m.homeName : m.awayName})</span>` }));
-            let lineupHtml = '';
-            if (!m.isUserMatch) {
-                const d = ensureMatchDetail(m);
-                ['home', 'away'].forEach(side => {
-                    d[side].subs.filter(x => x.minute <= cur).forEach(x => lines.push({ min: x.minute, text: `🔄 <strong>${x.minute}'</strong> ${side === 'home' ? m.homeName : m.awayName}: <span style="color:#184d25;">${x.inn}</span> für <span style="color:#a82424;">${x.out}</span>` }));
-                    d[side].cards.filter(x => x.minute <= cur).forEach(x => lines.push({ min: x.minute, text: `${x.red ? '🟥' : '🟨'} <strong>${x.minute}'</strong> ${x.name} <span style="color:#555;">(${side === 'home' ? m.homeName : m.awayName})</span>` }));
-                });
-                const col = (side, name) => `
-                    <div style="flex:1; min-width:0;">
-                        <strong style="font-size:0.64rem;">${name}</strong><br>
-                        ${d[side].xi.map(p => `<span style="font-size:0.60rem;"><em>${p.pos}</em> ${p.name}</span>`).join('<br>')}
-                        <br><span style="font-size:0.56rem; color:#555;">Bank: ${d[side].bench.map(p => p.name).join(', ')}</span>
-                    </div>`;
-                lineupHtml = `<div style="display:flex; gap:8px; margin-top:6px; border-top:1px dashed #b5bab7; padding-top:4px;">${col('home', m.homeName)}${col('away', m.awayName)}</div>`;
-            } else {
-                lineupHtml = '<p style="font-size:0.60rem; color:#555; margin-top:4px;">Dein Spiel – alle Details findest du im 📺 TICKER und unter 📋 TAKTIK.</p>';
-            }
-            lines.sort((a, b) => a.min - b.min);
-            detailHtml = `
-                <div class="conf-detail">
-                    ${lines.length ? lines.map(l => `<div style="font-size:0.66rem;">${l.text}</div>`).join('') : '<div style="font-size:0.64rem; color:#555;">Noch keine Ereignisse.</div>'}
-                    ${lineupHtml}
-                </div>`;
-        }
+        const detailHtml = open ? buildMatchDetailHtml(m, cur) : '';
         return `
             <div class="fixture-row conf-row ${m.isUserMatch ? 'user-match' : ''}" data-ckey="${key}" style="flex-direction:column; align-items:stretch; gap:2px; cursor:pointer;">
                 <div style="display:flex; justify-content:space-between; align-items:center; gap:4px;">

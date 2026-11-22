@@ -12,10 +12,72 @@ const SoundFX = {
     eventsMuted: false,    // true während "Bis zur Pause vorspulen"
     lastPlay: {},
     unlocked: false,       // iPhone: Audio wurde per Berührung freigeschaltet
+    primed: false,         // stiller Freischalt-Ton wurde in einer Berührung gespielt
     silentEl: null,
 
     enabled() {
         return typeof getSetting === 'function' ? Boolean(getSetting('sound')) : true;
+    },
+
+    // ---------- Fehlerprotokoll & Hilfsfunktionen ----------
+    lastError: '',
+    mediaEl: null,         // Kompatibilitätsmodus: Ausgabe über ein HTML-Audio-Element
+    msDest: null,
+
+    noteError(where, e) {
+        this.lastError = `${where}: ${(e && (e.name || e.message)) || e}`;
+        try { console.warn('SoundFX', this.lastError); } catch (err) { /* ignorieren */ }
+    },
+
+    route() {
+        return typeof getSetting === 'function' ? (getSetting('soundRoute') || 'webaudio') : 'webaudio';
+    },
+
+    // WAV-Datei zur Laufzeit erzeugen (16 Bit, mono) -> data:-URL
+    makeWavUri(samples, rate) {
+        const n = samples.length;
+        const buf = new ArrayBuffer(44 + n * 2);
+        const v = new DataView(buf);
+        const wr = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+        wr(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); wr(8, 'WAVE'); wr(12, 'fmt ');
+        v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+        v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+        wr(36, 'data'); v.setUint32(40, n * 2, true);
+        for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, samples[i], true);
+        const bytes = new Uint8Array(buf);
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 4096) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 4096));
+        return 'data:audio/wav;base64,' + btoa(bin);
+    },
+
+    // Unhörbarer Dauer-Ton über ein HTML-Audio-Element: Das schaltet iOS auf "Medien-Wiedergabe" um.
+    // Erst dadurch klingt Web-Audio auch bei eingeschaltetem Stummschalter (bewährter "Unmute"-Trick).
+    startSilentLoop() {
+        try {
+            if (!this.silentEl) {
+                const samples = new Int16Array(8000);               // 1 Sekunde bei 8 kHz
+                for (let i = 0; i < samples.length; i += 97) samples[i] = 1;   // kein reines Digital-Null
+                const a = document.createElement('audio');
+                a.src = this.makeWavUri(samples, 8000);
+                a.loop = true;
+                a.preload = 'auto';
+                a.setAttribute('playsinline', '');
+                a.setAttribute('webkit-playsinline', '');
+                a.setAttribute('x-webkit-airplay', 'deny');
+                a.disableRemotePlayback = true;
+                a.style.display = 'none';
+                if (document.body && document.body.appendChild) document.body.appendChild(a);
+                this.silentEl = a;
+            }
+            if (this.silentEl.paused) {
+                const p = this.silentEl.play();
+                if (p && p.catch) p.catch((e) => this.noteError('Stummschalter-Trick', e));
+            }
+        } catch (e) { this.noteError('Stummschalter-Trick', e); }
+    },
+
+    stopSilentLoop() {
+        try { if (this.silentEl && !this.silentEl.paused) this.silentEl.pause(); } catch (e) { /* ignorieren */ }
     },
 
     // AudioContext erst nach einer Nutzer-Interaktion erzeugen (iPhone-Vorgabe)
@@ -23,61 +85,148 @@ const SoundFX = {
         if (!this.enabled()) return null;
         if (!this.ctx) {
             const AC = (typeof window !== 'undefined') && (window.AudioContext || window.webkitAudioContext);
-            if (!AC) return null;
+            if (!AC) { this.lastError = 'Browser ohne Web-Audio'; return null; }
             try {
                 this.ctx = new AC();
+                this.ctx.onstatechange = () => this.onCtxState();
                 this.master = this.ctx.createGain();
-                this.master.gain.value = 0.8;
+                this.master.gain.value = 0.9;
                 const comp = this.ctx.createDynamicsCompressor ? this.ctx.createDynamicsCompressor() : null;
+                let out = this.ctx.destination;
+                // Kompatibilitätsmodus: Ausgabe über ein <audio>-Element statt direkt über Web-Audio
+                if (this.route() === 'media' && this.ctx.createMediaStreamDestination) {
+                    this.msDest = this.ctx.createMediaStreamDestination();
+                    out = this.msDest;
+                    const el = document.createElement('audio');
+                    el.srcObject = this.msDest.stream;
+                    el.setAttribute('playsinline', '');
+                    el.setAttribute('webkit-playsinline', '');
+                    el.style.display = 'none';
+                    if (document.body && document.body.appendChild) document.body.appendChild(el);
+                    this.mediaEl = el;
+                }
                 if (comp) {
                     this.master.connect(comp);
-                    comp.connect(this.ctx.destination);
+                    comp.connect(out);
                 } else {
-                    this.master.connect(this.ctx.destination);
+                    this.master.connect(out);
                 }
                 this.noise = this.makeNoiseBuffer(2);
             } catch (e) {
+                this.noteError('Start', e);
                 this.ctx = null;
                 return null;
             }
         }
         // iPhone kennt neben 'suspended' auch 'interrupted' (z. B. nach Anruf / App-Wechsel)
-        if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {});
+        if (this.ctx.state !== 'running') {
+            try {
+                const p = this.ctx.resume();
+                if (p && p.catch) p.catch((e) => this.noteError('Fortsetzen', e));
+            } catch (e) { this.noteError('Fortsetzen', e); }
+        }
         return this.ctx;
+    },
+
+    onCtxState() {
+        const s = this.ctx ? this.ctx.state : '';
+        this.unlocked = (s === 'running');
+        if (this.unlocked) this.syncAmbience();
     },
 
     // Muss direkt in einer Berührung (touchend/click) aufgerufen werden – sonst bleibt Safari stumm
     unlock() {
         if (!this.enabled()) return;
-        // 1) iOS 17+: Wiedergabe-Modus "playback" -> Ton auch bei aktivem Stummschalter
+        // 1) Wiedergabe-Modus "playback" (neuere iOS-Versionen): Ton auch bei aktivem Stummschalter
         try {
             if (typeof navigator !== 'undefined' && navigator.audioSession && navigator.audioSession.type !== 'playback') {
                 navigator.audioSession.type = 'playback';
             }
         } catch (e) { /* ältere Geräte */ }
-        // 2) Ältere iPhones: kurzer stiller HTML-Audio-Clip schaltet ebenfalls auf "Wiedergabe" um
-        if (!this.unlocked && !(typeof navigator !== 'undefined' && navigator.audioSession)) {
-            try {
-                if (!this.silentEl) {
-                    this.silentEl = new Audio('data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==');
-                    this.silentEl.setAttribute('playsinline', '');
-                    this.silentEl.volume = 0.01;
-                }
-                const pr = this.silentEl.play();
-                if (pr && pr.catch) pr.catch(() => {});
-            } catch (e) { /* ignorieren */ }
-        }
-        // 3) AudioContext innerhalb der Berührung erzeugen/fortsetzen und einen stillen Puffer abspielen
+        // 2) Unhörbarer Dauer-Ton als zusätzlicher Stummschalter-Schutz (läuft immer, solange Sound an ist)
+        this.startSilentLoop();
+        // 3) AudioContext innerhalb der Berührung erzeugen/fortsetzen
         const ctx = this.ensure();
         if (!ctx) return;
+        if (this.mediaEl && this.mediaEl.paused) {
+            try {
+                const p = this.mediaEl.play();
+                if (p && p.catch) p.catch((e) => this.noteError('Medien-Ausgabe', e));
+            } catch (e) { this.noteError('Medien-Ausgabe', e); }
+        }
+        // Schneller Ausstieg, wenn schon alles läuft und der Freischalt-Ton gespielt wurde
+        if (this.primed && this.unlocked && ctx.state === 'running') return;
         try {
             const buf = ctx.createBuffer(1, 1, 22050);
             const src = ctx.createBufferSource();
             src.buffer = buf;
             src.connect(ctx.destination);
             src.start(0);
-        } catch (e) { /* ignorieren */ }
+            this.primed = true;
+        } catch (e) { this.noteError('Freischalten', e); }
         if (ctx.state === 'running') this.unlocked = true;
+    },
+
+    // ---------- Diagnose & Test (Einstellungen → "Ton funktioniert nicht?") ----------
+    diagnose() {
+        const AC = (typeof window !== 'undefined') && (window.AudioContext || window.webkitAudioContext);
+        const nav = typeof navigator !== 'undefined' ? navigator : {};
+        const state = !AC ? '❌ nicht verfügbar' : (!this.ctx ? '⏳ noch nicht gestartet (irgendwo tippen)' : (this.ctx.state === 'running' ? '✅ läuft' : `⚠️ ${this.ctx.state} (tippen, um zu starten)`));
+        const loop = this.silentEl ? (this.silentEl.paused ? '⚠️ pausiert' : '✅ läuft') : '⏳ noch nicht gestartet';
+        return [
+            ['Web-Audio', state],
+            ['Stummschalter-Schutz', loop],
+            ['Audio-Modus', nav.audioSession ? String(nav.audioSession.type) : 'nicht vorhanden'],
+            ['Ausgabe', this.route() === 'media' ? 'Kompatibilitätsmodus (Medien)' : 'Standard (Web-Audio)'],
+            ['Letzter Fehler', this.lastError || '–']
+        ];
+    },
+
+    // Test A: einfacher Piepton direkt über Web-Audio (über denselben Weg wie alle Spielsounds)
+    testBeepWeb() {
+        this.unlock();
+        const ctx = this.ensure();
+        if (!ctx) return false;
+        try {
+            const t0 = ctx.currentTime + 0.02;
+            [660, 880].forEach((f, i) => {
+                const o = ctx.createOscillator();
+                o.type = 'sine';
+                o.frequency.value = f;
+                const g = this.envGain(t0 + i * 0.35, 0.02, 0.2, 0.1, 0.7);
+                o.connect(g); g.connect(this.master);
+                o.start(t0 + i * 0.35); o.stop(t0 + i * 0.35 + 0.45);
+            });
+            return true;
+        } catch (e) { this.noteError('Test A', e); return false; }
+    },
+
+    // Test B: Piepton über ein normales HTML-Audio-Element (unabhängig von Web-Audio)
+    testBeepMedia() {
+        try {
+            const rate = 22050, n = Math.floor(rate * 0.7);
+            const smp = new Int16Array(n);
+            for (let i = 0; i < n; i++) {
+                const t = i / rate;
+                const f = t < 0.35 ? 660 : 880;
+                const fade = Math.min(1, Math.min(i, n - i) / (rate * 0.02));
+                smp[i] = Math.round(Math.sin(2 * Math.PI * f * t) * 0.6 * 32767 * fade);
+            }
+            const a = new Audio(this.makeWavUri(smp, rate));
+            a.setAttribute('playsinline', '');
+            const p = a.play();
+            if (p && p.catch) p.catch((e) => this.noteError('Test B', e));
+            return true;
+        } catch (e) { this.noteError('Test B', e); return false; }
+    },
+
+    // Ausgabeweg wechseln (Standard <-> Kompatibilitätsmodus): Engine neu aufbauen
+    resetEngine() {
+        this.stopAmbience();
+        try { if (this.mediaEl) { this.mediaEl.pause(); this.mediaEl.srcObject = null; } } catch (e) { /* ignorieren */ }
+        try { if (this.ctx) { this.ctx.onstatechange = null; this.ctx.close(); } } catch (e) { /* ignorieren */ }
+        this.ctx = null; this.master = null; this.noise = null; this.msDest = null; this.mediaEl = null;
+        this.unlocked = false; this.primed = false; this.lastPlay = {};
     },
 
     statusLabel() {
@@ -604,13 +753,22 @@ const SoundFX = {
     onSettingChanged(on) {
         if (!on) {
             this.stopAmbience();
+            this.stopSilentLoop();
             if (this.ctx && this.ctx.state === 'running') this.ctx.suspend().catch(() => {});
         } else {
-            this.ensure();
+            this.unlock();
             this.syncAmbience();
         }
     }
 };
+
+// Jeder öffentliche Sound-Aufruf ist abgesichert: Ein Audio-Problem darf das Spiel nie stören
+['playTickerEvent', 'playWhistle', 'playTeamTalk', 'playNegotiation', 'playUi', 'startAmbience', 'playChant', 'syncAmbience', 'unlock'].forEach(name => {
+    const orig = SoundFX[name];
+    SoundFX[name] = function (...args) {
+        try { return orig.apply(this, args); } catch (e) { this.noteError(name, e); return undefined; }
+    };
+});
 
 // iPhone: Audio darf nur innerhalb einer echten Berührung starten.
 // Safari zählt dafür 'touchend' bzw. 'click' – NICHT 'pointerdown' (daran lag der fehlende Ton).
@@ -618,13 +776,16 @@ const SoundFX = {
     document.addEventListener(evt, () => SoundFX.unlock(), { passive: true, capture: true });
 });
 document.addEventListener('visibilitychange', () => {
-    if (!SoundFX.ctx) return;
+    if (!SoundFX.ctx && !SoundFX.silentEl) return;
     if (document.visibilityState === 'hidden') {
         SoundFX.stopAmbience();
-        SoundFX.ctx.suspend().catch(() => {});
+        SoundFX.stopSilentLoop();
+        if (SoundFX.ctx) SoundFX.ctx.suspend().catch(() => {});
     } else if (SoundFX.enabled()) {
         SoundFX.unlocked = false; // nach App-Wechsel beim nächsten Tippen neu freischalten
-        SoundFX.ctx.resume().catch(() => {});
+        SoundFX.primed = false;
+        if (SoundFX.ctx) SoundFX.ctx.resume().catch(() => {});
+        SoundFX.startSilentLoop();
         SoundFX.syncAmbience();
     }
 });

@@ -439,7 +439,7 @@ function renderTacticsView(viewport) {
                     <span class="pitch-node-pos">${slotPos}</span>
                     <span class="pitch-node-rating">${player ? effRating.toFixed(1) : '--'}</span>
                 </div>
-                <div class="pitch-node-name">${player ? getShortName(player.name) : '+ FREI'}</div>
+                <div class="pitch-node-name">${player ? getShortName(player.name) + ' ' + getFormArrow(player) : '+ FREI'}</div>
             </div>
         `;
     }).join('');
@@ -466,7 +466,7 @@ function renderTacticsView(viewport) {
                  data-index="${idx}"
                  data-playerid="${player.id}">
                 <span class="chip-pos">${player.pos}</span>
-                <span class="chip-name">${getShortName(player.name)}</span>
+                <span class="chip-name">${getShortName(player.name)} ${getFormArrow(player)}</span>
                 <span class="chip-rating">${player.rating.toFixed(1)}</span>
             </div>
         `;
@@ -491,7 +491,7 @@ function renderTacticsView(viewport) {
                          data-playerid="${player.id}"
                          title="${unavailable ? `${player.name}: ${getUnavailableLabel(player)}` : player.name}">
                         <span class="chip-pos" style="${unavailable ? 'background:#a82424; color:#fff; width:auto; padding:0 2px;' : ''}">${badgeTxt}</span>
-                        <span class="chip-name">${getShortName(player.name)}</span>
+                        <span class="chip-name">${getShortName(player.name)} ${getFormArrow(player)}</span>
                         <span class="chip-rating">${player.rating.toFixed(1)}</span>
                     </div>
                 `;
@@ -562,6 +562,7 @@ function renderTacticsView(viewport) {
             <span><span class="zone-badge xi">STARTELF</span> (${lineupSet.size}/11) ${GameState.tactics.formation === 'custom' ? '• ✏️ ' + describeCustomFormation() : ''}</span>
             <span style="font-size:0.68rem; color:#333;">${tacticsEditMode ? 'Positionen verschieben' : 'Tippen oder Ziehen zum Wechseln'}</span>
         </div>
+        <p class="form-legend"><span class="form-up">▲</span> in Form &nbsp; <span class="form-flat">►</span> normal &nbsp; <span class="form-down">▼</span> Formtief – die Form ändert sich nach jedem Spiel</p>
 
         <div class="pitch-board ${tacticsEditMode ? 'edit-mode' : ''}">
             <div class="pitch-halfline"></div>
