@@ -1578,8 +1578,3 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
 .mrow:hover { background: #d0dfd4; }
 .club-player-row:hover td, .mkt-row:hover td { background: #d0dfd4; }
 .match-detail-wrap { background: #fff; border: 1px solid #b5bab7; padding: 5px 6px; margin: 0 0 4px 0; }
-
-/* v1.13.1: Ton-Hilfe */
-.sound-help-body { background: #e9ecea; border: 1px solid var(--panel-shadow); padding: 6px; margin-top: 4px; }
-.sound-help-body .setting-row { padding-bottom: 0; }
-.test-result { font-size: 0.62rem; background: #0b1c10; color: #d3f9d8; padding: 5px 6px; margin-top: 5px; border: 1px solid #246b35; white-space: pre-wrap; }
