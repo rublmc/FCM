@@ -207,9 +207,9 @@ function advanceBreakWeek() {
         if (b.category === 'friendly') {
             const myStr = calculateClubMatchStrength(club.id, true);
             const oppStr = b.oppStrength || 6.0;
-            const diff = myStr - oppStr;
-            const myGoals = samplePoisson(1.55 + diff * 0.55);
-            const oppGoals = samplePoisson(1.10 - diff * 0.50);
+            const rt = getGoalRates(myStr - oppStr + gaussRandom() * 0.38);
+            const myGoals = samplePoisson(rt.lh * 1.07);
+            const oppGoals = samplePoisson(rt.la * 0.96);
             const goalLines = [];
             for (let g = 0; g < myGoals; g++) {
                 const sc = pickScorerForClub(club.id);
@@ -301,7 +301,7 @@ function advanceBreakWeek() {
         if (weekObj) weekObj.summary = `✅ Standard-Training (+3% Mot.)`;
     }
     if (weekObj) weekObj.completed = true;
-
+    recoverFitnessBreakWeek();
     healInjuriesOneStep();
     generateRoutineEvents();
     // Transferfenster: KI-Vereine kaufen ein (Sommer stärker als Winter)

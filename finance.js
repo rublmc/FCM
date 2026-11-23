@@ -151,12 +151,20 @@ function postSeasonFinanceReport() {
 // hängt dann von Erfolg (Tabellenplatz, Pokal, Fans) und von deinen Entscheidungen
 // (Gehälter, Ausbau, Transfers, Veranstaltungen) ab.
 // ==========================================
+let REV_CALIB_RAW = false;
 function getRevCalib(clubId) {
     if (!GameState.meta.revCalib) computeRevenueCalibration();
-    return (clubId && GameState.meta.revCalib && GameState.meta.revCalib[clubId]) || 1;
+    const base = (clubId && GameState.meta.revCalib && GameState.meta.revCalib[clubId]) || 1;
+    // Schwierigkeitsstufe wirkt nur auf die Einnahmen deines Vereins
+    return (!REV_CALIB_RAW && clubId === GameState.activeClubId) ? base * getDifficulty().rev : base;
 }
 
 function computeRevenueCalibration() {
+    REV_CALIB_RAW = true;
+    try { computeRevenueCalibrationInner(); } finally { REV_CALIB_RAW = false; }
+    return GameState.meta.revCalib;
+}
+function computeRevenueCalibrationInner() {
     GameState.meta.revCalib = {}; // währenddessen ist der Faktor überall 1
     const result = {};
     const payrollByClub = new Map();

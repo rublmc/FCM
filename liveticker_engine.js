@@ -119,8 +119,50 @@ function setLiveSpeed(newSpeed) {
     renderView('liveticker');
 }
 
+// Eigene Formation: jederzeit möglich. Läuft das Spiel, wird es zum Anpassen angehalten.
+function beginLiveFormationEdit() {
+    const st = liveMatchState;
+    if (!st || st.phase === 'FULLTIME') return;
+    beginCustomFormation();
+    liveFormationEditMode = true;
+    liveTacticsDisplayMode = 'pitch';
+    liveSelectedPitchSlot = null;
+    st.activeSubTab = 'livetactics';
+    if (st.phase !== 'HALFTIME' && !st.isPaused) {
+        st.editResume = true;
+        st.isPaused = true;
+        st.pauseReason = "✏️ FORMATION WIRD ANGEPASST";
+        stopLiveTickerTimer();
+    }
+}
+function endLiveFormationEdit(announce = true) {
+    const st = liveMatchState;
+    const wasEditing = liveFormationEditMode;
+    liveFormationEditMode = false;
+    if (!st) return;
+    if (announce && wasEditing && GameState.tactics.formation === 'custom') {
+        setStatus(`Formation ${describeCustomFormation()} übernommen.`);
+        if (st.phase !== 'HALFTIME') {
+            addLiveTickerEntry(`${st.minute}'`, "system", "halftime", `✏️ Neue Formation: ${describeCustomFormation()}`);
+        }
+    }
+    if (st.editResume && st.phase !== 'HALFTIME' && st.phase !== 'FULLTIME') {
+        st.editResume = false;
+        st.isPaused = false;
+        st.pauseReason = "";
+        startLiveTickerTimer();
+        renderHeader();
+    }
+    st.editResume = false;
+}
+
 function toggleLivePause() {
     if (!liveMatchState) return;
+    if (liveFormationEditMode && liveMatchState.isPaused && liveMatchState.phase !== 'HALFTIME') {
+        endLiveFormationEdit(true);
+        renderView('liveticker');
+        return;
+    }
     if (liveMatchState.phase === 'HALFTIME') {
         startSecondHalf();
         return;
@@ -152,6 +194,7 @@ function skipLiveToNextBreak() {
         return;
     }
     stopLiveTickerTimer();
+    if (liveFormationEditMode) { liveFormationEditMode = false; liveMatchState.editResume = false; }
     liveMatchState.isPaused = false;
     liveMatchState.pauseReason = "";
     let safety = 0;
@@ -294,9 +337,10 @@ function quickSimLiveMatch(lm) {
     const w = getWeather(lm.weather);
     const hs = calculateClubMatchStrength(lm.homeId, !lm.neutral);
     const as = calculateClubMatchStrength(lm.awayId, false);
-    const diff = (hs - as) * w.diffMult;
-    lm.homeGoals = samplePoisson((1.42 + diff * 0.58) * w.goalMult);
-    lm.awayGoals = samplePoisson((1.15 - diff * 0.55) * w.goalMult);
+    const diff = (hs - as + gaussRandom() * 0.38) * w.diffMult;
+    const rates = getGoalRates(diff);
+    lm.homeGoals = samplePoisson(rates.lh * w.goalMult);
+    lm.awayGoals = samplePoisson(rates.la * w.goalMult);
     const add = (id, n, side) => {
         for (let i = 0; i < n; i++) {
             const sc = pickScorerForClub(id);
@@ -381,8 +425,8 @@ function startLiveSessionInner(opts) {
             const lm = buildLiveMatchObj(comp.id, { compId: comp.id, roundIdx, idx }, m, weatherKey);
             if (lm.isUserMatch) userMatchRef = lm;
             else {
-                lm.hStr = calculateClubMatchStrength(m.homeId, !m.neutral);
-                lm.aStr = calculateClubMatchStrength(m.awayId, false);
+                lm.hStr = calculateClubMatchStrength(m.homeId, !m.neutral) + gaussRandom() * 0.30;
+                lm.aStr = calculateClubMatchStrength(m.awayId, false) + gaussRandom() * 0.30;
             }
             leaguesMatches[comp.id].push(lm);
         });
@@ -417,8 +461,8 @@ function startLiveSessionInner(opts) {
                 if (lid !== userLeagueId) {
                     quickSimLiveMatch(liveM);
                 } else if (!isUser) {
-                    liveM.hStr = calculateClubMatchStrength(m.homeId, true);
-                    liveM.aStr = calculateClubMatchStrength(m.awayId, false);
+                    liveM.hStr = calculateClubMatchStrength(m.homeId, true) + gaussRandom() * 0.30;
+                    liveM.aStr = calculateClubMatchStrength(m.awayId, false) + gaussRandom() * 0.30;
                 }
                 leaguesMatches[lid].push(liveM);
             });
@@ -474,6 +518,10 @@ function startLiveSessionInner(opts) {
         subsUsed: 0,
         maxSubs: 5,
         initialFormation: initialFormationSnapshot,
+        dayNoiseH: gaussRandom() * 0.30,
+        dayNoiseA: gaussRandom() * 0.30,
+        refStrict: 0.80 + Math.random() * 0.50,         // Strenge des Schiedsrichters in diesem Spiel
+        oppReds: 0,
         initialMentality: GameState.tactics.mentality || 'normal',
         initialAggression: GameState.tactics.aggression || 'normal',
         initialCustomCoords: Array.isArray(GameState.tactics.customCoords) ? GameState.tactics.customCoords.map(c => ({ ...c })) : null,
@@ -550,37 +598,59 @@ function dismissLiveInAppAlert() {
     liveMatchState.inAppAlert = null;
 }
 
+// ==========================================
+// KARTEN: GRÜNDE FÜR GELB, GELB-ROT UND ROT
+// ==========================================
+const YELLOW_REASONS = [
+    'nach einem taktischen Foul', 'wegen Meckerns', 'für hartes Einsteigen', 'für Trikotzupfen', 'wegen Zeitspiels',
+    'nach einem Handspiel', 'wegen einer Schwalbe', 'für ein rüdes Foul von hinten', 'nach wiederholtem Foulspiel',
+    'für Reklamieren nach dem Pfiff', 'weil er den Ball wegschlägt', 'für ein Foul an der Strafraumgrenze',
+    'nach einem Rempler gegen den Torwart', 'wegen unsportlichen Verhaltens', 'für Stoßen im Luftkampf',
+    'für übertriebenen Torjubel', 'nach einem Ellbogeneinsatz', 'für ein Foul im Mittelfeld', 'nach einem Tritt in die Hacken',
+    'für Spielverzögerung beim Einwurf', 'für ein Festhalten im Strafraum', 'nach einem Frustfoul', 'wegen Protestierens gegen die Entscheidung'
+];
+const SECOND_YELLOW_REASONS = [
+    'wegen wiederholtem Foulspiel', 'wegen Meckerns nach der ersten Verwarnung', 'für ein weiteres taktisches Foul', 'wegen Zeitspiels',
+    'wegen einer Schwalbe', 'für erneutes Trikotzupfen', 'für ein Handspiel', 'wegen ständigen Reklamierens', 'für ein Foul von hinten',
+    'weil er den Ball absichtlich wegschlägt'
+];
+const RED_REASONS = [
+    { w: 22, min: 1, max: 2, reason: 'Notbremse', why: 'einer Notbremse (Verhinderung einer klaren Torchance)' },
+    { w: 20, min: 2, max: 3, reason: 'Grobes Foulspiel', why: 'brutalen Einsteigens mit gestrecktem Bein' },
+    { w: 8, min: 4, max: 5, reason: 'Tätlichkeit', why: 'einer Tätlichkeit gegen einen Gegenspieler' },
+    { w: 8, min: 3, max: 4, reason: 'Ellbogenschlag', why: 'eines Ellbogenschlags im Luftduell' },
+    { w: 10, min: 1, max: 2, reason: 'Handspiel auf der Torlinie', why: 'eines absichtlichen Handspiels auf der Linie' },
+    { w: 8, min: 2, max: 3, reason: 'Beleidigung', why: 'Beleidigung des Schiedsrichters' },
+    { w: 8, min: 2, max: 3, reason: 'Nachtreten', why: 'Nachtretens nach dem Pfiff' },
+    { w: 3, min: 5, max: 6, reason: 'Spuckattacke', why: 'einer Spuckattacke gegen einen Gegner' },
+    { w: 4, min: 4, max: 5, reason: 'Kopfstoß', why: 'eines Kopfstoßes im Getümmel' },
+    { w: 6, min: 2, max: 3, reason: 'Foul am Torwart', why: 'rücksichtslosen Einsteigens gegen den Torwart' },
+    { w: 3, min: 3, max: 4, reason: 'Revanchefoul', why: 'eines Revanchefouls nach einer Provokation' }
+];
+
+function pickFrom(arr) {
+    return arr[Math.floor(Math.random() * arr.length)];
+}
+function pickWeightedSimple(list) {
+    const tot = list.reduce((s, x) => s + x.w, 0);
+    let r = Math.random() * tot;
+    for (const x of list) { r -= x.w; if (r <= 0) return x; }
+    return list[list.length - 1];
+}
+
 function determineRedCardBan(isSecondYellow) {
     if (isSecondYellow) {
+        const why = pickFrom(SECOND_YELLOW_REASONS);
         return {
             matches: 1,
-            reason: "Gelb-Rote Karte",
-            severityLabel: "Wiederholtes Foulspiel"
+            reason: 'Gelb-Rote Karte',
+            detail: why,
+            severityLabel: `Zweite Gelbe Karte ${why}`
         };
     }
-    const roll = Math.random();
-    if (roll < 0.35) {
-        const m = Math.random() < 0.55 ? 1 : 2;
-        return {
-            matches: m,
-            reason: "Notbremse",
-            severityLabel: "Notbremse (Verhinderung einer klaren Torchance)"
-        };
-    } else if (roll < 0.80) {
-        const m = Math.random() < 0.55 ? 2 : 3;
-        return {
-            matches: m,
-            reason: "Grobes Foulspiel",
-            severityLabel: "Grobes Foulspiel"
-        };
-    } else {
-        const m = Math.random() < 0.65 ? 4 : 5;
-        return {
-            matches: m,
-            reason: "Tätlichkeit",
-            severityLabel: "Tätlichkeit / Brutales Einsteigen"
-        };
-    }
+    const r = pickWeightedSimple(RED_REASONS);
+    const m = r.min + Math.floor(Math.random() * (r.max - r.min + 1));
+    return { matches: m, reason: r.reason, detail: r.why, severityLabel: r.reason };
 }
 
 function triggerLiveInterruption(reasonText, forcePause = false) {
@@ -610,6 +680,7 @@ function calculateLiveClubStrength(clubId, isHome) {
         let str = total / 11;
         if (GameState.tactics.aggression === "hard") str *= 1.03;
         if (GameState.tactics.aggression === "soft") str *= 0.97;
+        str += getDifficulty().str;
 
         const ment = GameState.tactics.mentality || "normal";
         if (ment === "all_out") str += 0.25;
@@ -745,6 +816,128 @@ function handleEmergencyGoalkeeperRedCard(gkSlotIdx) {
     };
 }
 
+// ==========================================
+// SPIELSZENEN IM TICKER (Team + Spielernamen)
+// ==========================================
+const LIVE_FALLBACK_POS = ['TW', 'LV', 'IV', 'IV', 'RV', 'LM', 'ZM', 'ZM', 'RM', 'ST', 'ST'];
+
+// Spieler auf dem Platz (eigener Verein: aktuelle Aufstellung; Gegner: Top-11, einmal je Spiel festgelegt)
+function getLiveSideXI(clubId) {
+    const st = liveMatchState;
+    let all;
+    if (clubId === GameState.activeClubId) {
+        const sq = getClubPlayers();
+        all = GameState.tactics.lineup.map(id => sq.find(p => p.id === id)).filter(Boolean).map(p => ({ name: p.name, pos: p.pos }));
+    } else {
+        st.xiCache = st.xiCache || {};
+        if (!st.xiCache[clubId]) {
+            let list;
+            const sq = [...getClubPlayers(clubId)].sort((a, b) => b.rating - a.rating).slice(0, 11);
+            if (isExtClub(clubId) || sq.length < 11) {
+                const used = new Set();
+                list = LIVE_FALLBACK_POS.map(pos => {
+                    let nm = randomForeignScorerName();
+                    let g = 0;
+                    while (used.has(nm) && g++ < 12) nm = randomForeignScorerName();
+                    used.add(nm);
+                    return { name: nm, pos };
+                });
+            } else {
+                list = sq.map(p => ({ name: p.name, pos: p.pos }));
+            }
+            st.xiCache[clubId] = list;
+        }
+        const sent = st.oppSentOff || [];
+        all = st.xiCache[clubId].filter(p => !sent.includes(p.name));
+    }
+    return { all, outfield: all.filter(p => p.pos !== 'TW'), gk: all.find(p => p.pos === 'TW') || null };
+}
+function getLiveOpponentXI(oppId) {
+    return getLiveSideXI(oppId);
+}
+
+const ATTACK_WEIGHTS = { ST: 5, LA: 4, RA: 4, OM: 4, LM: 3, RM: 3, ZM: 3, DM: 1.5, LV: 1.2, RV: 1.2, IV: 1 };
+function pickAttackerName(xi, exclude = null) {
+    const pool = xi.outfield.filter(p => p.name !== exclude);
+    if (pool.length === 0) return 'ein Angreifer';
+    const tot = pool.reduce((s, p) => s + (ATTACK_WEIGHTS[p.pos] || 1), 0);
+    let r = Math.random() * tot;
+    for (const p of pool) { r -= (ATTACK_WEIGHTS[p.pos] || 1); if (r <= 0) return p.name; }
+    return pool[0].name;
+}
+function pickDefenderName(xi) {
+    const defs = xi.outfield.filter(p => ['IV', 'LV', 'RV', 'DM'].includes(p.pos));
+    const pool = defs.length ? defs : xi.outfield;
+    return pool.length ? pool[Math.floor(Math.random() * pool.length)].name : 'ein Verteidiger';
+}
+
+// [Gewicht, Art, big (ruft ein "Oooh" im Stadion hervor), Textfunktion]
+const ACTION_LIB = [
+    [3, 'free', false, c => `Freistoß aus halblinker Position: ${c.a} legt sich den Ball zurecht – ${c.gk} faustet ihn sicher weg.`],
+    [3, 'free', false, c => `Freistoß aus halbrechter Position, ${c.a} zieht direkt ab – der Ball klatscht in die Mauer.`],
+    [2, 'free', true,  c => `Gefährlicher Freistoß aus 22 Metern zentral! ${c.a} probiert es direkt – knapp über den Winkel!`],
+    [2, 'free', true,  c => `Freistoß von der linken Seite: ${c.a} flankt in den Strafraum, ${c.b} kommt zum Kopfball – ${c.gk} pariert glänzend!`],
+    [2, 'free', false, c => `Freistoß von der rechten Seite, ${c.a} schlägt ihn in die Box – ${c.d} klärt per Kopf.`],
+    [1, 'free', true,  c => `Freistoß aus 18 Metern! ${c.a} schießt – Pfosten! Der Nachschuss von ${c.b} wird geblockt.`],
+    [2, 'free', false, c => `Freistoß aus 30 Metern: ${c.a} versucht es einfach mal – der Ball fliegt weit über das Tor.`],
+    [3, 'corner', false, c => `Eckball von der rechten Seite durch ${c.a} – ${c.d} köpft die Kugel aus der Gefahrenzone.`],
+    [3, 'corner', false, c => `Ecke von links: ${c.a} zirkelt den Ball an den Fünfer, ${c.b} verpasst um Zentimeter.`],
+    [2, 'corner', false, c => `Kurz ausgeführte Ecke von ${c.a} auf ${c.b} – der Abschluss wird geblockt.`],
+    [1, 'corner', true,  c => `Eckball: ${c.a} schlägt ihn scharf an den ersten Pfosten – ${c.gk} faustet im letzten Moment weg, gefährlich!`],
+    [3, 'shot', false, c => `${c.a} zieht aus 20 Metern ab – ${c.gk} hat keine Mühe.`],
+    [3, 'shot', false, c => `${c.a} kommt im Strafraum zum Abschluss, ${c.gk} lenkt den Ball zur Ecke!`],
+    [2, 'shot', true,  c => `Distanzschuss von ${c.a} – der Ball rauscht knapp am Pfosten vorbei!`],
+    [2, 'shot', true,  c => `${c.a} schießt flach ins lange Eck, ${c.gk} taucht ab und pariert stark!`],
+    [2, 'shot', true,  c => `Gefährlicher Abschluss von ${c.a} – die Latte rettet für ${c.opp}!`],
+    [2, 'shot', false, c => `${c.b} legt quer auf ${c.a}, der Schuss wird von ${c.d} in höchster Not geblockt.`],
+    [2, 'shot', false, c => `${c.a} hämmert den Ball volley weit übers Tor.`],
+    [1, 'shot', true,  c => `Kopfball von ${c.a} nach Flanke von ${c.b} – knapp vorbei!`],
+    [1, 'shot', true,  c => `Beinahe das Tor! ${c.a} schiebt den Ball knapp neben den Pfosten – das war eine Riesenchance!`],
+    [2, 'play', false, c => `Schneller Konter über ${c.a} – ${c.d} grätscht im letzten Moment dazwischen.`],
+    [2, 'play', false, c => `${c.a} setzt sich auf dem Flügel durch, die Hereingabe wird von ${c.d} geklärt.`],
+    [2, 'play', false, c => `Steilpass von ${c.b} auf ${c.a} – Abseits! Die Fahne des Linienrichters geht hoch.`],
+    [2, 'play', false, c => `${c.a} dribbelt sich durchs Mittelfeld, wird von ${c.d} gestoppt – Foulpfiff.`],
+    [2, 'play', false, c => `${c.a} legt den Ball mit der Hacke auf ${c.b} – schöne Kombination, doch der Abschluss misslingt.`],
+    [2, 'play', false, c => `${c.gk} fängt eine Flanke von ${c.a} sicher ab.`],
+    [2, 'play', false, c => `Zweikampf zwischen ${c.a} und ${c.d} – der Schiedsrichter lässt weiterlaufen.`],
+    [1, 'play', false, c => `Kurze Behandlungspause: ${c.d} bleibt nach einem Zusammenprall mit ${c.a} liegen, kann aber weitermachen.`],
+    [1, 'play', false, c => `Der Schiedsrichter gibt Vorteil für ${c.a} – der Angriff läuft weiter, endet aber im Abseits.`]
+];
+
+function buildActionTickerEntry(minLabel, um, hStr, aStr) {
+    const st = liveMatchState;
+    const uid = GameState.activeClubId;
+    const pHome = Math.max(0.32, Math.min(0.68, 0.5 + (hStr - aStr) * 0.10));
+    const homeAttacks = Math.random() < pHome;
+    const attId = homeAttacks ? um.homeId : um.awayId;
+    const defId = homeAttacks ? um.awayId : um.homeId;
+    const attXI = getLiveSideXI(attId);
+    const defXI = getLiveSideXI(defId);
+    if (attXI.outfield.length < 2 || defXI.all.length === 0) return;
+    // nicht dieselbe Szene zweimal hintereinander
+    let idx, guard = 0;
+    const tot = ACTION_LIB.reduce((s, x) => s + x[0], 0);
+    do {
+        let r = Math.random() * tot;
+        idx = 0;
+        for (let i = 0; i < ACTION_LIB.length; i++) { r -= ACTION_LIB[i][0]; if (r <= 0) { idx = i; break; } }
+    } while (idx === st.lastActionIdx && guard++ < 6);
+    st.lastActionIdx = idx;
+    const [, kind, big, fn] = ACTION_LIB[idx];
+    const a = pickAttackerName(attXI);
+    const ctx = {
+        a,
+        b: pickAttackerName(attXI, a),
+        d: pickDefenderName(defXI),
+        gk: defXI.gk ? defXI.gk.name : 'der Torwart',
+        own: homeAttacks ? um.homeName : um.awayName,
+        opp: homeAttacks ? um.awayName : um.homeName
+    };
+    if (kind === 'shot' || big) { if (homeAttacks) st.stats.homeShots++; else st.stats.awayShots++; }
+    if (kind === 'corner') { if (homeAttacks) st.stats.homeCorners++; else st.stats.awayCorners++; }
+    addLiveTickerEntry(minLabel, homeAttacks ? 'home' : 'away', 'info', fn(ctx));
+}
+
 function tickLiveMatchday(silentRender = false) {
     if (!liveMatchState) return;
     if (liveMatchState.isPaused || liveMatchState.phase === 'HALFTIME' || liveMatchState.phase === 'FULLTIME') {
@@ -820,8 +1013,9 @@ function tickLiveMatchday(silentRender = false) {
                 const aStr = typeof m.aStr === 'number' ? m.aStr : calculateClubMatchStrength(m.awayId, false);
                 const aw = getWeather(m.weather);
                 const diff = (hStr - aStr) * aw.diffMult;
-                const pHome = Math.max(0.003, Math.min(0.052, ((1.42 + diff * 0.58) * aw.goalMult) / 90));
-                const pAway = Math.max(0.002, Math.min(0.048, ((1.15 - diff * 0.55) * aw.goalMult) / 90));
+                const rates = getGoalRates(diff);
+                const pHome = Math.max(0.003, Math.min(0.052, (rates.lh * aw.goalMult) / 90));
+                const pAway = Math.max(0.003, Math.min(0.048, (rates.la * aw.goalMult) / 90));
 
                 if (Math.random() < pHome) {
                     m.homeGoals++;
@@ -853,8 +1047,9 @@ function tickLiveMatchday(silentRender = false) {
     const um = liveMatchState.userMatch;
     if (um) {
         const userIsHome = um.homeId === GameState.activeClubId;
-        const hStr = calculateLiveClubStrength(um.homeId, true);
-        const aStr = calculateLiveClubStrength(um.awayId, false);
+        // Tagesform (je Spiel gewürfelt) und Überzahl/Unterzahl des Gegners
+        const hStr = calculateLiveClubStrength(um.homeId, true) + (liveMatchState.dayNoiseH || 0);
+        const aStr = calculateLiveClubStrength(um.awayId, false) + (liveMatchState.dayNoiseA || 0);
         const wx = getWeather(um.weather);
         const diff = (hStr - aStr) * wx.diffMult;
 
@@ -869,8 +1064,12 @@ function tickLiveMatchday(silentRender = false) {
         else if (ment === "defensive") goalFactor *= 0.85;
         else if (ment === "ultra_def") goalFactor *= 0.72;
 
-        const pHomeGoal = Math.max(0.003, Math.min(0.058, ((1.42 + diff * 0.58) * goalFactor) / 90));
-        const pAwayGoal = Math.max(0.002, Math.min(0.055, ((1.15 - diff * 0.55) * goalFactor) / 90));
+        const rates = getGoalRates(diff);
+        // Rote Karte gegen den Gegner: er wird schwächer, du stärker
+        const oppRedMult = (liveMatchState.oppReds || 0) > 0 ? { own: 1 + 0.18 * liveMatchState.oppReds, opp: Math.pow(0.82, liveMatchState.oppReds) } : { own: 1, opp: 1 };
+        const userHome = um.homeId === GameState.activeClubId;
+        const pHomeGoal = Math.max(0.003, Math.min(0.058, (rates.lh * goalFactor * (userHome ? oppRedMult.own : oppRedMult.opp)) / 90));
+        const pAwayGoal = Math.max(0.003, Math.min(0.055, (rates.la * goalFactor * (userHome ? oppRedMult.opp : oppRedMult.own)) / 90));
 
         let highlightOccurred = false;
 
@@ -919,7 +1118,7 @@ function tickLiveMatchday(silentRender = false) {
         // Karten & Verletzungen beim eigenen Team prüfen
         const aggr = GameState.tactics.aggression || "normal";
         const cardMult = (aggr === "hard" ? 1.65 : (aggr === "soft" ? 0.60 : 1.0)) * (liveMatchState.teamTalkCardMult || 1.0) * wx.cardMult;
-        const injuryMult = (aggr === "hard" ? 1.35 : (aggr === "soft" ? 0.70 : 1.0)) * wx.injuryMult * (1 - 0.08 * getStaffQuality('fitness'));
+        const injuryMult = (aggr === "hard" ? 1.35 : (aggr === "soft" ? 0.70 : 1.0)) * wx.injuryMult * (1 - 0.08 * getStaffQuality('fitness')) * getDifficulty().inj;
 
         const activeSlots = [];
         const squad = getClubPlayers();
@@ -932,9 +1131,10 @@ function tickLiveMatchday(silentRender = false) {
 
         const fragileCount = activeSlots.filter(s => hasTrait(s.player, 'fragile')).length;
         const hotCount = activeSlots.filter(s => hasTrait(s.player, 'hothead')).length;
+        const tiredPenalty = activeSlots.length ? activeSlots.reduce((s, x) => s + fitnessPenalty(x.player), 0) / activeSlots.length : 0;
         // Verletzungs-Check (ca. 16% Chance pro Spiel insgesamt)
-        if (!highlightOccurred && activeSlots.length > 0 && Math.random() < (0.0020 * injuryMult * (1 + 0.1 * fragileCount))) {
-            const victimObj = pickWeighted(activeSlots, s => (hasTrait(s.player, 'fragile') ? 2 : 1));
+        if (!highlightOccurred && activeSlots.length > 0 &&Math.random() < (0.0020 * injuryMult * (1 + 0.1 * fragileCount) * (1 + tiredPenalty * 2))) {
+            const victimObj = pickWeighted(activeSlots, s => (hasTrait(s.player, 'fragile') ? 2 : 1) * (1 + fitnessPenalty(s.player) * 4));
             const reasonObj = INJURY_REASONS[Math.floor(Math.random() * INJURY_REASONS.length)];
             const injMatches = registerLiveInjury(victimObj.player, reasonObj);
             const reason = `${reasonObj.label}, ca. ${injMatches} ${injMatches === 1 ? 'Spiel' : 'Spiele'} Pause`;
@@ -986,7 +1186,7 @@ function tickLiveMatchday(silentRender = false) {
         }
 
         // Gelbe / Gelb-Rote / Rote Karte beim eigenen Team
-        if (!highlightOccurred && activeSlots.length > 0 && Math.random() < (0.015 * cardMult * (1 + 0.12 * hotCount))) {
+        if (!highlightOccurred && activeSlots.length > 0 &&Math.random() < (0.015 * cardMult * (liveMatchState.refStrict || 1) * (1 + 0.12 * hotCount))) {
             const offenderObj = pickWeighted(activeSlots, s => (hasTrait(s.player, 'hothead') ? 2.5 : 1));
             const pl = offenderObj.player;
 
@@ -1026,14 +1226,16 @@ function tickLiveMatchday(silentRender = false) {
                     minLabel,
                     "user",
                     "card-red",
-                    `🟥 ${cardLabel}! ${pl.name} (${pl.pos}) fliegt vom Platz! ⚖️ Sportgericht: ${banText}.${gkNote}`
+                    alreadyYellow
+                        ? `🟨🟥 GELB-ROT für ${pl.name} (${pl.pos}) – ${ban.detail}! Platzverweis. ⚖️ Sportgericht: ${banText}.${gkNote}`
+                        : `🟥 ROTE KARTE für ${pl.name} (${pl.pos}) wegen ${ban.detail}! ⚖️ Sportgericht: ${banText}.${gkNote}`
                 );
                 showLiveInAppAlert({
                     type: alreadyYellow ? "yellow-red" : "red",
                     minute: minLabel,
                     title: alreadyYellow ? "🟨🟥 GELB-ROTE KARTE!" : "🟥 GLATTE ROTE KARTE!",
                     headline: `${pl.name} (${pl.pos}) fliegt vom Platz!`,
-                    detail: `Tatbestand: ${ban.severityLabel} • Sperre: ${banText}.${gkNote}`,
+                    detail: `${alreadyYellow ? 'Grund' : 'Tatbestand'}: ${ban.severityLabel} • Sperre: ${banText}.${gkNote}`,
                     slotIdx: null
                 });
                 triggerLiveInterruption(`🟥 PLATZVERWEIS: ${pl.name} (${cardLabel} • ${banText})!`, false);
@@ -1042,37 +1244,64 @@ function tickLiveMatchday(silentRender = false) {
                 liveMatchState.yellowCardIds.push(pl.id);
                 if (userIsHome) liveMatchState.stats.homeYellows++;
                 else liveMatchState.stats.awayYellows++;
-                addLiveTickerEntry(minLabel, "user", "card-yellow", `🟨 Gelbe Karte für ${pl.name} (${pl.pos}) nach taktischem Foul.`);
+                addLiveTickerEntry(minLabel, "user", "card-yellow", `🟨 Gelbe Karte für ${pl.name} (${pl.pos}) ${pickFrom(YELLOW_REASONS)}.`);
             }
         }
 
-        // Gelbe Karte Gegner
-        if (!highlightOccurred && Math.random() < 0.014 * wx.cardMult) {
-            if (userIsHome) liveMatchState.stats.awayYellows++;
-            else liveMatchState.stats.homeYellows++;
+        // Karten gegen den Gegner (Gelb, Gelb-Rot, glatt Rot)
+        if (!highlightOccurred) {
             const oppId = userIsHome ? um.awayId : um.homeId;
             const oppName = userIsHome ? um.awayName : um.homeName;
-            const oppSquad = [...getClubPlayers(oppId)].sort((a, b) => b.rating - a.rating).slice(0, 11).filter(p => p.pos !== "TW");
-            const culpritName = oppSquad.length > 0 ? oppSquad[Math.floor(Math.random() * oppSquad.length)].name : (isExtClub(oppId) ? randomForeignScorerName() : 'einen Spieler');
-            addLiveTickerEntry(minLabel, userIsHome ? "away" : "home", "card-yellow", `🟨 Gelbe Karte für ${culpritName} (${oppName}).`);
+            const oppSide = userIsHome ? "away" : "home";
+            const strict = liveMatchState.refStrict || 1;
+            const oppRedHit = Math.random() < 0.00055 * strict * wx.cardMult;
+            const oppYellowHit = Math.random() < 0.014 * wx.cardMult * strict;
+            if (oppRedHit || oppYellowHit) {
+                const xi = getLiveOpponentXI(oppId);
+                const cand = xi.outfield.length ? xi.outfield : [{ name: 'ein Gegenspieler', pos: '' }];
+                const culprit = pickFrom(cand);
+                liveMatchState.oppYellowIds = liveMatchState.oppYellowIds || [];
+                liveMatchState.oppSentOff = liveMatchState.oppSentOff || [];
+                if (!liveMatchState.oppSentOff.includes(culprit.name)) {
+                    const second = liveMatchState.oppYellowIds.includes(culprit.name);
+                    if (oppRedHit || second) {
+                        const ban = determineRedCardBan(second);
+                        liveMatchState.oppSentOff.push(culprit.name);
+                        liveMatchState.oppReds = (liveMatchState.oppReds || 0) + 1;
+                        if (userIsHome) liveMatchState.stats.awayReds++; else liveMatchState.stats.homeReds++;
+                        addLiveTickerEntry(minLabel, oppSide, "card-red", second
+                            ? `🟨🟥 GELB-ROT für ${culprit.name} (${oppName}) – ${ban.detail}! Der Gegner ist nur noch zu zehnt.`
+                            : `🟥 ROTE KARTE für ${culprit.name} (${oppName}) wegen ${ban.detail}! Der Gegner ist nur noch zu zehnt.`);
+                        highlightOccurred = true;
+                    } else {
+                        liveMatchState.oppYellowIds.push(culprit.name);
+                        if (userIsHome) liveMatchState.stats.awayYellows++; else liveMatchState.stats.homeYellows++;
+                        addLiveTickerEntry(minLabel, oppSide, "card-yellow", `🟨 Gelbe Karte für ${culprit.name} (${oppName}) ${pickFrom(YELLOW_REASONS)}.`);
+                    }
+                }
+            }
         }
-
-        // Torschüsse, Ecken & atmosphärischer Ticker-Text
+        // Torschüsse, Ecken, Standards & Spielszenen (mit Team und Spielernamen)
         if (!highlightOccurred) {
-            if (Math.random() < 0.09) {
+            if (Math.random() < 0.05) {
                 if (Math.random() < (hStr / (hStr + aStr))) liveMatchState.stats.homeShots++;
                 else liveMatchState.stats.awayShots++;
             }
-            if (Math.random() < 0.06) {
+            if (Math.random() < 0.03) {
                 if (Math.random() < (hStr / (hStr + aStr))) liveMatchState.stats.homeCorners++;
                 else liveMatchState.stats.awayCorners++;
             }
-            if (Math.random() < 0.06) {
-                const wxComments = WEATHER_COMMENTS[um.weather];
-                const useWx = wxComments && Math.random() < 0.35;
-                const pool = useWx ? wxComments : ATMOSPHERIC_COMMENTS;
-                const phrase = pool[Math.floor(Math.random() * pool.length)];
-                addLiveTickerEntry(minLabel, "neutral", "info", useWx ? `${wx.icon} ${phrase}` : phrase);
+            if (Math.random() < 0.115) {
+                const r = Math.random();
+                if (r < 0.74) {
+                    buildActionTickerEntry(minLabel, um, hStr, aStr);
+                } else {
+                    const wxComments = WEATHER_COMMENTS[um.weather];
+                    const useWx = wxComments && Math.random() < 0.40;
+                    const pool = useWx ? wxComments : ATMOSPHERIC_COMMENTS;
+                    const phrase = pool[Math.floor(Math.random() * pool.length)];
+                    addLiveTickerEntry(minLabel, "neutral", "info", useWx ? `${wx.icon} ${phrase}` : phrase);
+                }
             }
         }
     }
@@ -1325,6 +1554,7 @@ function finalizeLiveMatchdayInner() {
         });
         // Motivation 2.0: Einsatzzeit, Rolle und Ergebnis (siehe motivation.js)
         updateMotivationAfterMatch(minMap, won, draw);
+        applyFatigueAfterMatch(minMap, st.dateISO);
         // Leistungsträger reißen die Mitspieler mit
         const leaders = squad.filter(p => (minMap[p.id] || 0) >= 45 && hasTrait(p, 'leader')).length;
         if (leaders > 0) squad.forEach(p => { if ((minMap[p.id] || 0) > 0) adjustPlayerMotivation(p, Math.min(2, leaders)); });
@@ -1363,7 +1593,7 @@ function finalizeLiveMatchdayInner() {
     }
     // Gehälter: Jahresgehalt verteilt auf die Liga-Spieltage (nur reguläre Spieltage, kein Doppelabzug)
     if (mode === 'league') {
-        salaryCost = Math.round(squad.reduce((sum, p) => sum + (p.salary || 0), 0) / Math.max(1, totalMds));
+        salaryCost = Math.round(getUserPayroll() / Math.max(1, totalMds));
         staffCost = Math.round(getStaffAnnualCost() / Math.max(1, totalMds));
         bookMoney('salaries', -salaryCost);
         bookMoney('staff', -staffCost);
@@ -1515,6 +1745,7 @@ function finalizeLiveMatchdayInner() {
         selectedFixtureMatchday = currentMd;
     }
     GameState.meta.tick = (GameState.meta.tick || 0) + 1;
+    if (um) recoverFitnessForNextGame(st.dateISO);                  // Erholung bis zum nächsten Termin
     selectedLeagueViewId = club.leagueId;
     liveMatchState = null;
     liveSelectedPitchSlot = null;
@@ -1551,7 +1782,7 @@ function finalizeLiveMatchdayUi(st, um, currentMd) {
         const gf = isHome ? um.homeGoals : um.awayGoals;
         const ga = isHome ? um.awayGoals : um.homeGoals;
         const result = um.winnerId ? (um.winnerId === uid ? 'win' : 'loss') : (gf > ga ? 'win' : (gf < ga ? 'loss' : 'draw'));
-        const ictx = { kind: 'post', result, bigWin: gf - ga >= 3, bigLoss: ga - gf >= 3, cup: st.mode === 'cup' };
+        const ictx = { kind: 'post', result, bigWin: gf - ga >= 3, bigLoss: ga - gf >= 3, cup: st.mode === 'cup', home: um.neutral ? null : isHome, narrow: Math.abs(gf - ga) === 1 };
         if (shouldTriggerInterview('post', ictx)) startInterview(ictx, () => switchToView('office'));
     }
 }

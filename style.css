@@ -1596,3 +1596,12 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
 .rep-line { font-size: 0.66rem; background: #0b1c10; border: 1px solid #246b35; padding: 3px 6px; margin: 4px 0; }
 .rep-up { color: #6ee787; }
 .rep-down { color: #ff8787; }
+
+/* v1.16: Interview-Stile, Leihe */
+.iv-answer.humble { border-color: #1c7ed6; }
+.iv-answer.cool { border-color: #7048e8; }
+.report-toggle { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; background: #122918; color: #f4f4f4; border: 2px solid var(--accent-gold); padding: 7px 9px; margin-bottom: 8px; cursor: pointer; font-size: 0.70rem; }
+.report-toggle .rt-title { color: var(--accent-gold); font-weight: bold; font-size: 0.66rem; flex: 1 1 100%; }
+.report-toggle .rt-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.74rem; }
+.report-toggle .rt-hint { font-size: 0.60rem; color: #99b8a1; flex-shrink: 0; }
+.report-toggle:focus-visible { outline: 2px solid var(--accent-gold); }

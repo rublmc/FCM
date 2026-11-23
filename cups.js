@@ -753,9 +753,9 @@ function decideKoMatch(comp, roundIdx, m, scorerFn = null) {
         lines.push({ min: "105'", text: "⏱️ VERLÄNGERUNG! Es geht in die Extrazeit." });
         const hs = getMatchStrength(m.homeId, true, m.neutral);
         const as = getMatchStrength(m.awayId, false, m.neutral);
-        const diff = hs - as;
-        const gh = samplePoisson(Math.max(0.1, (1.42 + diff * 0.55) * 0.28));
-        const ga = samplePoisson(Math.max(0.1, (1.15 - diff * 0.55) * 0.28));
+          const rt = getGoalRates(hs - as);
+          const gh = samplePoisson(Math.max(0.1, rt.lh * 0.28));
+          const ga = samplePoisson(Math.max(0.1, rt.la * 0.28));
         const addGoal = (side) => {
             const id = side === 'home' ? m.homeId : m.awayId;
             const sc = scorerFn ? scorerFn(id) : null;
@@ -783,9 +783,9 @@ function decideKoMatch(comp, roundIdx, m, scorerFn = null) {
 function simulateCupMatchSilently(comp, roundIdx, m) {
     const hs = getMatchStrength(m.homeId, true, m.neutral);
     const as = getMatchStrength(m.awayId, false, m.neutral);
-    const diff = hs - as;
-    m.homeGoals = samplePoisson(1.42 + diff * 0.58);
-    m.awayGoals = samplePoisson(1.15 - diff * 0.55);
+    const rt = getGoalRates(hs - as + gaussRandom() * 0.38);
+    m.homeGoals = samplePoisson(rt.lh);
+    m.awayGoals = samplePoisson(rt.la);
     m.events = [];
     const addScorers = (id, n, side) => {
         for (let i = 0; i < n; i++) {

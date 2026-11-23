@@ -2,8 +2,8 @@
 // FC MANAGER 27 - MODUL: DATA & KONSTANTEN
 // ==========================================
 window.FCM_APP_STARTED = true;
-const GAME_VERSION = "1.15.0";
-const GAME_BUILD_DATE = "22.11.2026";
+const GAME_VERSION = "1.16.0";
+const GAME_BUILD_DATE = "23.11.2026";
 
 
 const FORMATIONS = {
@@ -273,7 +273,7 @@ const WINTER_EVENTS = [
 
 let GameState = {
     meta: {
-        coreVersion: "1.15.0",
+        coreVersion: "1.16.0",
         season: "2026/27",
         phase: "preseason", // 'preseason' | 'season' | 'winter'
         preseasonWeek: 1,   // 1..4
@@ -309,7 +309,8 @@ let GameState = {
     pendingTransfers: [],  // vereinbarte Wechsel, die zum Transferfenster vollzogen werden
     board: null,           // Stimmung im Präsidium
     press: null,           // Öffentlichkeit / Medienbild
-    interviews: null,      // Interview-Statistik
+      interviews: null,      // Interview-Statistik
+      coach: null,           // Trainervertrag (Gehalt, Laufzeit, Saisonziel)
     preseason: null,
     winterBreak: null,
     lastBreakReport: null,
@@ -363,8 +364,9 @@ function resetCareerFields(clubId) {
     GameState.pendingTransfers = [];
     GameState.board = null;
     GameState.press = null;
-    GameState.interviews = null;
-    GameState.preseason = null;
+      GameState.interviews = null;
+      GameState.coach = null;
+      GameState.preseason = null;
     GameState.winterBreak = null;
     GameState.lastBreakReport = null;
     GameState.lastMatchReport = null;

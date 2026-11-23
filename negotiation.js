@@ -22,47 +22,123 @@ const NEGO_MOODS = {
 
 const NEGO_QUOTES = {
     player: {
-        happy: ["Das klingt hervorragend – ich bin dabei!", "Perfekt, wo soll ich unterschreiben?", "Danke für das Vertrauen, Trainer! Deal!"],
-        concede: ["Na gut – Sie haben mich überzeugt. Wir sind uns einig!", "Okay, mein Berater ist einverstanden. Deal!"],
-        positive: ["Wir sind nah dran – ein kleines bisschen mehr und wir haben einen Deal.", "Das gefällt mir schon ganz gut, aber mein Berater hätte gern noch etwas mehr."],
-        skeptical: ["Hm … das ist nicht ganz das, was ich mir vorgestellt habe.", "Mein Berater runzelt die Stirn. Da muss mehr kommen."],
-        angry: ["Ist das ein Witz? So wenig bin ich nicht wert!", "Das empfinde ich als respektlos. Überleg dir das gut!"],
-        quit: ["Das reicht. Ich habe kein Interesse mehr – die Gespräche sind beendet.", "Mein Berater hat die Verhandlungen abgebrochen."]
+        happy: ["Das klingt hervorragend – ich bin dabei!", "Perfekt, wo soll ich unterschreiben?", "Danke für das Vertrauen, Trainer! Deal!",
+            "Genau so habe ich mir das vorgestellt. Abgemacht!", "Mein Berater strahlt – wir haben einen Deal!", "Da muss ich nicht lange überlegen: Ich nehme an.",
+            "Das ist ein faires Angebot, ich freue mich auf die Aufgabe!", "Hand drauf, Trainer – ich will hier etwas bewegen!"],
+        concede: ["Na gut – Sie haben mich überzeugt. Wir sind uns einig!", "Okay, mein Berater ist einverstanden. Deal!",
+            "Ich komme Ihnen noch ein Stück entgegen – dann machen wir das so.", "Eigentlich wollte ich mehr, aber die Perspektive stimmt. Einverstanden!",
+            "Gut, bevor es an Kleinigkeiten scheitert: Ich unterschreibe."],
+        positive: ["Wir sind nah dran – ein kleines bisschen mehr und wir haben einen Deal.", "Das gefällt mir schon ganz gut, aber mein Berater hätte gern noch etwas mehr.",
+            "Der Ansatz stimmt, jetzt müssen wir nur noch die Details glattziehen.", "Ich kann mir das gut vorstellen – ein bisschen Bewegung noch, dann klappt das.",
+            "Fast da! Legen Sie noch etwas drauf, dann reden wir über die Unterschrift.", "Das ist schon ordentlich. Gehen Sie noch ein kleines Stück auf uns zu?"],
+        skeptical: ["Hm … das ist nicht ganz das, was ich mir vorgestellt habe.", "Mein Berater runzelt die Stirn. Da muss mehr kommen.",
+            "Ich habe auch andere Optionen auf dem Tisch, Trainer.", "Für meine Leistungen der letzten Jahre erscheint mir das zu wenig.",
+            "Das reicht mir noch nicht – ich möchte mich wertgeschätzt fühlen.", "Da sind wir noch ein gutes Stück auseinander.",
+            "Ich schlafe mal drüber – aber so unterschreibe ich nicht."],
+        angry: ["Ist das ein Witz? So wenig bin ich nicht wert!", "Das empfinde ich als respektlos. Überleg dir das gut!",
+            "Mit so einem Angebot brauchen Sie gar nicht erst anzufangen!", "Mein Berater schüttelt nur noch den Kopf – das ist eine Beleidigung.",
+            "Wollen Sie mich provozieren? Das ist weit unter meinem Niveau!", "So geht man nicht mit einem Profi um!"],
+        quit: ["Das reicht. Ich habe kein Interesse mehr – die Gespräche sind beendet.", "Mein Berater hat die Verhandlungen abgebrochen.",
+            "Ich sehe keine Basis mehr. Schönen Tag noch, Trainer.", "Wir stehen auf. Das hat keinen Sinn.", "So kommen wir nicht zusammen – ich bin raus."]
+    },
+    // Typische Sprüche je Charakter (werden in ca. 45 % der Fälle statt der Standardsätze genutzt)
+    persona: {
+        diva: {
+            happy: ["Ein Star wie ich verdient das – gut, dass Sie das erkannt haben!", "Endlich jemand, der meinen Wert versteht."],
+            positive: ["Sie wissen, wer ich bin? Dann legen Sie noch etwas drauf."],
+            skeptical: ["Meinen Namen kennt halb Europa – das spiegelt das Angebot nicht wider.", "Für mein Gesicht auf den Plakaten braucht es mehr."],
+            angry: ["Wissen Sie, wen Sie vor sich haben?! Das ist ein Skandal!", "Ich bin doch kein Mitläufer – das ist eine Frechheit!"],
+            quit: ["Ich muss mich nicht bei Ihnen bewerben. Auf Wiedersehen."]
+        },
+        loyal: {
+            happy: ["Ich bin gern hier – das Geld ist nicht alles. Deal!", "Der Verein ist meine Familie. Ich unterschreibe sehr gern."],
+            positive: ["Mir liegt viel an diesem Klub, wir kriegen das hin – ein bisschen mehr noch."],
+            skeptical: ["Ich war immer loyal, da erwarte ich ein bisschen mehr Anerkennung."],
+            angry: ["Nach allem, was ich für diesen Verein getan habe? Das tut weh."],
+            quit: ["Das enttäuscht mich sehr. Ich glaube, wir sind hier fertig."]
+        },
+        hothead: {
+            happy: ["Läuft! Lass uns den Laden aufmischen!", "Super – jetzt wird gearbeitet!"],
+            positive: ["Fast – aber komm mir nicht mit Kleinkram!"],
+            skeptical: ["Das ist mir zu lasch. Mehr, aber zackig!"],
+            angry: ["WAS?! Willst du mich verarschen?!", "Sag mal, hast du sie noch alle? Das ist lächerlich!"],
+            quit: ["Mir reicht's! Ich bin weg – tschüss!"]
+        },
+        pro: {
+            happy: ["Sachlich und fair. So arbeite ich gern – abgemacht.", "Das passt. Ich freue mich auf die Zusammenarbeit."],
+            positive: ["Wir liegen eng beieinander. Eine kleine Anpassung, dann ist das erledigt."],
+            skeptical: ["Rein rational betrachtet liegt das unter dem Marktniveau."],
+            angry: ["Ich bleibe professionell – aber dieses Angebot ist nicht angemessen."],
+            quit: ["Aus sportlicher Sicht sehe ich hier keine gemeinsame Basis mehr."]
+        },
+        lazy: {
+            happy: ["Super, dann muss ich ja nicht weiter diskutieren – deal!", "Läuft. Hauptsache, die Extraschichten bleiben freiwillig."],
+            positive: ["Passt schon fast – ein bisschen mehr, dann bin ich zufrieden."],
+            skeptical: ["Hm, für den Stress, den ich hier habe, ist das nicht gerade viel."],
+            angry: ["Dafür soll ich auch noch mehr trainieren? Vergiss es."],
+            quit: ["Ach, ist mir zu anstrengend. Ich lass es."]
+        }
     },
     staff: {
-        happy: ["Abgemacht! Ich freue mich auf die Arbeit mit der Mannschaft.", "Sehr gern – wann ist das erste Training?"],
-        concede: ["In Ordnung – ich komme Ihnen entgegen. Abgemacht!"],
-        positive: ["Die Aufgabe reizt mich, beim Gehalt müssten wir uns aber noch annähern.", "Fast – legen Sie noch eine Schippe drauf?"],
-        skeptical: ["Ich habe auch andere Angebote auf dem Tisch …", "Für meine Erfahrung ist das etwas wenig."],
-        angry: ["Dafür stehe ich nicht morgens um sieben auf dem Platz!", "Das ist weit unter meinem Marktwert."],
-        quit: ["Danke, aber ich habe mich für einen anderen Verein entschieden.", "Ich ziehe meine Bewerbung zurück."]
+        happy: ["Abgemacht! Ich freue mich auf die Arbeit mit der Mannschaft.", "Sehr gern – wann ist das erste Training?", "Das ist ein starkes Paket. Ich bin dabei!",
+            "Genau die Aufgabe, auf die ich gewartet habe. Deal!", "Prima – ich krempele die Ärmel hoch."],
+        concede: ["In Ordnung – ich komme Ihnen entgegen. Abgemacht!", "Weil mir das Projekt gefällt, bin ich einverstanden.", "Na gut, eine Hand wäscht die andere – abgemacht."],
+        positive: ["Die Aufgabe reizt mich, beim Gehalt müssten wir uns aber noch annähern.", "Fast – legen Sie noch eine Schippe drauf?",
+            "Das klingt vernünftig. Noch ein kleines Stück, dann sind wir uns einig.", "Mit etwas mehr Gehalt oder Laufzeit sehe ich uns zusammen."],
+        skeptical: ["Ich habe auch andere Angebote auf dem Tisch …", "Für meine Erfahrung ist das etwas wenig.", "In meinem Lebenslauf stehen größere Namen – das sollte sich auch im Gehalt zeigen.",
+            "Da müsste schon noch einiges passieren."],
+        angry: ["Dafür stehe ich nicht morgens um sieben auf dem Platz!", "Das ist weit unter meinem Marktwert.", "Wollen Sie mich verkaufen für ein Taschengeld?",
+            "Mit diesem Angebot würde ich mich unter Wert verkaufen!"],
+        quit: ["Danke, aber ich habe mich für einen anderen Verein entschieden.", "Ich ziehe meine Bewerbung zurück.", "Das passt nicht zusammen – ich suche mir etwas anderes."]
     },
     seller: {
-        happy: ["Einverstanden – für diese Summe geben wir ihn ab.", "Unser Vorstand hat zugestimmt. Sie dürfen mit dem Spieler sprechen!"],
-        concede: ["Na gut, wir kommen Ihnen entgegen – die Ablöse ist vereinbart.", "Schweren Herzens: einverstanden."],
-        positive: ["Wir sind nah dran – legen Sie noch etwas drauf.", "Knapp unter unserer Schmerzgrenze …"],
-        skeptical: ["Für diese Summe geben wir einen Stammspieler nicht ab.", "Unser Sportdirektor schüttelt den Kopf."],
-        angry: ["Das ist eine Frechheit – so viel ist uns der Spieler nicht wert?!", "Mit solchen Angeboten brauchen Sie nicht wiederzukommen!"],
-        quit: ["Der Spieler ist für Sie nicht mehr zu haben. Die Gespräche sind beendet.", "Wir brechen die Verhandlungen ab."]
+        happy: ["Einverstanden – für diese Summe geben wir ihn ab.", "Unser Vorstand hat zugestimmt. Sie dürfen mit dem Spieler sprechen!",
+            "Die Zahlen passen – wir haben einen Deal.", "Gut, dann machen wir das. Sie hören von unserer Rechtsabteilung.", "Der Sportdirektor nickt: Der Wechsel ist genehmigt!"],
+        concede: ["Na gut, wir kommen Ihnen entgegen – die Ablöse ist vereinbart.", "Schweren Herzens: einverstanden.", "Bevor es daran scheitert: Wir lassen uns darauf ein.",
+            "Wir teilen den Unterschied – abgemacht."],
+        positive: ["Wir sind nah dran – legen Sie noch etwas drauf.", "Knapp unter unserer Schmerzgrenze …", "Das ist ein Schritt in die richtige Richtung. Noch ein bisschen.",
+            "Unser Vorstand ist gesprächsbereit – ein kleines Stück fehlt noch."],
+        skeptical: ["Für diese Summe geben wir einen Stammspieler nicht ab.", "Unser Sportdirektor schüttelt den Kopf.", "Das deckt nicht einmal den Marktwert. Wir brauchen mehr.",
+            "Wir haben andere Interessenten, die tiefer in die Tasche greifen.", "So kommen wir nicht zusammen – es braucht mehr Substanz."],
+        angry: ["Das ist eine Frechheit – so viel ist uns der Spieler nicht wert?!", "Mit solchen Angeboten brauchen Sie nicht wiederzukommen!",
+            "Sind Sie auf dem Basar? Das ist unseriös!", "Unser Präsident lacht über so ein Angebot."],
+        quit: ["Der Spieler ist für Sie nicht mehr zu haben. Die Gespräche sind beendet.", "Wir brechen die Verhandlungen ab.", "Das war's. Suchen Sie sich einen anderen Spieler.",
+            "Wir sehen keine Grundlage – ich verabschiede mich."]
     },
     club: {
-        happy: ["Einverstanden – wir haben einen Deal!", "Unser Sportdirektor sagt zu. Der Transfer ist perfekt!"],
-        concede: ["Na gut, wir legen noch etwas drauf – abgemacht!"],
-        positive: ["Wir sind nah dran – ein kleines Stück müssen Sie uns noch entgegenkommen.", "Das ist knapp über unserem Limit …"],
-        skeptical: ["Diese Ablöse ist uns deutlich zu hoch.", "Unser Vorstand wird das so nicht absegnen."],
-        angry: ["Das ist völlig überzogen – so viel ist der Spieler niemals wert!", "Wenn Sie so weitermachen, ziehen wir uns zurück!"],
-        quit: ["Wir ziehen unser Angebot zurück und schauen uns anderweitig um.", "Die Gespräche sind für uns beendet."]
+        happy: ["Einverstanden – wir haben einen Deal!", "Unser Sportdirektor sagt zu. Der Transfer ist perfekt!", "So machen wir das. Auf gute Zusammenarbeit!",
+            "Der Vorstand hat grünes Licht gegeben – Abschluss!"],
+        concede: ["Na gut, wir legen noch etwas drauf – abgemacht!", "Bevor wir uns streiten: Wir treffen uns in der Mitte.", "Wir gehen noch einen Schritt auf Sie zu – Einigung!"],
+        positive: ["Wir sind nah dran – ein kleines Stück müssen Sie uns noch entgegenkommen.", "Das ist knapp über unserem Limit …", "Das könnte klappen – ein wenig Bewegung bitte noch.",
+            "Sie sind auf dem richtigen Weg."],
+        skeptical: ["Diese Ablöse ist uns deutlich zu hoch.", "Unser Vorstand wird das so nicht absegnen.", "Das liegt klar über unserem Budget – so nicht.",
+            "Da müssen Sie uns schon mehr entgegenkommen."],
+        angry: ["Das ist völlig überzogen – so viel ist der Spieler niemals wert!", "Wenn Sie so weitermachen, ziehen wir uns zurück!", "Das ist doch nicht ernst gemeint!",
+            "So sprechen wir nicht mit Geschäftspartnern."],
+        quit: ["Wir ziehen unser Angebot zurück und schauen uns anderweitig um.", "Die Gespräche sind für uns beendet.", "Wir sind raus – viel Erfolg anderswo."]
     },
     sponsor: {
-        happy: ["Einverstanden – auf eine erfolgreiche Partnerschaft!", "Unser Vorstand hat zugestimmt. Wir sind dabei!"],
-        concede: ["Gut, wir legen noch etwas drauf – einverstanden!"],
-        positive: ["Das ist sportlich – ein kleines Stück müssen Sie uns noch entgegenkommen.", "Wir sind fast beieinander."],
-        skeptical: ["Unsere Marketingabteilung hält das für überzogen.", "Das sprengt unser Budget ein wenig."],
-        angry: ["Diese Forderung ist völlig unrealistisch!", "So verhandeln wir nicht weiter, wenn Sie nicht nachgeben!"],
-        quit: ["Wir ziehen unser Angebot zurück.", "Die Gespräche sind für uns beendet."]
+        happy: ["Einverstanden – auf eine erfolgreiche Partnerschaft!", "Unser Vorstand hat zugestimmt. Wir sind dabei!", "Ein starkes Paket. Wir unterschreiben!",
+            "Da sind wir uns einig – freuen wir uns auf die gemeinsame Saison!", "Die Marketingabteilung ist begeistert. Abgemacht!"],
+        concede: ["Gut, wir legen noch etwas drauf – einverstanden!", "Weil uns die Zusammenarbeit wichtig ist, gehen wir mit.", "Wir treffen uns in der Mitte – abgemacht."],
+        positive: ["Das ist sportlich – ein kleines Stück müssen Sie uns noch entgegenkommen.", "Wir sind fast beieinander.", "Das Konzept überzeugt uns, bei den Zahlen müssen wir noch feilen.",
+            "Ein bisschen Spielraum noch, dann ist das ein Deal."],
+        skeptical: ["Unsere Marketingabteilung hält das für überzogen.", "Das sprengt unser Budget ein wenig.", "Für diese Reichweite ist das zu teuer.", "Der Controller rechnet nach – und schüttelt den Kopf."],
+        angry: ["Diese Forderung ist völlig unrealistisch!", "So verhandeln wir nicht weiter, wenn Sie nicht nachgeben!", "Wir sind ein Sponsor, kein Geldautomat!",
+            "Das ist maßlos – so viel sind wir nicht bereit zu zahlen."],
+        quit: ["Wir ziehen unser Angebot zurück.", "Die Gespräche sind für uns beendet.", "Wir investieren unser Geld lieber anderswo."]
+    },
+    board: {
+        happy: ["Das Präsidium sagt Ja – wir wollen mit Ihnen weiterarbeiten.", "Gut, dann machen wir das offiziell. Sie haben unser Vertrauen.", "Einstimmig beschlossen: Wir sind einverstanden!",
+            "So stellen wir uns die Zusammenarbeit vor – abgemacht."],
+        concede: ["Wir kommen Ihnen entgegen – nehmen Sie es als Zeichen des Vertrauens.", "Gut, wir einigen uns darauf, auch wenn es uns schwerfällt.", "Wir treffen uns in der Mitte – Einigung."],
+        positive: ["Wir sind nicht weit auseinander – ein wenig Entgegenkommen bitte.", "Grundsätzlich sehr gern, nur bei den Zahlen müssen wir noch etwas feilen.", "Das geht in die richtige Richtung."],
+        skeptical: ["Nach den letzten Wochen fällt uns das nicht leicht – das ist zu viel.", "Der Verwaltungsrat sieht das kritisch.", "So viel können wir bei der aktuellen Lage nicht rechtfertigen.",
+            "Liefern Sie erst Ergebnisse, dann reden wir über mehr Geld."],
+        angry: ["Das ist unverschämt, nach allem, was wir in Sie investiert haben!", "Mit dieser Forderung stellen Sie das Vertrauen infrage.", "Wir sind hier nicht beim Wunschkonzert!"],
+        quit: ["Wir beenden das Gespräch. Wir melden uns, wenn wir weiterreden wollen.", "Das Präsidium zieht sich zur Beratung zurück – ohne Ergebnis.", "So kommen wir nicht zusammen. Wir brechen ab."]
     }
 };
-
 function negoStart(cfg) {
     activeNegotiation = {
         kind: cfg.kind,                 // 'transfer' | 'contract' | 'staff' | 'sponsor'
@@ -78,14 +154,33 @@ function negoStart(cfg) {
         status: 'open',
         lastMood: null,
         sel: cfg.sel || {},
-        extra: cfg.extra || {}
+        extra: cfg.extra || {},
+        persona: cfg.persona || null,
+        usedQuotes: []
     };
+    if (!activeNegotiation.persona && activeNegotiation.voice === 'player' && typeof getPlayerTrait === 'function') {
+        const tp = GameState.players.find(p => p.id === cfg.targetId);
+        const tr = tp ? getPlayerTrait(tp) : null;
+        if (tr && tr !== 'normal' && NEGO_QUOTES.persona[tr]) activeNegotiation.persona = tr;
+    }
     return activeNegotiation;
 }
 
-function pickQuote(voice, key) {
-    const set = (NEGO_QUOTES[voice] || NEGO_QUOTES.player)[key] || NEGO_QUOTES.player[key];
-    return set[Math.floor(Math.random() * set.length)];
+function pickQuote(voice, key, n = null) {
+    let set = (NEGO_QUOTES[voice] || NEGO_QUOTES.player)[key] || NEGO_QUOTES.player[key];
+    // Charakter-typische Sprüche (Diva, Hitzkopf, Vereinstreu …)
+    if (n && n.persona && voice === 'player') {
+        const ps = NEGO_QUOTES.persona[n.persona];
+        const extra = ps && (ps[key] || (key === 'concede' ? ps.happy : null));
+        if (extra && extra.length && Math.random() < 0.45) set = extra;
+    }
+    // Möglichst keinen Satz zweimal in derselben Verhandlung
+    const used = n ? (n.usedQuotes || (n.usedQuotes = [])) : [];
+    let pool = set.filter(q => !used.includes(q));
+    if (pool.length === 0) pool = set;
+    const q = pool[Math.floor(Math.random() * pool.length)];
+    if (n) used.push(q);
+    return q;
 }
 
 // score: Attraktivität des Angebots (1.0 = marktüblich)
@@ -134,7 +229,7 @@ function negoSubmit(score, offerLabel, hintBuilder) {
         }
         quoteKey = mood;
     }
-    n.log.push({ round: n.round, mood, offer: offerLabel, quote: pickQuote(n.voice, quoteKey), hint });
+    n.log.push({ round: n.round, mood, offer: offerLabel, quote: pickQuote(n.voice, quoteKey, n), hint });
     n.lastMood = mood;
     if (typeof SoundFX !== 'undefined') SoundFX.playNegotiation(accepted ? 'happy' : mood);
     n.status = accepted ? 'accepted' : (mood === 'quit' ? 'aborted' : 'open');

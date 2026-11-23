@@ -52,6 +52,7 @@ function initGameWorld() {
       ensureLifeInitialized();
     ensureTransferWindowInitialized();
     ensureInterviewInitialized();
+    ensureCoachInitialized();
     syncGameClock();
     if (GameState.inbox.filter(m => m.cat === 'board').length === 0) {
         const club = GameState.clubs[GameState.activeClubId];
@@ -220,6 +221,7 @@ function loadGame() {
         GameState.board = parsed.board || null;
         GameState.press = parsed.press || null;
         GameState.interviews = parsed.interviews || null;
+        GameState.coach = parsed.coach || null;
         setStatus("Spielstand geladen.");
     } catch (e) {
         console.error("Fehler beim Laden:", e);

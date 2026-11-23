@@ -6,7 +6,16 @@ const SETTINGS_KEY = 'fcm_settings';
 const SETTINGS_DEFAULTS = {
     sound: true,       // Sounds an/aus
     wakeLock: true,    // Bildschirm bleibt an, solange das Spiel geöffnet ist
-    interviews: true   // Trainer-Interviews vor/nach manchen Spielen
+    interviews: true,  // Trainer-Interviews vor/nach manchen Spielen
+    difficulty: 'normal'   // 'easy' | 'normal' | 'hard'
+};
+
+// Schwierigkeitsstufen: str = Stärke-Zu-/Abschlag für DEIN Team, rev = Einnahmen-Faktor,
+// nego = Aufschlag auf die Forderungen der Verhandlungspartner, inj = Verletzungsrisiko
+const DIFFICULTY_LEVELS = {
+    easy:   { label: 'Leicht',  icon: '🙂', str: 0.10,  rev: 1.05, nego: 0.00, inj: 0.90, desc: 'Entspannt: etwas mehr Einnahmen, großzügigere Verhandlungspartner.' },
+    normal: { label: 'Normal',  icon: '⚽', str: -0.08, rev: 1.00, nego: 0.02, inj: 1.00, desc: 'Realistisch: Favoriten verlieren öfter, Verhandlungen sind härter.' },
+    hard:   { label: 'Schwer',  icon: '🔥', str: -0.25, rev: 0.92, nego: 0.05, inj: 1.15, desc: 'Hart: Dein Team startet mit Nachteil, weniger Geld, mehr Verletzte.' }
 };
 
 function getSettings() {
@@ -17,6 +26,9 @@ function getSettings() {
 
 function getSetting(key) {
     return getSettings()[key];
+}
+function getDifficulty() {
+    return DIFFICULTY_LEVELS[getSetting('difficulty')] || DIFFICULTY_LEVELS.normal;
 }
 
 function setSetting(key, value) {
@@ -121,6 +133,15 @@ function buildSettingsHtml() {
                 </div>
                 ${toggle('set-wakelock', s.wakeLock)}
             </div>
+            <div class="setting-row" style="flex-direction:column; align-items:stretch;">
+                <div>
+                    <strong>🎚️ Schwierigkeit</strong><br>
+                    <span>${getDifficulty().desc}</span>
+                </div>
+                <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:4px; margin-top:5px;">
+                    ${Object.keys(DIFFICULTY_LEVELS).map(k => `<button type="button" class="bmh-btn small-btn btn-difficulty ${s.difficulty === k ? 'gold-btn' : ''}" data-d="${k}">${DIFFICULTY_LEVELS[k].icon} ${DIFFICULTY_LEVELS[k].label}</button>`).join('')}
+                </div>
+            </div>
             <div class="setting-row">
                 <div>
                     <strong>🎙️ Trainer-Interviews</strong><br>
@@ -143,6 +164,10 @@ function bindSettings(rerender) {
         const res = SoundFX.preview(ev.currentTarget.dataset.k);
         if (res === 'wait') setStatus('⏳ Die Stadion-Klänge werden noch berechnet – gleich noch einmal versuchen.');
         setTimeout(rerender, 600);
+    }));
+    document.querySelectorAll('.btn-difficulty').forEach(btn => btn.addEventListener('click', (ev) => {
+        setSetting('difficulty', ev.currentTarget.dataset.d);
+        rerender();
     }));
     const iv = document.getElementById('set-interviews');
     if (iv) iv.addEventListener('click', () => {

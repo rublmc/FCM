@@ -172,6 +172,16 @@ function getLeagueTopScorers(leagueId) {
         .slice(0, 15);
 }
 
+// ==========================================
+// TORERWARTUNG (zentral für alle Simulationen)
+// Weiche Obergrenze: Auch ein übermächtiges Team gewinnt nicht jedes Spiel, ein Außenseiter trifft immer wieder.
+// diff = Stärke Heim (inkl. Heimvorteil) - Stärke Gast
+// ==========================================
+function getGoalRates(diff) {
+    const d = 2.8 * Math.tanh(diff / 2.8);
+    return { lh: 1.42 * Math.exp(0.32 * d), la: 1.15 * Math.exp(-0.32 * d) };
+}
+
 function calculateClubMatchStrength(clubId, isHome) {
     const ext = getExtClub(clubId);
     if (ext) return Math.max(1.0, ext.strength + (isHome ? 0.35 : 0));
@@ -193,6 +203,7 @@ function calculateClubMatchStrength(clubId, isHome) {
         }
         str += getStaffQuality('co') * 0.04;
         str += getLeaderStrengthBonus();
+        str += getDifficulty().str;
         if (isHome) str += 0.35 + getFanHomeBonus();
         return Math.max(1.0, str);
     }
@@ -250,7 +261,7 @@ function pickScorerForClub(clubId) {
 function simulateSingleMatch(match, isOfficialLeagueMatch = true) {
     const homeStr = calculateClubMatchStrength(match.homeId, true);
     const awayStr = calculateClubMatchStrength(match.awayId, false);
-    const diff = homeStr - awayStr;
+    const diff = homeStr - awayStr + gaussRandom() * 0.38;       // Tagesform
 
     let goalFactor = match.weather ? getWeather(match.weather).goalMult : 1.0;
     if (match.homeId === GameState.activeClubId || match.awayId === GameState.activeClubId) {
@@ -260,8 +271,9 @@ function simulateSingleMatch(match, isOfficialLeagueMatch = true) {
         else if (ment === "defensive") goalFactor *= 0.85;
         else if (ment === "ultra_def") goalFactor *= 0.72;
     }
-    const expectedHome = Math.max(0.25, Math.min(4.6, (1.42 + diff * 0.58) * goalFactor));
-    const expectedAway = Math.max(0.20, Math.min(4.3, (1.15 - diff * 0.55) * goalFactor));
+    const rates = getGoalRates(diff);
+    const expectedHome = Math.max(0.25, Math.min(4.6, rates.lh * goalFactor));
+    const expectedAway = Math.max(0.20, Math.min(4.3, rates.la * goalFactor));
 
     const homeGoals = samplePoisson(expectedHome);
     const awayGoals = samplePoisson(expectedAway);
@@ -340,10 +352,13 @@ function simulateSingleMatch(match, isOfficialLeagueMatch = true) {
 // SAISONÜBERGANG & STÄRKEENTWICKLUNG (v0.9)
 // ==========================================
 // half = true: Zwischenbewertung zur Winterpause (Hinrunden-Werte werden auf eine Saison hochgerechnet)
+// Stärke-System 2.0: Alterskurve + verdecktes Potenzial + Einsatz + Leistung (Noten) + Zufall.
+// Für Computer- und eigene Spieler gilt dieselbe Grundlage – eigene Spieler können durch Training,
+// Stab und Motivation höchstens +0,12 extra herausholen.
 function evaluatePlayerSeasonDevelopment(player, teamSuccessDelta, isUserClub, half = false) {
     const oldRating = (getBaseRating(player) - (player.winterDelta || 0)) || 6.0;
     const age = player.age || 25;
-    const talent = player.talent || computeDefaultTalent(player);
+    const pot = getPotential(player);
     const sc = half ? 2 : 1;
     const apps = (player.seasonApps || 0) * sc;
     const minutes = (player.seasonMinutes || 0) * sc;
@@ -351,139 +366,88 @@ function evaluatePlayerSeasonDevelopment(player, teamSuccessDelta, isUserClub, h
     const cleanSheets = (player.seasonCleanSheets || 0) * sc;
     const mot = typeof player.motivation === 'number' ? player.motivation : 78;
     const campBonus = player.campDevBonus || 0;
-
-    let score = 0;
     const reasons = [];
-
-    // 1. Alter & Entwicklungspotenzial (Talent)
-    if (age <= 20) {
-        const ageGain = 0.20 + Math.max(0, talent - 2) * 0.04;
-        score += ageGain;
-        reasons.push(`Jungtalent (${age} J., ${talent}★): +${ageGain.toFixed(2)}`);
-    } else if (age <= 24) {
-        const ageGain = 0.12 + Math.max(0, talent - 3) * 0.03;
-        score += ageGain;
-        reasons.push(`Entwicklungsalter (${age} J.): +${ageGain.toFixed(2)}`);
-    } else if (age <= 28) {
-        score += 0.03;
-    } else if (age <= 31) {
-        score -= 0.05;
-        reasons.push(`Alter (${age} J.): -0.05`);
-    } else if (age <= 34) {
-        score -= 0.18;
-        reasons.push(`Routinier (${age} J.): -0.18`);
+    // 1. Alterskurve & Potenzial
+    let score = ageCurveDelta(age, player.pos);
+    const head = pot - oldRating;
+    if (score > 0) {
+        const mult = head <= 0 ? 0.15 : Math.max(0.15, Math.min(1.30, 0.30 + head * 0.60));
+        score *= mult;
+        if (oldRating > 8.4) score *= Math.max(0.2, 1 - (oldRating - 8.4) * 0.7);      // an der Weltspitze wird es zäh
+        reasons.push(`${getAgePhaseLabel(player)} (${age} J.): ${score >= 0 ? '+' : ''}${score.toFixed(2)}`);
+        if (head <= 0.1) reasons.push(`Potenzial (${pot.toFixed(1)}) ausgeschöpft`);
     } else {
-        score -= 0.32;
-        reasons.push(`Karriereherbst (${age} J.): -0.32`);
+        if (oldRating > 8.2) score *= 0.85;
+        reasons.push(`${getAgePhaseLabel(player)} (${age} J.): ${score.toFixed(2)}`);
     }
-
     // 2. Einsatzzeiten & Spielpraxis
+    // Spielpraxis hilft vor allem jungen Spielern; Routiniers profitieren kaum, Reservisten bauen etwas ab
     if (minutes >= 2000 || apps >= 24) {
-        score += 0.18;
-        reasons.push(`Stammspieler (${apps} Sp. / ${minutes}'): +0.18`);
+        const g = age <= 23 ? 0.08 : (age <= 26 ? 0.03 : 0);
+        if (g > 0) { score += g; reasons.push(`Stammspieler (${apps} Sp.): +${g.toFixed(2)}`); }
     } else if (minutes >= 1000 || apps >= 13) {
-        score += 0.08;
-        reasons.push(`Regelmäßige Einsätze (${apps} Sp.): +0.08`);
-    } else if (minutes >= 350) {
-        // neutral
+        if (age <= 23) { score += 0.04; reasons.push(`Regelmäßige Einsätze (${apps} Sp.): +0.04`); }
+    } else if (minutes < 350) {
+        const g = age <= 23 ? -0.10 : -0.08;
+        score += g;
+        reasons.push(`Kaum Spielpraxis (${apps} Sp.): ${g.toFixed(2)}`);
+    }
+    // 3. Leistung: Durchschnittsnote (eigene Spieler) – sonst Tore / Zu-Null als Ersatz
+    if (player.gradeCount >= 8) {
+        const avg = player.gradeSum / player.gradeCount;
+        const expected = clampNum(3.55 - 0.27 * (oldRating - 6.5), 2.7, 4.3);
+        const g = clampNum((expected - avg) * 0.16, -0.08, 0.10);
+        if (Math.abs(g) >= 0.02) {
+            score += g;
+            reasons.push(`Ø Note ${gradeAvgLabel(avg)} (erwartet ${gradeAvgLabel(expected)}): ${g >= 0 ? '+' : ''}${g.toFixed(2)}`);
+        }
     } else {
-        score -= 0.16;
-        reasons.push(`Kaum Spielpraxis (${apps} Sp.): -0.16`);
+        const isForward = ["ST", "LA", "RA", "OM"].includes(player.pos);
+        const isDefOrGk = ["TW", "IV", "LV", "RV"].includes(player.pos);
+        if (isForward && goals >= 18) { score += 0.10; reasons.push(`Torjäger (${goals} Tore): +0.10`); }
+        else if (isForward && goals >= 10) { score += 0.05; reasons.push(`Torgefährlich (${goals} Tore): +0.05`); }
+        else if (isDefOrGk && cleanSheets >= 12) { score += 0.08; reasons.push(`Abwehrbollwerk (${cleanSheets}x Zu Null): +0.08`); }
     }
-
-    // 3. Tore & Individuelle Leistung
-    const isForward = ["ST", "LA", "RA", "OM"].includes(player.pos);
-    const isMid = ["ZM", "DM", "LM", "RM"].includes(player.pos);
-    const isDefOrGk = ["TW", "IV", "LV", "RV"].includes(player.pos);
-
-    if (isForward) {
-        if (goals >= 20) {
-            score += 0.24;
-            reasons.push(`Torjäger (${goals} Tore): +0.24`);
-        } else if (goals >= 12) {
-            score += 0.15;
-            reasons.push(`Torgefährlich (${goals} Tore): +0.15`);
-        } else if (goals >= 6) {
-            score += 0.07;
-            reasons.push(`${goals} Saisontore: +0.07`);
-        } else if (apps >= 16 && goals <= 1) {
-            score -= 0.08;
-            reasons.push(`Torflaute (${goals} Tore): -0.08`);
-        }
-    } else if (isMid) {
-        if (goals >= 8) {
-            score += 0.14;
-            reasons.push(`Torgefährliches Mittelfeld (${goals} Tore): +0.14`);
-        } else if (goals >= 4) {
-            score += 0.07;
-            reasons.push(`${goals} Saisontore: +0.07`);
-        }
-    } else if (isDefOrGk) {
-        if (cleanSheets >= 12) {
-            score += 0.18;
-            reasons.push(`Abwehrbollwerk (${cleanSheets}x Zu Null): +0.18`);
-        } else if (cleanSheets >= 7) {
-            score += 0.10;
-            reasons.push(`Stabile Defensive (${cleanSheets}x Zu Null): +0.10`);
-        }
-    }
-
-    // 4. Mannschaftserfolg (Meisterschaft, Top-4, Aufstieg, Abstieg)
-    if (teamSuccessDelta !== 0) {
-        score += teamSuccessDelta;
-        reasons.push(`Team-Erfolg: ${teamSuccessDelta > 0 ? '+' : ''}${teamSuccessDelta.toFixed(2)}`);
-    }
-
-    // 5. Motivation & Trainingslager-Vorbereitung
+    // 4. Eigener Verein: Mannschaftserfolg, Stab, Motivation, Camps (zusammen höchstens +0,12)
     if (isUserClub) {
-        if (mot >= 88) {
-            score += 0.10;
-            reasons.push(`Top-Motivation (${mot}%): +0.10`);
-        } else if (mot >= 76) {
-            score += 0.04;
-            reasons.push(`Gute Stimmung (${mot}%): +0.04`);
-        } else if (mot < 50) {
-            score -= 0.12;
-            reasons.push(`Unzufrieden (${mot}% Mot.): -0.12`);
+        let extra = 0;
+        if (teamSuccessDelta !== 0) {
+            const t = teamSuccessDelta * 0.6;
+            extra += t;
+            reasons.push(`Team-Erfolg: ${t > 0 ? '+' : ''}${t.toFixed(2)}`);
         }
-
+        if (mot >= 88) { extra += 0.06; reasons.push(`Top-Motivation (${mot}%): +0.06`); }
+        else if (mot >= 76) { extra += 0.02; }
+        else if (mot < 50) { extra -= 0.10; reasons.push(`Unzufrieden (${mot}% Mot.): -0.10`); }
         const fitQ = getStaffQuality('fitness');
-        if (fitQ > 0) {
-            score += fitQ * 0.015;
-            reasons.push(`Konditionstrainer (${fitQ}★): +${(fitQ * 0.015).toFixed(2)}`);
-        }
-        const gkQ = getStaffQuality('gk');
-        if (gkQ > 0 && player.pos === "TW") {
-            score += gkQ * 0.04;
-            reasons.push(`Torwarttrainer (${gkQ}★): +${(gkQ * 0.04).toFixed(2)}`);
-        }
+        if (fitQ > 0) extra += fitQ * 0.008;
+        if (player.pos === 'TW') extra += getStaffQuality('gk') * 0.025;
         if (campBonus >= 0.08) {
-            const cGain = Math.min(0.16, parseFloat((campBonus * 0.45).toFixed(2)));
-            score += cGain;
+            const cGain = Math.min(0.10, campBonus * 0.30);
+            extra += cGain;
             reasons.push(`Vorbereitung & Camps: +${cGain.toFixed(2)}`);
         }
+        const capped = Math.min(0.12, extra);
+        score += capped;
     }
-
-    // 6. Charakter-Eigenschaft
-    if (hasTrait(player, 'pro')) {
-        score += 0.08;
-        reasons.push('Musterprofi: +0.08');
-    } else if (hasTrait(player, 'lazy')) {
-        score -= 0.10;
-        reasons.push('Fauler Hund: -0.10');
-    }
-
-    // Kleiner Zufallsfaktor (-0.04 bis +0.04) für Natürlichkeit
-    score += (Math.random() * 0.08 - 0.04);
-
-    // Auf 0.1 runden und im Bereich [-0.6, +0.7] deckeln
+    // 5. Charakter
+    if (hasTrait(player, 'pro')) { score += 0.06; reasons.push('Musterprofi: +0.06'); }
+    else if (hasTrait(player, 'lazy')) { score -= 0.08; reasons.push('Fauler Hund: -0.08'); }
+    // 6. Zufall: normalverteilt, selten Durchbruch oder Leistungsknick
+    score += gaussRandom() * 0.09;
+    const roll = Math.random();
+    if (age <= 24 && head > 0.3 && roll < 0.03) { score += 0.30; reasons.push('🚀 Durchbruch: +0.30'); }
+    else if (age >= 28 && roll < 0.03) { score -= 0.30; reasons.push('📉 Leistungsknick: -0.30'); }
+    if (oldRating > 8.8) score -= (oldRating - 8.8) * 0.18;           // Weltstars bleiben selten
+    score = clampNum(score, -0.7, 0.8);
     let delta = Math.round(score * 10) / 10;
-    delta = Math.max(-0.6, Math.min(0.7, delta));
-    const newRating = parseFloat(Math.max(1.0, Math.min(10.0, oldRating + delta)).toFixed(1));
+    let newRating = clampNum(oldRating + delta, 1.0, 10.0);
+    // über das Potenzial hinaus wächst niemand deutlich
+    if (delta > 0 && newRating > pot + 0.15 && oldRating <= pot + 0.15) newRating = Math.max(oldRating, pot + 0.15);
+    newRating = parseFloat(newRating.toFixed(1));
     const actualDelta = parseFloat((newRating - oldRating).toFixed(1));
-
     return {
-        rawScore: Math.max(-0.6, Math.min(0.7, score)),
+        rawScore: score,
         playerId: player.id,
         name: player.name,
         pos: player.pos,
@@ -564,7 +528,10 @@ function finishSeasonAndAdvance() {
     else if (myRank <= 4) teamSuccessDelta = 0.07;
     else if (userRelegated || myRank >= standings.length - 1) teamSuccessDelta = -0.14;
     evaluateBoardAfterSeason(myRank, standings.length, userPromoted, userRelegated, titles, isTopTier);
+    processCoachContractAtSeasonEnd(seasonEnd);
 
+    // Leihspieler kehren zu ihren Vereinen zurück (vor Stärkeentwicklung & Vertragsprüfung)
+    const loansBack = returnLoanedPlayers();
     // 3. Stärkeentwicklung aller Spieler berechnen & Saisonwerte zurücksetzen
     let leftPlayersCount = 0;
     const userDevList = [];
@@ -596,6 +563,7 @@ function finishSeasonAndAdvance() {
             p.campDevBonus = 0;
             // Motivation pendelt sich zur neuen Saison leicht Richtung 75% ein
             p.motivation = Math.round(((p.motivation || 78) + 75) / 2);
+            p.fit = 100;
             p.motF = undefined;
             p.playEma = undefined;          // neue Saison: Einsatzzeit-Bilanz startet neutral
             p.unhappyWeeks = 0;

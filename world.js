@@ -514,6 +514,8 @@ function generateRoutineEvents() {
 
     updateMotivationWeekly();
     driftBoardPressWeekly();
+    loanReminders();
+    coachReminders();
     generatePrivateLifeEvent();
     processEmployeeEvents();
     updateFansWeekly();
@@ -530,7 +532,8 @@ function getStaffQuality(role) {
 }
 
 function getStaffAnnualCost() {
-    return Object.values(GameState.staff || {}).filter(Boolean).reduce((s, st) => s + (st.salary || 0), 0);
+    // Trainerstab + dein eigenes Trainergehalt
+    return Object.values(GameState.staff || {}).filter(Boolean).reduce((s, st) => s + (st.salary || 0), 0) + getCoachSalary();
 }
 
 function getStaffSalaryTierFactor() {
@@ -817,7 +820,7 @@ function processTransferListOffers() {
     GameState.transferOffers = GameState.transferOffers.filter(o => o.status === 'open' || (tick - (o.createdTick || 0)) < 6);
 
     maybeUnsolicitedOffer();
-    const listed = getClubPlayers().filter(p => p.transferListed);
+    const listed = getClubPlayers().filter(p => p.transferListed && !p.loanFrom);
     listed.forEach(p => {
         if (getOpenOffersForPlayer(p.id).length >= 2) return;
         const value = calculateMarketValue(p);
@@ -920,7 +923,7 @@ function runAiTransferRound(windowKey, intensity = 0.08) {
     };
 
     // Markt: alle Spieler bei KI-Vereinen + Vereinslose (nicht vom eigenen Verein, nicht frisch gewechselt)
-    const market = GameState.players.filter(p =>p.clubId !== uid && !p.pendingMove && (p.clubId === 'free' || GameState.clubs[p.clubId]) && p.lastMoveSeason !== GameState.meta.season + windowKey);
+const market = GameState.players.filter(p =>p.clubId !== uid && !p.pendingMove && !p.loanFrom && (p.clubId === 'free' || GameState.clubs[p.clubId]) && p.lastMoveSeason !== GameState.meta.season + windowKey);
     const done = [];
     const attempts = Math.max(1, Math.round(aiClubs.length * intensity));
 
@@ -1015,7 +1018,7 @@ function runAiTransferRound(windowKey, intensity = 0.08) {
 function maybeUnsolicitedOffer() {
     if (!isInTransferWindow() || Math.random() > 0.3) return;
     const uid = GameState.activeClubId;
-    const squad = getClubPlayers(uid).filter(p => !p.transferListed && getOpenOffersForPlayer(p.id).length === 0);
+    const squad = getClubPlayers(uid).filter(p => !p.transferListed && !p.loanFrom && getOpenOffersForPlayer(p.id).length === 0);
     if (squad.length < MIN_SQUAD_SIZE + 2) return;
     const teamAvg = getClubAverageRating(uid);
     const good = squad.filter(p => p.rating >= teamAvg - 0.3 && (p.age || 25) <= 31);

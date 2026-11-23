@@ -53,7 +53,7 @@ function buildPendingTransfersHtml() {
             <h3 style="font-size:0.78rem; color:#7c5800; margin-bottom:4px;">⏳ VEREINBARTE TRANSFERS (Wechsel zum Fensterstart)</h3>
             ${list.map(pt => `
                 <div class="fixture-row" style="flex-wrap:wrap; font-size:0.68rem;">
-                    <span style="flex:1; min-width:0;">${pt.dir === 'in' ? '📥 Zugang' : '📤 Abgang'}: <strong>${pt.name}</strong> ${pt.dir === 'in' ? `von ${getAnyClubName(pt.fromId)}` : `zu ${getAnyClubName(pt.toId)}`}</span>
+                    <span style="flex:1; min-width:0;">${pt.dir === 'loanIn' ? '🔁 Leihe' : (pt.dir === 'in' ? '📥 Zugang' : '📤 Abgang')}: <strong>${pt.name}</strong> ${(pt.dir === 'in' || pt.dir === 'loanIn') ? `von ${getAnyClubName(pt.fromId)}` : `zu ${getAnyClubName(pt.toId)}`}</span>
                     <span style="white-space:nowrap;">${pt.fee > 0 ? formatMoneyShort(pt.fee) : 'ablösefrei'} • ab ${formatGameDate(pt.executeFrom)}</span>
                 </div>`).join('')}
         </div>`;
@@ -157,6 +157,12 @@ function executePendingTransfers() {
             } else {
                 executeUserSigning(p, pt.fee, pt.salary, pt.years, pt.bonus);
             }
+          } else if (pt.dir === 'loanIn') {
+              const club = GameState.clubs[uid];
+              if (p.clubId !== pt.fromId) addInbox('❌', `Leihe geplatzt: ${p.name}`, `${p.name} steht bei ${getAnyClubName(pt.fromId)} nicht mehr unter Vertrag – die vereinbarte Leihe ist hinfällig.`, 'transfer');
+              else if (club.budget < pt.fee) addInbox('❌', `Leihe geplatzt: ${p.name}`, `Zum Fensterstart fehlte das Geld für die Leihgebühr (${formatMoneyShort(pt.fee)}).`, 'transfer');
+              else if (getClubPlayers().length >= MAX_SQUAD_USER) addInbox('❌', `Leihe geplatzt: ${p.name}`, `Dein Kader war zum Fensterstart voll (${MAX_SQUAD_USER} Spieler).`, 'transfer');
+              else executeLoanIn(p, { fee: pt.fee, share: pt.share, option: pt.option, fromId: pt.fromId });
           } else if (pt.dir === 'ai') {
               executeAiSigning(pt, p);
           } else if (pt.dir === 'out') {
@@ -217,7 +223,7 @@ function updateAiTransferListings(big = false) {
         if (!big && Math.random() > 0.40) return;
         const sorted = [...sq].sort((a, b) => b.rating - a.rating);
         const core = new Set(sorted.slice(0, 13).map(p => p.id));
-        const pool = sq.filter(p => !p.aiListed && !p.pendingMove);
+        const pool = sq.filter(p => !p.aiListed && !p.pendingMove && !p.loanFrom);
         let add = big ? target - listed : 1;
         while (add-- > 0 && pool.length > 0) {
             const p = pickWeighted(pool, x => aiListingWeight(x, club, core, seasonEnd));
@@ -245,7 +251,7 @@ function ensureAiListingsSeeded() {
 }
 
 function isOnTransferMarket(p) {
-    if (!p || p.pendingMove) return false;
+    if (!p || p.pendingMove || p.loanFrom) return false;
     if (p.clubId === 'free') return true;
     return Boolean(p.aiListed);
 }
@@ -284,7 +290,8 @@ function buildClubSquadHtml(clubId) {
         if (!isOwn) {
             if (pend) action = `<span title="Wechsel vereinbart">⏳</span>`;
             else if (isTransferBlocked(p.id)) action = `<span title="Gesprächssperre">🔒</span>`;
-            else action = `<button type="button" class="mini-action-btn btn-club-bid" data-pid="${p.id}">ANGEBOT</button>`;
+              else if (p.loanFrom) action = `<span title="Verliehen bis ${p.loanUntil || ''}">🔁</span>`;
+              else action = `<button type="button" class="mini-action-btn btn-club-bid" data-pid="${p.id}">KAUF</button><button type="button" class="mini-action-btn btn-open-loan" data-pid="${p.id}" style="margin-top:2px;">LEIHE</button>`;
         }
           const yrs = (p.contractUntil || seasonEnd) - seasonEnd;
         return `
@@ -333,6 +340,7 @@ function bindClubSquadView(viewport, rerender) {
         });
     });
     bindOtherPlayerCard(viewport, rerender);
+    bindLoanButtons(viewport, rerender);
 }
 
 // Verhandlung mit einem fremden Spieler starten (Tabelle → Kader, Spielerkarte, Transfermarkt)
@@ -376,7 +384,9 @@ function buildOtherPlayerCardHtml(p) {
     let actionHtml = '';
     if (isOwn) actionHtml = '<p style="font-size:0.68rem; color:#555;">Das ist ein Spieler deines Vereins – Details unter 👥 KADER.</p>';
     else if (pend || p.pendingMove) actionHtml = '<p style="font-size:0.70rem;">⏳ <strong>Wechsel vereinbart</strong> – der Spieler ist nicht mehr zu haben.</p>';
-    else actionHtml = `<button id="btn-oc-bid" type="button" class="bmh-btn primary small-btn" ${blocked ? 'disabled' : ''} style="width:100%;">${blocked ? '🔒 GESPRÄCHSSPERRE' : (p.clubId === 'free' ? '✍️ VERHANDELN (ablösefrei)' : `💼 ANGEBOT ABGEBEN (Ablöse ca. ${formatMoneyShort(fee)})`)}</button>`;
+    else if (p.loanFrom) actionHtml = `<p style="font-size:0.70rem;">🔁 Aktuell verliehen bis ${p.loanUntil || ''} – nicht verfügbar.</p>`;
+    else actionHtml = `<button id="btn-oc-bid" type="button" class="bmh-btn primary small-btn" ${blocked ? 'disabled' : ''} style="width:100%;">${blocked ? '🔒 GESPRÄCHSSPERRE' : (p.clubId === 'free' ? '✍️ VERHANDELN (ablösefrei)' : `💼 ANGEBOT ABGEBEN (Ablöse ca. ${formatMoneyShort(fee)})`)}</button>
+        ${p.clubId !== 'free' ? `<button id="btn-oc-loan" type="button" class="bmh-btn small-btn" ${blocked ? 'disabled' : ''} style="width:100%; margin-top:4px;" data-pid="${p.id}">🔁 AUSLEIHEN (Gebühr ca. ${formatMoneyShort(loanBaseFee(p))})</button>` : ''}`;
     return `
         <div class="player-card">
             <div class="pc-head">
@@ -399,6 +409,7 @@ function buildOtherPlayerCardHtml(p) {
                 <div class="pc-cell"><span>MARKTWERT</span><strong>${formatMoneyShort(calculateMarketValue(p))}</strong><em>${fee === 0 ? 'ablösefrei' : 'Ablöse ca. ' + formatMoneyShort(fee)}</em></div>
                 <div class="pc-cell"><span>GEHALT / JAHR</span><strong>${formatMoneyShort(p.salary || 0)}</strong><em>marktüblich ${formatMoneyShort(calculateExpectedSalary(p))}</em></div>
                 <div class="pc-cell"><span>VERTRAG BIS</span><strong>${p.contractUntil || '–'}</strong><em>${yrsLeft <= 0 ? '⚠️ läuft aus' : 'noch ' + (yrsLeft + 1) + ' Saison' + (yrsLeft + 1 === 1 ? '' : 's')}</em></div>
+                <div class="pc-cell"><span>POTENZIAL (GESCHÄTZT)</span><strong>${(() => { const pe = getPotentialEstimate(p); return pe.lo.toFixed(1) + '–' + pe.hi.toFixed(1); })()}</strong><em>${getAgePhaseLabel(p)}</em></div>
             </div>
             <div class="pc-actions">${actionHtml}</div>
         </div>`;
@@ -409,6 +420,8 @@ function bindOtherPlayerCard(viewport, rerender) {
     if (close) close.addEventListener('click', () => { viewedPlayerId = null; rerender(); });
     const bid = document.getElementById('btn-oc-bid');
     if (bid) bid.addEventListener('click', () => startBidForPlayer(viewedPlayerId, rerender));
+    const ln = document.getElementById('btn-oc-loan');
+    if (ln) ln.addEventListener('click', () => startLoanFor(ln.dataset.pid, rerender));
 }
 
 // ==========================================

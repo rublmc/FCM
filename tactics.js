@@ -211,7 +211,7 @@ function ensureValidSquadAssignment() {
 function autoPickBestLineup(notify = true) {
     const squad = [...getClubPlayers()]
         .filter(p => !isPlayerUnavailable(p))
-        .sort((a, b) => b.rating - a.rating);
+        .sort((a, b) => (b.rating - fitnessPenalty(b)) - (a.rating - fitnessPenalty(a)));
     const slots = getFormationSlots();
     const usedIds = new Set();
     const newLineup = new Array(11).fill(null);
@@ -357,12 +357,13 @@ function performPlayerSwap(src, tgt) {
 
 function calculateSlotEffectiveRating(player, slotPos) {
     if (!player) return 0;
-    if (player.pos === slotPos) return player.rating;
+    const r = player.rating - fitnessPenalty(player);               // müde Spieler sind schwächer
+    if (player.pos === slotPos) return r;
     const related = POS_GROUPS[slotPos] || [];
     if (related.includes(player.pos)) {
-        return Math.max(0.0, player.rating * 0.90);
+        return Math.max(0.0, r * 0.90);
     }
-    return Math.max(0.0, player.rating * 0.75);
+    return Math.max(0.0, r * 0.75);
 }
 
 function calculateTeamStrength() {
@@ -440,7 +441,7 @@ function renderTacticsView(viewport) {
                     <span class="pitch-node-form">${player ? getFormArrow(player) : ''}</span>
                     <span class="pitch-node-rating">${player ? effRating.toFixed(1) : '--'}</span>
                 </div>
-                <div class="pitch-node-name">${player ? getShortName(player.name) : '+ FREI'}</div>
+<div class="pitch-node-name">${player ? getShortName(player.name) + (getFitness(player) < 70 ? ' 😓' : '') : '+ FREI'}</div>
             </div>
         `;
     }).join('');

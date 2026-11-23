@@ -39,6 +39,115 @@ function gradeBadgeHtml(g) {
     return `<span class="grade-badge ${gradeClass(g)}">${gradeLabel(g)}</span>`;
 }
 
+// ==========================================
+// POTENZIAL, ALTERSKURVE & KONDITION (Stärke-System 2.0)
+// ==========================================
+// Jeder Spieler hat ein verdecktes Potenzial (Obergrenze). Junge Spieler wachsen darauf zu,
+// Routiniers bauen ab – Torhüter erst später. Fitness (Kondition) sinkt durch Spielzeit.
+function getPotential(p) {
+    if (!p) return 6;
+    if (typeof p.pot === 'number') return p.pot;
+    const age = p.age || 25;
+    const t = p.talent || computeDefaultTalent(p);
+    const base = getBaseRating(p);
+    let head;
+    if (age <= 19) head = 0.30 + t * 0.17;
+    else if (age <= 21) head = 0.22 + t * 0.13;
+    else if (age <= 23) head = 0.14 + t * 0.09;
+    else if (age <= 26) head = 0.05 + t * 0.045;
+    else head = 0.02 + t * 0.02;
+    const jitter = ((traitHash(p.id) % 100) / 100 - 0.4) * 0.5;       // -0,2 … +0,3 (je Spieler fest)
+    p.pot = parseFloat(clampNum(base + head + jitter, base, 9.8).toFixed(1));
+    return p.pot;
+}
+
+// Unsichere Einschätzung (für fremde Spieler): ±0,3 je nach Spieler fest
+function getPotentialEstimate(p) {
+    const pot = getPotential(p);
+    const off = (((traitHash(p.id + 'pot') % 7) - 3) / 3) * 0.3;
+    const mid = clampNum(pot + off, 1, 9.9);
+    return { lo: Math.max(getBaseRating(p), mid - 0.3), hi: mid + 0.3 };
+}
+
+// Erwartete Veränderung pro Saison nach Alter (ohne Einsatz, Potenzial & Zufall)
+function ageCurveDelta(age, pos) {
+    const a = pos === 'TW' ? age - 3 : age;                          // Torhüter altern später
+    if (a <= 18) return 0.34;
+    if (a <= 19) return 0.30;
+    if (a <= 20) return 0.25;
+    if (a <= 21) return 0.20;
+    if (a <= 22) return 0.14;
+    if (a <= 23) return 0.09;
+    if (a <= 24) return 0.05;
+    if (a <= 25) return 0.02;
+    if (a <= 26) return 0.0;
+    if (a <= 27) return -0.01;
+    if (a <= 28) return -0.03;
+    if (a <= 29) return -0.07;
+    if (a <= 30) return -0.11;
+    if (a <= 31) return -0.16;
+    if (a <= 32) return -0.22;
+    if (a <= 33) return -0.28;
+    if (a <= 34) return -0.34;
+    return -0.42;
+}
+
+function getAgePhaseLabel(p) {
+    const a = (p.age || 25) - (p.pos === 'TW' ? 3 : 0);
+    if (a <= 21) return 'Talent im Aufbau';
+    if (a <= 24) return 'Aufsteiger';
+    if (a <= 28) return 'Höhepunkt';
+    if (a <= 31) return 'Routinier';
+    return 'Karriereherbst';
+}
+
+// ---------- Kondition ----------
+function getFitness(p) {
+    return typeof p.fit === 'number' ? p.fit : 100;
+}
+// Abzug auf die Stärke: erst unter 85 % Kondition, bei 50 % ca. -0,35
+function fitnessPenalty(p) {
+    const f = getFitness(p);
+    return f >= 85 ? 0 : (85 - f) * 0.01;
+}
+function fitnessLabel(p) {
+    const f = Math.round(getFitness(p));
+    return f >= 85 ? 'frisch' : (f >= 70 ? 'leicht müde' : (f >= 50 ? 'müde' : 'ausgelaugt'));
+}
+// Nach dem Spiel: Erholung bis zum nächsten Termin (je nach Abstand in Tagen) – die angezeigte Kondition
+// ist damit der Wert, mit dem das Team ins nächste Spiel geht.
+function recoverFitnessForNextGame(dateISO) {
+    let gap = 7;
+    try {
+        const ev = getNextUserEvent();
+        if (ev && ev.date && dateISO) gap = Math.max(1, Math.round((fromISODate(ev.date) - fromISODate(dateISO)) / 86400000));
+    } catch (e) { gap = 7; }
+    const rec = gap >= 6 ? 0.36 : (gap >= 3 ? 0.24 : 0.15);
+    const fq = getStaffQuality('fitness');
+    getClubPlayers().forEach(p => {
+        const f = getFitness(p);
+        if (f >= 100) return;
+        p.fit = Math.min(100, parseFloat((f + (100 - f) * (rec + fq * 0.02) + fq * 0.6).toFixed(1)));
+    });
+}
+// Nach dem Spiel: Spielzeit kostet Kondition
+function applyFatigueAfterMatch(minMap, dateISO) {
+    getClubPlayers().forEach(p => {
+        const mins = minMap[p.id] || 0;
+        if (mins <= 0) return;
+        const hard = GameState.tactics.aggression === 'hard' ? 1.12 : 1.0;
+        const drain = Math.min(15, (mins / 90) * 12 * hard) * (hasTrait(p, 'fragile') ? 1.1 : 1);
+        p.fit = Math.max(20, parseFloat((getFitness(p) - drain).toFixed(1)));
+    });
+}
+// Pausenwoche (Vorbereitung / Winterpause): deutliche Erholung
+function recoverFitnessBreakWeek() {
+    getClubPlayers().forEach(p => {
+        const f = getFitness(p);
+        if (f < 100) p.fit = Math.min(100, parseFloat((f + (100 - f) * 0.65 + 2).toFixed(1)));
+    });
+}
+
 // ---------- Basis-Stärke & Form ----------
 function getBaseRating(p) {
     return typeof p.base === 'number' ? p.base : p.rating;

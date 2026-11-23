@@ -317,7 +317,7 @@ function renderLiveTickerView(viewport) {
 
         let pitchOrListHtml = "";
         if (liveTacticsDisplayMode === 'pitch') {
-            const formEdit = liveFormationEditMode && st.phase === 'HALFTIME';
+            const formEdit = liveFormationEditMode && st.phase !== 'FULLTIME';
             const liveGrades = getLiveGrades();
             const livePitchNodesHtml = slots.map((slotPos, idx) => {
                 const isRedLocked = st.lockedRedSlots.includes(idx);
@@ -349,7 +349,7 @@ function renderLiveTickerView(viewport) {
             }).join('');
 
             pitchOrListHtml = `
-                ${formEdit ? `<div class="swap-banner"><span>✏️ <strong>HALBZEIT-FORMATION:</strong> Ziehe die Positionen an die gewünschte Stelle. Die Rolle passt sich automatisch an, der Torwart bleibt fix.</span></div>` : ''}
+                ${formEdit ? `<div class="swap-banner"><span>✏️ <strong>${st.phase === 'HALFTIME' ? 'HALBZEIT-FORMATION' : 'FORMATION ANPASSEN (Spiel pausiert)'}:</strong> Ziehe die Positionen an die gewünschte Stelle. Die Rolle passt sich automatisch an, der Torwart bleibt fix. Mit „FORMATION FERTIG“ läuft das Spiel weiter.</span></div>` : ''}
                 <div class="pitch-board live-pitch-board ${formEdit ? 'edit-mode' : ''}">
                     <div class="pitch-halfline"></div>
                     <div class="pitch-circle"></div>
@@ -438,12 +438,13 @@ function renderLiveTickerView(viewport) {
                     </select>
                 </div>
 
-                ${st.phase === 'HALFTIME' ? `
+                ${st.phase !== 'FULLTIME' ? `
                     <div style="display:flex; gap:6px; margin-bottom:6px;">
                         <button id="btn-live-edit-formation" type="button" class="bmh-btn ${liveFormationEditMode ? 'gold-btn' : ''} small-btn" style="flex:1;">${liveFormationEditMode ? '✅ FORMATION FERTIG' : '✏️ EIGENE FORMATION'}</button>
                         ${GameState.tactics.formation === 'custom' ? `<button id="btn-live-reset-formation" type="button" class="bmh-btn small-btn" style="flex:1;">↩ ZURÜCK ZU ${GameState.tactics.lastStandardFormation || '4-4-2'}</button>` : ''}
                     </div>
-                ` : `<p style="font-size:0.60rem; color:#555; margin-bottom:4px;">✏️ Eigene Formationen kannst du in der Halbzeitpause erstellen.</p>`}
+                    ${!liveFormationEditMode && st.phase !== 'HALFTIME' ? '<p style="font-size:0.58rem; color:#555; margin:-3px 0 4px 0;">Beim Anpassen pausiert das Spiel automatisch.</p>' : ''}
+                ` : ''}
                 ${selectionBarHtml}
                 ${pitchOrListHtml}
 
@@ -604,13 +605,9 @@ function renderLiveTickerView(viewport) {
     if (liveEditBtn) {
         liveEditBtn.addEventListener('click', () => {
             if (!liveFormationEditMode) {
-                beginCustomFormation();
-                liveFormationEditMode = true;
-                liveTacticsDisplayMode = 'pitch';
-                liveSelectedPitchSlot = null;
+                beginLiveFormationEdit();
             } else {
-                liveFormationEditMode = false;
-                setStatus(`Halbzeit-Formation ${describeCustomFormation()} übernommen.`);
+                endLiveFormationEdit(true);
             }
             renderLiveTickerView(viewport);
         });
@@ -619,12 +616,12 @@ function renderLiveTickerView(viewport) {
     if (liveResetBtn) {
         liveResetBtn.addEventListener('click', () => {
             resetToStandardFormation();
-            liveFormationEditMode = false;
+            endLiveFormationEdit(false);
             setStatus(`Zurück zur Formation ${GameState.tactics.formation}.`);
             renderLiveTickerView(viewport);
         });
     }
-    if (liveFormationEditMode && st.phase === 'HALFTIME' && st.activeSubTab === 'livetactics') {
+    if (liveFormationEditMode && st.phase !== 'FULLTIME' && st.activeSubTab === 'livetactics') {
         bindFormationDrag(viewport.querySelector('.live-pitch-board'), viewport.querySelectorAll('.live-pitch-board .pitch-node.edit-node'), () => renderLiveTickerView(viewport));
     }
     const liveMent = document.getElementById('live-mentality');

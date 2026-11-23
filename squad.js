@@ -173,7 +173,7 @@ function salaryForStep(player, step) {
 }
 
 function computePlayerReservation(player, kind) {
-    let r = negoRandomReservation(0.95, 1.08) - getPressNegoBonus();
+    let r = negoRandomReservation(0.95, 1.08) - getPressNegoBonus() + getDifficulty().nego;
     const mot = player.motivation || 78;
     const ref = getPlayerReferenceSalary(player);
     if (kind === 'contract') {
@@ -247,14 +247,16 @@ function renderContractsView(viewport) {
     const club = GameState.clubs[GameState.activeClubId];
     const squad = getClubPlayers();
     const seasonEnd = getCurrentSeasonEndYear();
-    const totalAnnualSalary = squad.reduce((sum, p) => sum + (p.salary || 0), 0);
+    const totalAnnualSalary = getUserPayroll();
     const staffCost = getStaffAnnualCost();
     const totalLeagueMds = getLeagueTotalMatchdays(club.leagueId);
     const perMatchSalary = Math.round((totalAnnualSalary + staffCost) / Math.max(1, totalLeagueMds));
     const expiringPlayers = squad.filter(p => (p.contractUntil || seasonEnd) <= seasonEnd);
 
     let bodyHtml = "";
-    if (contractsSubTab === 'staff') {
+    if (contractsSubTab === 'coach') {
+        bodyHtml = buildCoachTabHtml();
+    } else if (contractsSubTab === 'staff') {
         bodyHtml = buildStaffTabHtml();
     } else {
         let filtered = [...squad];
@@ -319,12 +321,13 @@ function renderContractsView(viewport) {
     viewport.innerHTML = `
         <h2 class="section-title">✍️ VERTRÄGE, STAB & MITARBEITER</h2>
         <div class="kpi-grid">
-            <div class="kpi-card"><span class="kpi-label">GEHÄLTER SPIELER / STAB</span><span class="kpi-value">${formatMoneyShort(totalAnnualSalary)} / ${formatMoneyShort(staffCost)}</span></div>
+            <div class="kpi-card"><span class="kpi-label">GEHÄLTER SPIELER / STAB & TRAINER</span><span class="kpi-value">${formatMoneyShort(totalAnnualSalary)} / ${formatMoneyShort(staffCost)}</span></div>
             <div class="kpi-card"><span class="kpi-label">KOSTEN PRO LIGA-SPIELTAG</span><span class="kpi-value">${formatMoneyShort(perMatchSalary)}</span></div>
         </div>
-        <div class="sub-tab-bar two-tabs">
+        <div class="sub-tab-bar">
             <button type="button" class="sub-tab-btn ${contractsSubTab === 'players' ? 'active' : ''}" data-ctab="players">👥 SPIELER</button>
-            <button type="button" class="sub-tab-btn ${contractsSubTab === 'staff' ? 'active' : ''}" data-ctab="staff">🧑‍🏫 STAB & MITARBEITER</button>
+            <button type="button" class="sub-tab-btn ${contractsSubTab === 'staff' ? 'active' : ''}" data-ctab="staff">🧑‍🏫 STAB</button>
+            <button type="button" class="sub-tab-btn ${contractsSubTab === 'coach' ? 'active' : ''}" data-ctab="coach">🎓 TRAINER</button>
         </div>
         ${bodyHtml}
     `;
@@ -337,6 +340,10 @@ function renderContractsView(viewport) {
         });
     });
 
+    if (contractsSubTab === 'coach') {
+        bindCoachTabEvents(viewport);
+        return;
+    }
     if (contractsSubTab === 'staff') {
         bindStaffTabEvents(viewport);
         return;
@@ -679,7 +686,7 @@ function buildRosterTabHtml(mySquad) {
                             <td class="form-cell">${getFormArrow(p)}</td>
                             <td title="${p.name} (${p.age} J. | Mot: ${mot}%)">
 <strong>${youthIcon}${p.name}</strong> ${traitBadgeHtml(p)}${p.lifeEvent && (GameState.meta.tick || 0) - p.lifeEvent.tick <= 6 ? `<span title="Privat: ${p.lifeEvent.title}">${p.lifeEvent.icon}</span>` : ''}<br>
-<span style="font-size:0.60rem; color:#444;">${p.age}J • ${getMotivationIcon(mot)}${mot}%${p.wantsOut ? '🚪' : ((p.unhappyWeeks || 0) >= 3 ? '⚠️' : '')} • '${String(p.contractUntil).slice(-2)}${suspNote}</span>
+<span style="font-size:0.60rem; color:#444;">${p.age}J • ${getMotivationIcon(mot)}${mot}%${p.wantsOut ? '🚪' : ((p.unhappyWeeks || 0) >= 3 ? '⚠️' : '')} • <span title="Kondition: ${fitnessLabel(p)}" style="${getFitness(p) < 70 ? 'color:#a82424; font-weight:bold;' : ''}">⚡${Math.round(getFitness(p))}%</span> • ${p.loanFrom ? '🔁bis ' + (p.loanUntil || '') : "'" + String(p.contractUntil).slice(-2)}${suspNote}</span>
                             </td>
                             <td><strong>${p.rating.toFixed(1)}</strong></td>
                             <td>${formatMoneyShort(p.salary)}</td>
@@ -763,6 +770,7 @@ function buildTransferMarketTabHtml() {
     return `
         ${buildTransferWindowBannerHtml()}
         ${buildMyTransferListHtml()}
+        ${buildMyLoansHtml()}
         ${negotiationHtml}
         ${buildPendingTransfersHtml()}
         ${newsHtml}
@@ -806,7 +814,7 @@ function buildTransferMarketTabHtml() {
                             <td>${p.age}</td>
                             <td><strong>${p.rating.toFixed(1)}</strong></td>
                             <td style="color:${p.fee === 0 ? '#184d25' : '#111'};"><strong>${p.fee === 0 ? 'FREI' : formatMoneyShort(p.fee)}</strong></td>
-                            <td><button type="button" class="mini-action-btn btn-open-transfer" data-pid="${p.id}" ${isTransferBlocked(p.id) ? 'disabled title="Gesprächssperre"' : ''}>${isTransferBlocked(p.id) ? '🔒' : 'KAUF'}</button></td>
+<td><button type="button" class="mini-action-btn btn-open-transfer" data-pid="${p.id}" ${isTransferBlocked(p.id) ? 'disabled title="Gesprächssperre"' : ''}>${isTransferBlocked(p.id) ? '🔒' : 'KAUF'}</button>${p.clubId !== 'free' && !isTransferBlocked(p.id) ? `<button type="button" class="mini-action-btn btn-open-loan" data-pid="${p.id}" style="margin-top:2px;">LEIHE</button>` : ''}</td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -846,6 +854,7 @@ function bindTransferMarketEvents(viewport) {
         });
     });
     bindOtherPlayerCard(viewport, () => renderSquadAndMarketView(viewport));
+    bindLoanButtons(viewport, () => renderSquadAndMarketView(viewport));
     bindTransferNegotiationPanel(() => renderSquadAndMarketView(viewport));
 }
 
@@ -1137,7 +1146,10 @@ function buildPlayerCardHtml(p) {
                 <div class="pc-cell"><span>AKTUELLE FORM</span><strong>${(p.form || 0) >= 0 ? '+' : ''}${(p.form || 0).toFixed(2)} ${getFormArrow(p)}</strong><em>Basis ${getBaseRating(p).toFixed(1)} • Sprung zur Winterpause / zum Saisonende</em></div>
                 <div class="pc-cell"><span>MARKTWERT</span><strong>${formatMoneyShort(calculateMarketValue(p))}</strong><em>Notverkauf ${formatMoneyShort(getQuickSalePrice(p))}</em></div>
                 <div class="pc-cell"><span>GEHALT / JAHR</span><strong>${formatMoneyShort(p.salary || 0)}</strong><em>marktüblich ${formatMoneyShort(calculateExpectedSalary(p))}</em></div>
+                <div class="pc-cell"><span>KONDITION</span><strong style="${getFitness(p) < 70 ? 'color:#a82424;' : ''}">⚡ ${Math.round(getFitness(p))}%</strong><em>${fitnessLabel(p)}${fitnessPenalty(p) > 0 ? ' • -' + fitnessPenalty(p).toFixed(2) + ' Stärke' : ''}</em></div>
+                <div class="pc-cell"><span>POTENZIAL</span><strong>bis ca. ${getPotential(p).toFixed(1)}</strong><em>${getAgePhaseLabel(p)}${(getPotential(p) - getBaseRating(p)) > 0.15 ? ' • noch +' + (getPotential(p) - getBaseRating(p)).toFixed(1) : ' • ausgereizt'}</em></div>
             </div>
+            ${p.loanFrom ? `<div class="pc-trait" style="background:#e7f5ff;"><strong>🔁 Leihspieler von ${getAnyClubName(p.loanFrom)}</strong><br><span>Bis Saisonende ${p.loanUntil || ''} • du zahlst ${Math.round((p.loanShare ?? 1) * 100)}% des Gehalts (${formatMoneyShort(Math.round((p.salary || 0) * (p.loanShare ?? 1)))}/J.)${p.loanOption ? ` • Kaufoption ${formatMoneyShort(p.loanOption)}` : ''}</span>${p.loanOption ? `<br><button type="button" class="mini-action-btn btn-exercise-option" data-pid="${p.id}" style="width:auto; padding:3px 8px; margin-top:3px;">✅ KAUFOPTION ZIEHEN (${formatMoneyShort(p.loanOption)})</button>` : ''}</div>` : ''}
             <div class="pc-contract">
                 ✍️ Vertrag bis <strong>${p.contractUntil}</strong> <span class="contract-pill ${yrsLeft <= 0 ? 'expiring' : (yrsLeft === 1 ? 'medium' : 'long')}">${yrsLeft <= 0 ? 'läuft aus!' : `noch ${yrsLeft + 1} Saison${yrsLeft + 1 === 1 ? '' : 's'}`}</span>
                 ${getPendingFor(p.id) ? `<br>⏳ <strong>Wechsel vereinbart</strong> – erfolgt am ${formatGameDate(getPendingFor(p.id).executeFrom, true)}` : ''}
@@ -1151,7 +1163,7 @@ function buildPlayerCardHtml(p) {
                         <button type="button" class="mini-action-btn sell btn-offer-reject" data-oid="${o.id}" style="width:auto; padding:3px 6px;">✕</button>
                     </span>
                 </div>`).join('')}
-            <div class="pc-actions">
+            ${p.loanFrom ? '<div class="pc-actions"><p style="font-size:0.66rem; color:#555;">Leihspieler: Verlängerung, Transferliste und Verkauf sind nicht möglich.</p></div>' : `<div class="pc-actions">
                 <button id="btn-card-contract" type="button" class="bmh-btn primary small-btn" ${blocked ? 'disabled' : ''}>${blocked ? '🔒 GESPRÄCHSSPERRE' : '✍️ VERTRAG VERLÄNGERN'}</button>
                 ${p.transferListed
                     ? `<button id="btn-card-unlist" type="button" class="bmh-btn small-btn">↩ VON TRANSFERLISTE NEHMEN</button>`
@@ -1162,12 +1174,32 @@ function buildPlayerCardHtml(p) {
                         <button id="btn-card-list" type="button" class="bmh-btn gold-btn small-btn">📋 AUF TRANSFERLISTE</button>
                        </div>`}
                 <button id="btn-card-quicksell" type="button" class="bmh-btn danger small-btn">⚡ SOFORT VERKAUFEN (${formatMoneyShort(getQuickSalePrice(p))})</button>
-            </div>
+                <div style="display:flex; gap:4px;">
+                    <select id="card-loan-share" class="bmh-select" style="margin-bottom:0; font-size:0.66rem; padding:3px; flex:1;">
+                        <option value="0.5">Leih-Verein zahlt 50 % Gehalt</option>
+                        <option value="0.75" selected>Leih-Verein zahlt 75 % Gehalt</option>
+                        <option value="1">Leih-Verein zahlt 100 % Gehalt</option>
+                    </select>
+                    <button id="btn-card-loanout" type="button" class="bmh-btn small-btn">🔁 VERLEIHEN</button>
+                </div>
+            </div>`}
         </div>
     `;
 }
 
 function bindPlayerCard(viewport, p, rerender) {
+    bindLoanButtons(viewport, rerender);
+    const loanOutBtn = document.getElementById('btn-card-loanout');
+    if (loanOutBtn) loanOutBtn.addEventListener('click', () => {
+        const share = parseFloat(document.getElementById('card-loan-share').value) || 0.75;
+        const res = loanOutPlayer(p, share);
+        if (!res.ok) { alert(res.msg); return; }
+        playerCardId = null;
+        saveGame();
+        renderHeader();
+        setStatus(`🔁 ${p.name} an ${res.buyer} verliehen (+${formatMoneyShort(res.fee)}).`);
+        rerender();
+    });
     const close = document.getElementById('btn-close-card');
     if (close) close.addEventListener('click', () => { playerCardId = null; rerender(); });
     bindTransferOfferButtons(viewport, rerender);
@@ -1270,7 +1302,7 @@ function computeSellerReservation(target) {
     // Steht auf der Transferliste: Der Verein will seinen Preis – kaum Spielraum
     if (target.aiListed) return negoRandomReservation(0.97, 1.04);
     const seller = GameState.clubs[target.clubId];
-    let r = negoRandomReservation(0.92, 1.12);
+    let r = negoRandomReservation(0.92, 1.12) + getDifficulty().nego;
     const sq = [...getClubPlayers(target.clubId)].sort((a, b) => b.rating - a.rating);
     const rank = sq.findIndex(p => p.id === target.id) + 1;
     if (rank > 0 && rank <= 3) r += 0.25;          // Leistungsträger
@@ -1377,6 +1409,7 @@ function buildTransferNegotiationPanelHtml() {
     if (!n) return '';
     if (n.kind === 'transferFee') return buildTransferFeeNegotiationHtml();
     if (n.kind === 'transferBid') return buildTransferBidHtml();
+    if (n.kind === 'loan') return buildLoanNegotiationHtml();
     if (n.kind !== 'transfer') return '';
     const club = GameState.clubs[GameState.activeClubId];
     const target = GameState.players.find(p => p.id === n.targetId);
@@ -1409,6 +1442,10 @@ function bindTransferNegotiationPanel(rerender) {
     }
     if (n.kind === 'transferBid') {
         bindTransferBid(rerender);
+        return;
+    }
+    if (n.kind === 'loan') {
+        bindLoanNegotiation(rerender);
         return;
     }
     if (n.kind !== 'transfer') return;

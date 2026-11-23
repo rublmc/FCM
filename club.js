@@ -367,7 +367,7 @@ function buildFinanceDetailHtml() {
     };
     const squad = getClubPlayers();
     const mds = getLeagueTotalMatchdays(club.leagueId);
-    const salaryYear = squad.reduce((s, p) => s + (p.salary || 0), 0) + getStaffAnnualCost();
+    const salaryYear = getUserPayroll() + getStaffAnnualCost();
     const homeGames = Math.ceil(mds / 2);
     const forecast = calculateStadiumForecast(club);
     const sp = (GameState.sponsors.main ? GameState.sponsors.main.perMatch * mds : 0) + (GameState.sponsors.boards ? GameState.sponsors.boards.perMatch * homeGames : 0) + (GameState.sponsors.kit ? GameState.sponsors.kit.perMatch * mds : 0);
@@ -402,6 +402,32 @@ function buildFinanceDetailHtml() {
 }
 
 let officeFansOpen = false;
+let officeReportOpen = false;      // letzter Spielbericht im Büro: standardmäßig eingeklappt
+
+// Einklappbarer Kopf für den letzten Spielbericht
+function buildCollapsibleLastReportHtml() {
+    const rep = GameState.lastMatchReport;
+    if (!rep) return '';
+    const title = rep.mode === 'cup' ? (rep.label || 'POKALSPIEL') : ((rep.isCatchUp || rep.mode === 'catchup') ? `NACHHOLSPIEL (ST ${rep.matchday})` : `${rep.matchday}. SPIELTAG`);
+    let summary;
+    if (rep.match) {
+        const m = rep.match;
+        const uid = GameState.activeClubId;
+        const my = m.isHome ? m.homeGoals : m.awayGoals, th = m.isHome ? m.awayGoals : m.homeGoals;
+        const res = (m.pens || m.et) ? (m.pens ? 'i. E.' : 'n. V.') : '';
+        const outcome = my > th ? '✅' : (my < th ? '❌' : '➖');
+        summary = `${outcome} ${m.homeName} <strong>${m.homeGoals}:${m.awayGoals}</strong> ${m.awayName}${res ? ' ' + res : ''}`;
+    } else {
+        summary = rep.cancelled ? `${rep.cancelled.icon} Spiel abgesagt` : 'Spielfrei';
+    }
+    return `
+        <div id="btn-office-report-toggle" class="report-toggle" role="button" tabindex="0" aria-expanded="${officeReportOpen}">
+            <span class="rt-title">📋 LETZTES SPIEL • ${title}${rep.date ? ' • ' + formatGameDate(rep.date) : ''}</span>
+            <span class="rt-sum">${summary}</span>
+            <span class="rt-hint">${officeReportOpen ? '▴ ZUKLAPPEN' : '▾ AUFKLAPPEN'}</span>
+        </div>
+        ${officeReportOpen ? buildLastMatchReportHtml() : ''}`;
+}
 
 function buildFanDetailHtml() {
     const f = ensureFans();
@@ -443,7 +469,7 @@ function renderOfficeView(viewport) {
     ensureCompetitionsInitialized();
     const squad = getClubPlayers();
     const seasonEnd = getCurrentSeasonEndYear();
-    const totalSalary = squad.reduce((sum, p) => sum + (p.salary || 0), 0);
+    const totalSalary = getUserPayroll();
     const expiringCount = squad.filter(p => (p.contractUntil || seasonEnd) <= seasonEnd).length;
     const forecast = club ? calculateStadiumForecast(club) : { occupancyPct: 0, totalMatchRevenue: 0 };
     const avgMotivation = squad.length > 0 ? Math.round(squad.reduce((s, p) => s + (p.motivation || 78), 0) / squad.length) : 78;
@@ -488,7 +514,7 @@ function renderOfficeView(viewport) {
         ` : ''}
         ${buildBackupReminderHtml()}
         ${buildNextEventBannerHtml(true)}
-        ${!isPreseason ? buildLastMatchReportHtml() : ''}
+        ${!isPreseason ? buildCollapsibleLastReportHtml() : ''}
         ${(isPreseason || isWinter) ? `
             <div class="open-window-banner">
                 <strong>${isWinter ? `❄️ WINTERPAUSE (WOCHE ${GameState.winterBreak.currentWeek}/${GameState.winterBreak.totalWeeks})` : `🗓️ SAISONVORBEREITUNG LÄUFT (WOCHE ${GameState.meta.preseasonWeek}/4)`}</strong>
@@ -523,7 +549,8 @@ function renderOfficeView(viewport) {
             <p class="clickable" data-goto="sponsors" role="button" tabindex="0" style="margin-top:4px;"><strong>📺 Bandenwerbung ›</strong> ${GameState.sponsors.boards ? `${GameState.sponsors.boards.name} (${formatMoneyShort(GameState.sponsors.boards.perMatch)}/HS)` : `<span style="color:#a82424;">Noch kein Partner! ${isPreseason ? '(Jetzt verhandelbar)' : '(Fenster geschlossen)'}</span>`}</p>
             <p class="clickable" data-goto="stadium" role="button" tabindex="0" style="margin-top:4px;"><strong>🏟️ Stadion ›</strong> ${club?.stadium?.name || '-'} (${(club?.stadium?.capacity || 0).toLocaleString('de-DE')} Plätze • Ticket ${club?.stadium?.ticketPrice || 24} €${club?.stadium?.heating ? ' • 🔥 Rasenheizung' : ''})</p>
             <p class="clickable" data-goto="squadmarket" role="button" tabindex="0" style="margin-top:4px;"><strong>🔄 Transferfenster ›</strong> ${getTransferWindow().open ? `<span style="color:#184d25;">offen bis ${formatGameDate(getTransferWindow().closesISO)}</span>` : `<span style="color:#a82424;">geschlossen – öffnet ${formatGameDate(getTransferWindow().nextOpenISO)}</span>`}${getPendingTransfers().length ? ` • ⏳ ${getPendingTransfers().length} vereinbart` : ''}</p>
-            <p class="clickable" data-goto="contracts" role="button" tabindex="0" style="margin-top:4px;"><strong>💶 Gehälter / Saison ›</strong> ${formatMoneyShort(totalSalary)} Spieler + ${formatMoneyShort(getStaffAnnualCost())} Stab</p>
+            <p class="clickable" data-goto="contracts" role="button" tabindex="0" style="margin-top:4px;"><strong>💶 Gehälter / Saison ›</strong> ${formatMoneyShort(totalSalary)} Spieler + ${formatMoneyShort(getStaffAnnualCost())} Stab & Trainer</p>
+            <p class="clickable" data-goto="coach" role="button" tabindex="0" style="margin-top:4px;"><strong>🎓 Trainervertrag ›</strong> ${(() => { const c = ensureCoachInitialized(); const left = c.untilYear - getCurrentSeasonEndYear(); return `bis ${c.untilYear} • ${formatMoneyShort(c.salary)}/J.${left <= 0 ? ' <span style="color:#a82424; font-weight:bold;">⚠️ läuft aus</span>' : ''}`; })()}</p>
 ${GameState.stadiumProject ? (() => { const pi = getStadiumProjectInfo(GameState.stadiumProject); return `<p class="clickable" data-goto="stadium" role="button" tabindex="0" style="margin-top:4px; color:#184d25;"><strong>🏗️ Baustelle ›</strong> ${GameState.stadiumProject.title} (noch ${pi.remainingDays} Tage • ca. ${formatGameDate(pi.etaISO)})</p>`; })() : ''}
         </div>
         <div class="bmh-box">
@@ -534,6 +561,12 @@ ${GameState.stadiumProject ? (() => { const pi = getStadiumProjectInfo(GameState
 
     const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
     bindNextEventBanner();
+    const repToggle = document.getElementById('btn-office-report-toggle');
+    if (repToggle) {
+        const flip = () => { officeReportOpen = !officeReportOpen; renderOfficeView(viewport); };
+        repToggle.addEventListener('click', flip);
+        repToggle.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); flip(); } });
+    }
     bindBackupReminder(() => renderOfficeView(viewport));
     bind('btn-office-cal', () => switchToView('calendar'));
     bind('btn-office-spons', () => switchToView('sponsors'));
@@ -579,6 +612,11 @@ ${GameState.stadiumProject ? (() => { const pi = getStadiumProjectInfo(GameState
             }
             if (target === 'staff') {
                 contractsSubTab = 'staff';
+                switchToView('contracts');
+                return;
+            }
+            if (target === 'coach') {
+                contractsSubTab = 'coach';
                 switchToView('contracts');
                 return;
             }
