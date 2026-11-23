@@ -173,6 +173,8 @@ function startSecondHalf() {
     }
     liveMatchState.phase = 'SECOND_HALF';
     liveFormationEditMode = false;
+    liveMatchState.activeSubTab = 'ticker';     // nach dem Anpfiff sofort zurück zum Live-Ticker
+    liveSelectedPitchSlot = null;
     if (GameState.tactics.formation === 'custom') {
         addLiveTickerEntry("46'", "system", "halftime", `✏️ Neue Formation zur 2. Halbzeit: ${describeCustomFormation()}`);
     }
@@ -491,6 +493,8 @@ function startLiveSessionInner(opts) {
     };
 
     initLiveGrades(liveMatchState);
+    // Stärke der eigenen Startelf zum Anpfiff (Maßstab für die Erwartung von Präsidium & Fans)
+    liveMatchState.preStrength = (liveMatchState.userMatch && getClubPlayers().length) ? calculateLiveClubStrength(GameState.activeClubId, false) : null;
     if (cancelledLines.length > 0) {
         addLiveTickerEntry("0'", "system", "card-red", `❌ WETTERBEDINGTE ABSAGE: ${cancelledLines.join(' • ')} – Nachholtermin folgt.`);
     }

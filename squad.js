@@ -558,7 +558,7 @@ function renderSquadAndMarketView(viewport) {
 
         <div class="sub-tab-bar">
             <button class="sub-tab-btn ${squadSubTab === 'roster' ? 'active' : ''}" data-subtab="roster">
-                👥 KADER (${mySquad.length}/${MAX_SQUAD_SIZE})
+                👥KADER (${mySquad.length}/${MAX_SQUAD_USER})
             </button>
             <button class="sub-tab-btn ${squadSubTab === 'market' ? 'active' : ''}" data-subtab="market">
                 💰 TRANSFERMARKT
@@ -923,8 +923,8 @@ function bindYouthCampEvents(viewport) {
             if (!club || yIndex === -1) return;
 
             const talent = GameState.youthAcademy.players[yIndex];
-            if (getClubPlayers().length >= MAX_SQUAD_SIZE) {
-                alert(`Dein Kader ist voll (${MAX_SQUAD_SIZE} Spieler). Verkaufe zuerst einen Spieler!`);
+if (getClubPlayers().length >= MAX_SQUAD_USER) {
+                alert(`Dein Kader ist voll (${MAX_SQUAD_USER} Spieler). Verkaufe zuerst einen Spieler!`);
                 return;
             }
             if (club.budget < talent.fee) {
@@ -1393,7 +1393,7 @@ function buildTransferNegotiationPanelHtml() {
                    <p style="font-size:0.64rem; color:#d3f9d8;">${fee === 0 ? 'Schritt 1/1' : 'Schritt 2/2'}: Jetzt verhandelst du mit dem Spieler über seinen Vertrag.${fee > 0 ? ' Dazu kommen 8% Beraterhonorar auf die Ablöse.' : ''}</p>
                    ${delayed ? `<p style="font-size:0.66rem; color:#ffe066;">⚠️ Transferfenster geschlossen – der Wechsel erfolgt erst am ${formatGameDate(w.nextOpenISO, true)} (Vorvertrag).</p>` : ''}
                    ${buildRivalsInfoHtml(n.extra.rivals)}
-                   <p>Aktuelles Gehalt: ${formatMoneyShort(target.salary || 0)}/J. • Marktüblich: <strong>${formatMoneyShort(getPlayerReferenceSalary(target))}/J.</strong> • Kader: ${getClubPlayers().length}/${MAX_SQUAD_SIZE}</p>`,
+                   <p>Aktuelles Gehalt: ${formatMoneyShort(target.salary || 0)}/J. • Marktüblich: <strong>${formatMoneyShort(getPlayerReferenceSalary(target))}/J.</strong> •Kader: ${getClubPlayers().length}/${MAX_SQUAD_USER}</p>`,
         optionsHtml: buildPlayerNegoOptions(target, 'transfer'),
         successText: n.extra.resultTxt || `Transfer perfekt! ${target.name} wechselt zu ${club.name}.`,
         abortText: `${target.name} hat abgesagt – der Transfer ist geplatzt (keine Ablöse gezahlt). Ein neuer Versuch ist frühestens in 3 Wochen/Spielen möglich.`
@@ -1418,8 +1418,8 @@ function bindTransferNegotiationPanel(rerender) {
             const club = GameState.clubs[GameState.activeClubId];
             const target = GameState.players.find(p => p.id === activeNegotiation.targetId);
             if (!club || !target) return;
-            if (getClubPlayers().length >= MAX_SQUAD_SIZE) {
-                alert(`Dein Kader ist voll (${MAX_SQUAD_SIZE} Spieler).`);
+if (getClubPlayers().length >= MAX_SQUAD_USER) {
+                alert(`Dein Kader ist voll (${MAX_SQUAD_USER} Spieler).`);
                 return;
             }
             const sel = readPlayerNegoSelection();

@@ -1591,3 +1591,8 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
 .chip-form { flex-shrink: 0; width: 12px; text-align: center; }
 .sound-warn { font-size: 0.62rem; background: #fff3bf; border: 2px solid #b58900; padding: 5px 7px; margin: 4px 0; color: #5c4400; }
 .sound-preview { background: #e9ecea; border: 1px solid var(--panel-shadow); padding: 6px; margin: 4px 0 6px 0; }
+
+/* v1.15: Ergebnis-Wirkung im Spielbericht */
+.rep-line { font-size: 0.66rem; background: #0b1c10; border: 1px solid #246b35; padding: 3px 6px; margin: 4px 0; }
+.rep-up { color: #6ee787; }
+.rep-down { color: #ff8787; }

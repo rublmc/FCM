@@ -513,6 +513,7 @@ function generateRoutineEvents() {
     }
 
     updateMotivationWeekly();
+    driftBoardPressWeekly();
     generatePrivateLifeEvent();
     processEmployeeEvents();
     updateFansWeekly();

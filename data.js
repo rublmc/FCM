@@ -2,7 +2,7 @@
 // FC MANAGER 27 - MODUL: DATA & KONSTANTEN
 // ==========================================
 window.FCM_APP_STARTED = true;
-const GAME_VERSION = "1.14.0";
+const GAME_VERSION = "1.15.0";
 const GAME_BUILD_DATE = "22.11.2026";
 
 
@@ -273,7 +273,7 @@ const WINTER_EVENTS = [
 
 let GameState = {
     meta: {
-        coreVersion: "1.14.0",
+        coreVersion: "1.15.0",
         season: "2026/27",
         phase: "preseason", // 'preseason' | 'season' | 'winter'
         preseasonWeek: 1,   // 1..4
@@ -432,7 +432,8 @@ let viewedPlayerId = null;          // geöffnete Spielerkarte eines fremden Spi
 let openMatchKey = null;            // aufgeklapptes (beendetes) Spiel in Tabelle / Pokal
 
 // Maximale Kadergröße (Profikader)
-const MAX_SQUAD_SIZE = 25;
+const MAX_SQUAD_SIZE = 25;          // Computervereine
+const MAX_SQUAD_USER = 30;          // eigener Kader
 const MIN_SQUAD_SIZE = 13;
 
 // ==========================================

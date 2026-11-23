@@ -152,8 +152,8 @@ function executePendingTransfers() {
                 addInbox('❌', `Transfer geplatzt: ${p.name}`, `${p.name} steht bei ${getAnyClubName(pt.fromId)} nicht mehr unter Vertrag – der vereinbarte Wechsel ist hinfällig.`, 'transfer');
             } else if (club.budget < pt.fee + pt.bonus) {
                 addInbox('❌', `Transfer geplatzt: ${p.name}`, `Zum Fensterstart fehlte das Geld: Benötigt ${formatMoneyShort(pt.fee + pt.bonus)}, Budget ${formatMoneyShort(club.budget)}. ${getAnyClubName(pt.fromId)} hat den Deal abgesagt.`, 'transfer');
-            } else if (getClubPlayers().length >= MAX_SQUAD_SIZE) {
-                addInbox('❌', `Transfer geplatzt: ${p.name}`, `Dein Kader war zum Fensterstart voll (${MAX_SQUAD_SIZE} Spieler) – der Wechsel konnte nicht vollzogen werden.`, 'transfer');
+} else if (getClubPlayers().length >= MAX_SQUAD_USER) {
+                addInbox('❌', `Transfer geplatzt: ${p.name}`, `Dein Kader war zum Fensterstart voll (${MAX_SQUAD_USER} Spieler) – der Wechsel konnte nicht vollzogen werden.`, 'transfer');
             } else {
                 executeUserSigning(p, pt.fee, pt.salary, pt.years, pt.bonus);
             }
@@ -339,8 +339,8 @@ function bindClubSquadView(viewport, rerender) {
 function startBidForPlayer(pid, rerender) {
     const target = GameState.players.find(p => p.id === pid);
     if (!target) return;
-    if (getClubPlayers().length >= MAX_SQUAD_SIZE) {
-        alert(`Dein Kader ist voll (${MAX_SQUAD_SIZE} Spieler). Verkaufe zuerst einen Spieler!`);
+if (getClubPlayers().length >= MAX_SQUAD_USER) {
+        alert(`Dein Kader ist voll (${MAX_SQUAD_USER} Spieler). Verkaufe zuerst einen Spieler!`);
         return;
     }
     if (isTransferBlocked(pid)) {

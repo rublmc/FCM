@@ -169,7 +169,10 @@ function randomForeignScorerName() {
 // SAISON-SETUP DER WETTBEWERBE
 // ==========================================
 function ensureCompetitionsInitialized() {
-    if (GameState.cups && GameState.cups.season === GameState.meta.season) return;
+    if (GameState.cups && GameState.cups.season === GameState.meta.season) {
+        rebalanceEuroVenues();
+        return;
+    }
     setupSeasonCompetitions();
     // Spielstand aus älterer Version mitten in der Saison: bereits vergangene Runden still nachsimulieren
     if (GameState.meta.phase !== 'preseason' && GameState.cups) {
@@ -384,31 +387,246 @@ function setupSeasonCompetitions() {
 }
 
 // Ligaphase: Rundenturnier-Ausschnitt (jeder Gegner nur einmal), möglichst ohne Länderduelle
-function generateLeaguePhase(comp) {
-    const n = comp.teams.length;
-    let best = null;
-    for (let attempt = 0; attempt < 120; attempt++) {
-        let arr = shuffleArr(comp.teams);
-        const rounds = [];
-        let conflicts = 0;
-        for (let r = 0; r < comp.lpRounds; r++) {
-            const ms = [];
-            for (let i = 0; i < n / 2; i++) {
-                const a = arr[i];
-                const b = arr[n - 1 - i];
-                const homeA = (r + i) % 2 === 0;
-                ms.push({ homeId: homeA ? a : b, awayId: homeA ? b : a, homeGoals: null, awayGoals: null, played: false, events: [] });
-                if (getClubCountry(a) === getClubCountry(b)) conflicts++;
+// ==========================================
+// LIGAPHASE: AUSLOSUNG MIT AUSGEWOGENEN HEIM-/AUSWÄRTSSPIELEN
+// Früher war die Heim-/Auswärts-Zuordnung an die Position in der Auslosung gekoppelt: Ein Verein hatte fast
+// die ganze Ligaphase entweder nur Heim- oder nur Auswärtsspiele. Jetzt hat jeder Verein genau die Hälfte
+// Heimspiele, und die Gegner sind möglichst gleichmäßig stark verteilt (keine Gegner aus dem eigenen Land).
+// ==========================================
+
+// Heimrecht je Spiel so verteilen, dass jedes Team sein Soll an Heimspielen erreicht.
+// edges: [{a, b, r, home}] (home: 'a' | 'b' | null = noch offen), targets: id -> gewünschte Heimspiele (gesamt)
+function orientVenues(teams, edges, targets, rng = Math.random) {
+    // Anzahl bereits festgelegter Heimspiele je Team
+    const fixedHome = {};
+    teams.forEach(id => { fixedHome[id] = 0; });
+    edges.forEach(e => { if (e.home) fixedHome[e.home === 'a' ? e.a : e.b]++; });
+    // offene Spiele zufällig vorbelegen
+    const open = edges.filter(e => !e.home);
+    open.forEach(e => { e.home = rng() < 0.5 ? 'a' : 'b'; e._open = true; });
+    const out = {};
+    teams.forEach(id => { out[id] = fixedHome[id]; });
+    open.forEach(e => { out[e.home === 'a' ? e.a : e.b]++; });
+    // Erreichbare Soll-Werte: Wer schon mehr Heimspiele hat als vorgesehen (oder zu wenige Spiele übrig),
+    // bekommt ein angepasstes Soll; die Summe muss zur Zahl offener Spiele passen.
+    const openDeg = {};
+    teams.forEach(id => { openDeg[id] = 0; });
+    open.forEach(e => { openDeg[e.a]++; openDeg[e.b]++; });
+    const tgt = {};
+    teams.forEach(id => {
+        const need = Math.max(0, Math.min(openDeg[id], (targets[id] ?? 0) - fixedHome[id]));
+        tgt[id] = fixedHome[id] + need;
+    });
+    let sumNeed = teams.reduce((s, id) => s + (tgt[id] - fixedHome[id]), 0);
+    let adj = 0;
+    while (sumNeed !== open.length && adj++ < 500) {
+        if (sumNeed > open.length) {
+            const cand = teams.filter(id => tgt[id] > fixedHome[id]).sort((x, y) => tgt[y] - tgt[x]);
+            if (!cand.length) break;
+            tgt[cand[0]]--; sumNeed--;
+        } else {
+            const cand = teams.filter(id => tgt[id] - fixedHome[id] < openDeg[id]).sort((x, y) => tgt[x] - tgt[y]);
+            if (!cand.length) break;
+            tgt[cand[0]]++; sumNeed++;
+        }
+    }
+    // Überschuss-Teams (zu viele Heimspiele) -> Defizit-Teams: Weg aus offenen Kanten umdrehen
+    // Adjazenz der offenen Spiele (für schnelle Suche)
+    const outOf = {};
+    teams.forEach(id => { outOf[id] = []; });
+    const rebuildOut = () => {
+        teams.forEach(id => { outOf[id].length = 0; });
+        open.forEach(e => { outOf[e.home === 'a' ? e.a : e.b].push(e); });
+    };
+    rebuildOut();
+    let guard = 0;
+    while (guard++ < 4000) {
+        const over = teams.filter(id => out[id] > tgt[id]).sort(() => rng() - 0.5);
+        if (over.length === 0) break;
+        let fixedOne = false;
+        for (const src of over) {
+            // BFS: von src über Kanten, bei denen der aktuelle Knoten Heimteam ist (offene Spiele)
+            const prev = new Map([[src, null]]);
+            const queue = [src];
+            let dst = null;
+            while (queue.length && !dst) {
+                const u = queue.shift();
+                for (const e of outOf[u]) {
+                    const v = e.home === 'a' ? e.b : e.a;
+                    if (prev.has(v)) continue;
+                    prev.set(v, e);
+                    if (out[v] < tgt[v]) { dst = v; break; }
+                    queue.push(v);
+                }
             }
-            rounds.push(ms);
+            if (!dst) continue;                            // von diesem Team aus kein Weg – nächstes Überschuss-Team versuchen
+            let cur = dst;
+            while (prev.get(cur)) {
+                const e = prev.get(cur);
+                e.home = e.home === 'a' ? 'b' : 'a';
+                cur = e.home === 'a' ? e.b : e.a;          // der Knoten davor
+            }
+            out[src]--;
+            out[dst]++;
+            rebuildOut();
+            fixedOne = true;
+            break;
+        }
+        if (!fixedOne) break;                              // rechnerisch nicht lösbar
+    }
+    return edges;
+}
+
+// Strafpunkte für lange Heim-/Auswärtsserien (ab 3 in Folge)
+function venueStreakPenalty(teams, edges, rounds) {
+    const seq = {};
+    teams.forEach(id => { seq[id] = new Array(rounds).fill(null); });
+    edges.forEach(e => {
+        seq[e.a][e.r] = e.home === 'a';
+        seq[e.b][e.r] = e.home === 'b';
+    });
+    let pen = 0;
+    teams.forEach(id => {
+        let run = 0, last = null;
+        seq[id].forEach(v => {
+            if (v === null) { run = 0; last = null; return; }
+            if (v === last) run++; else { run = 1; last = v; }
+            if (run >= 3) pen += run - 2;
+        });
+    });
+    return pen;
+}
+
+// Lokale Verbesserung: geschlossene Heim->Auswärts-Kreise umdrehen (ändert die Heimspiel-Summe je Team nicht),
+// solange dadurch weniger lange Serien entstehen. canFlip(e) legt fest, welche Spiele noch veränderbar sind.
+function improveVenueSeries(teams, edges, R, iterations = 2500, canFlip = () => true) {
+    let pen = venueStreakPenalty(teams, edges, R);
+    const flippable = edges.filter(canFlip);
+    if (flippable.length === 0) return pen;
+    const outEdges = {};
+    teams.forEach(id => { outEdges[id] = []; });
+    const rebuild = () => {
+        teams.forEach(id => { outEdges[id].length = 0; });
+        flippable.forEach(e => { outEdges[e.home === 'a' ? e.a : e.b].push(e); });
+    };
+    rebuild();
+    for (let it = 0; it < iterations && pen > 0; it++) {
+        let start = teams[Math.floor(Math.random() * teams.length)];
+        const path = [];
+        const posOf = new Map([[start, 0]]);
+        let cur = start;
+        let cycle = null;
+        for (let step = 0; step < 12; step++) {
+            const outs = outEdges[cur];
+            if (!outs.length) break;
+            const e = outs[Math.floor(Math.random() * outs.length)];
+            path.push(e);
+            const nxt = e.home === 'a' ? e.b : e.a;
+            if (posOf.has(nxt)) { cycle = path.slice(posOf.get(nxt)); break; }
+            posOf.set(nxt, path.length);
+            cur = nxt;
+        }
+        if (!cycle) continue;
+        cycle.forEach(e => { e.home = e.home === 'a' ? 'b' : 'a'; });
+        const np = venueStreakPenalty(teams, edges, R);
+        if (np <= pen) { pen = np; rebuild(); }
+        else cycle.forEach(e => { e.home = e.home === 'a' ? 'b' : 'a'; });
+    }
+    return pen;
+}
+
+function generateLeaguePhase(comp) {
+    const teams = comp.teams;
+    const n = teams.length;
+    const R = comp.lpRounds;
+    const str = {};
+    let field = 0;
+    teams.forEach(id => { str[id] = getClubTop11Strength(id); field += str[id]; });
+    field /= Math.max(1, n);
+    // 1) Paarungen: Kreismethode mit zufälliger Reihenfolge; beste von vielen Auslosungen nehmen
+    //    (wenig Duelle gleicher Länder, Gegnerstärke je Team möglichst nahe am Feld-Durchschnitt)
+    let best = null;
+    for (let attempt = 0; attempt < 300; attempt++) {
+        let arr = shuffleArr(teams);
+        const pairsByRound = [];
+        let conflicts = 0;
+        const oppSum = {};
+        teams.forEach(id => { oppSum[id] = 0; });
+        for (let r = 0; r < R; r++) {
+            const ps = [];
+            for (let i = 0; i < Math.floor(n / 2); i++) {
+                const a = arr[i], b = arr[n - 1 - i];
+                ps.push([a, b]);
+                if (getClubCountry(a) === getClubCountry(b)) conflicts++;
+                oppSum[a] += str[b];
+                oppSum[b] += str[a];
+            }
+            pairsByRound.push(ps);
             arr = [arr[0], arr[n - 1], ...arr.slice(1, n - 1)];
         }
-        if (!best || conflicts < best.conflicts) best = { rounds, conflicts };
-        if (conflicts === 0) break;
+        let varSum = 0;
+        teams.forEach(id => { const d = oppSum[id] / R - field; varSum += d * d; });
+        const score = conflicts * 5 + varSum * 25;
+        if (!best || score < best.score) best = { pairsByRound, score };
+        if (score < 2.5 && attempt > 40) break;
     }
-    best.rounds.forEach((ms, r) => {
-        comp.rounds[r].matches = ms;
-        comp.rounds[r].drawn = true;
+    // 2) Heimrecht: jedes Team genau R/2 Heimspiele, möglichst keine langen Serien
+    const base = [];
+    best.pairsByRound.forEach((ps, r) => ps.forEach(([a, b]) => base.push({ a, b, r, home: null })));
+    const targets = {};
+    teams.forEach(id => { targets[id] = Math.floor(R / 2); });
+    let bestEdges = null, bestPen = Infinity;
+    for (let t = 0; t < 12; t++) {
+        const edges = base.map(e => ({ ...e }));
+        orientVenues(teams, edges, targets);
+        const pen = improveVenueSeries(teams, edges, R, 1500);
+        if (pen < bestPen) { bestPen = pen; bestEdges = edges; }
+        if (pen <= 2) break;
+    }
+    // 3) In die Runden schreiben
+    for (let r = 0; r < R; r++) comp.rounds[r].matches = [];
+    bestEdges.forEach(e => {
+        const homeA = e.home === 'a';
+        comp.rounds[e.r].matches.push({ homeId: homeA ? e.a : e.b, awayId: homeA ? e.b : e.a, homeGoals: null, awayGoals: null, played: false, events: [] });
+    });
+    for (let r = 0; r < R; r++) comp.rounds[r].drawn = true;
+    comp.venueFixed = true;
+}
+
+// Spielstände aus älteren Versionen: noch nicht gespielte Ligaphasen-Spiele neu auf Heim/Auswärts verteilen
+function rebalanceEuroVenues() {
+    if (!GameState.cups || !GameState.cups.comps) return;
+    const uid = GameState.activeClubId;
+    Object.values(GameState.cups.comps).forEach(comp => {
+        if (comp.type !== 'euro' || comp.venueFixed) return;
+        comp.venueFixed = true;
+        const R = comp.lpRounds;
+        const lp = comp.rounds.slice(0, R);
+        if (lp.every(r => r.played) || lp.some(r => !r.drawn)) return;
+        const edges = [];
+        lp.forEach((round, r) => round.matches.forEach(m => edges.push({ a: m.homeId, b: m.awayId, r, m, home: m.played ? 'a' : null })));
+        const before = lp.map(r => r.matches.find(m => m.homeId === uid || m.awayId === uid)).map(m => m ? (m.homeId === uid ? 'H' : 'A') : '-').join('');
+        const targets = {};
+        comp.teams.forEach(id => { targets[id] = Math.floor(R / 2); });
+        let bestEdges = null, bestPen = Infinity;
+        for (let t = 0; t < 12; t++) {
+            const es = edges.map(e => ({ ...e, home: e.m.played ? 'a' : null }));
+            orientVenues(comp.teams, es, targets);
+            const pen = improveVenueSeries(comp.teams, es, R, 1500, e => !e.m.played);
+            if (pen < bestPen) { bestPen = pen; bestEdges = es; }
+            if (pen <= 2) break;
+        }
+        bestEdges.forEach(e => {
+            if (e.m.played) return;
+            const homeId = e.home === 'a' ? e.a : e.b;
+            const awayId = e.home === 'a' ? e.b : e.a;
+            e.m.homeId = homeId;
+            e.m.awayId = awayId;
+        });
+        const after = lp.map(r => r.matches.find(m => m.homeId === uid || m.awayId === uid)).map(m => m ? (m.homeId === uid ? 'H' : 'A') : '-').join('');
+        if (comp.teams.includes(uid) && before !== after) {
+            addInbox(comp.icon, `${comp.name}: Spielplan korrigiert`, `Die Heim-/Auswärtsverteilung der Ligaphase war ungleich verteilt (bisher: ${before.split('').map(c => c === 'H' ? 'Heim' : (c === 'A' ? 'Ausw.' : '–')).join(' / ')}). Die noch offenen Spiele wurden fair neu verteilt: jetzt ${after.split('').map(c => c === 'H' ? 'Heim' : (c === 'A' ? 'Ausw.' : '–')).join(' / ')}. Die Gegner bleiben dieselben.`, 'cup');
+        }
     });
 }
 

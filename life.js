@@ -152,10 +152,10 @@ function updateFansAfterMatch(st, um, mode) {
     const opp = isHome ? um.awayGoals : um.homeGoals;
     const won = um.winnerId ? um.winnerId === club.id : my > opp;
     const lost = um.winnerId ? um.winnerId !== club.id : my < opp;
-    let delta = won ? 1.5 : (lost ? -1.5 : 0);
-    if (mode === 'cup' && um.winnerId && um.winnerId !== club.id) delta -= 2;   // Pokal-Aus
-    if (won && my - opp >= 3) delta += 1;                                        // Kantersieg
-    changeFanMood(delta, won ? 'Sieg' : (lost ? 'Niederlage' : 'Unentschieden'));
+    // Ergebnis -> Präsidium, Fans & Öffentlichkeit (erwartungsabhängig, siehe interview.js)
+    const compType = st && st.cupCtx && GameState.cups ? GameState.cups.comps[st.cupCtx.compId].type : null;
+    const rep = applyResultReputation(um, mode, compType, st);
+    if (GameState.lastMatchReport) GameState.lastMatchReport.repDelta = rep;
     if (isHome && !um.neutral) {
         const diff = (club.stadium?.ticketPrice || 24) - getIdealTicketPrice(club);
         if (Math.abs(diff) >= 2) {

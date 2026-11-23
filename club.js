@@ -295,6 +295,7 @@ function buildLastMatchReportHtml(rep = GameState.lastMatchReport, closeBtnId = 
                 ${rep.teamTalk ? `<br>🗣️ Halbzeit: ${rep.teamTalk}` : ''}
             </div>
             ${buildGradesReportHtml(rep.grades)}
+            ${rep.repDelta ? `<div class="rep-line">🏛️ Präsidium <strong class="${rep.repDelta.b >= 0 ? 'rep-up' : 'rep-down'}">${rep.repDelta.b >= 0 ? '▲ +' : '▼ '}${String(rep.repDelta.b).replace('.', ',')}</strong> • 📣 Fans <strong class="${rep.repDelta.f >= 0 ? 'rep-up' : 'rep-down'}">${rep.repDelta.f >= 0 ? '▲ +' : '▼ '}${String(rep.repDelta.f).replace('.', ',')}</strong> • 📰 Presse <strong class="${rep.repDelta.p >= 0 ? 'rep-up' : 'rep-down'}">${rep.repDelta.p >= 0 ? '▲ +' : '▼ '}${String(rep.repDelta.p).replace('.', ',')}</strong><br><span style="font-size:0.58rem; color:#99b8a1;">Erwartet waren ca. ${rep.repDelta.exp}% der möglichen Punkte</span></div>` : ''}
             <div class="finance-recap">
                 ${w ? `${w.icon} ${w.label} • ` : ''}${finance.join(' • ')}${rep.buildStatusMsg ? `<br><span style="color:#e5b822;">${rep.buildStatusMsg}</span>` : ''}
             </div>
@@ -503,7 +504,7 @@ function renderOfficeView(viewport) {
         ${activeNegotiation && activeNegotiation.kind === 'sale' ? buildSaleNegotiationHtml() : ''}
         ${buildInboxHtml()}
         <div class="kpi-grid">
-            ${kpi('squad', 'KADER & TEAM-Ø', `${squad.length}/${MAX_SQUAD_SIZE} • Ø ${calculateTeamStrength()}`)}
+            ${kpi('squad', 'KADER & TEAM-Ø',`${squad.length}/${MAX_SQUAD_USER} • Ø ${calculateTeamStrength()}`)}
             ${kpi('squad', 'STIMMUNG / MOTIVATION', `${getMotivationIcon(avgMotivation)} ${avgMotivation}%`)}
             ${kpi('contracts', `VERTRÄGE '${String(seasonEnd).slice(-2)}`, expiringCount > 0 ? '⚠️ ' + expiringCount + ' laufen aus' : '✅ Alle gesichert', expiringCount > 0 ? 'warn' : '', 'data-cfilter="EXPIRING"')}
             ${kpi('tactics', 'VERLETZT / GESPERRT', unavailable.length > 0 ? `🚑 ${unavailable.filter(isPlayerInjured).length} • 🟥 ${unavailable.filter(isPlayerSuspended).length}` : '✅ Alle fit', unavailable.length > 0 ? 'warn' : '')}

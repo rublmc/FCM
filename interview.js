@@ -420,3 +420,85 @@ function renderInterviewView(viewport) {
     const nextBtn = document.getElementById('btn-interview-next');
     if (nextBtn) nextBtn.addEventListener('click', () => { nextInterviewStep(); renderInterviewView(viewport); });
 }
+
+
+// ==========================================
+// ERGEBNISSE -> PRÄSIDIUM, FANS & ÖFFENTLICHKEIT
+// Maßstab ist die ERWARTUNG: Ein Sieg gegen einen Favoriten bringt viel, eine Niederlage gegen einen
+// Außenseiter kostet viel. Serien (drei Niederlagen / vier Siege in Folge) verstärken die Wirkung.
+// ==========================================
+// Erwartete Punkte-Ausbeute (0..1) – berechnet mit demselben Tormodell wie die Spielsimulation:
+// Heimteam +0,35 Stärke; Tore ~ Poisson mit 1,42 + 0,58·Δ (Heim) bzw. 1,15 − 0,55·Δ (Gast).
+function expectedResultScore(myStr, oppStr, isHome, neutral) {
+    const adv = neutral ? 0 : 0.35;
+    const diff = isHome ? (myStr + adv) - oppStr : (oppStr + adv) - myStr;       // aus Sicht des Heimteams
+    const lh = Math.max(0.15, Math.min(5.2, 1.42 + 0.58 * diff));
+    const la = Math.max(0.15, Math.min(4.9, 1.15 - 0.55 * diff));
+    const pmf = (l) => { const p = [Math.exp(-l)]; for (let k = 1; k <= 10; k++) p.push(p[k - 1] * l / k); return p; };
+    const ph = pmf(lh), pa = pmf(la);
+    let win = 0, draw = 0;
+    for (let i = 0; i <= 10; i++) {
+        for (let j = 0; j <= 10; j++) {
+            const pr = ph[i] * pa[j];
+            if (i > j) win += pr; else if (i === j) draw += pr;
+        }
+    }
+    const homeScore = win + 0.5 * draw;
+    const mine = isHome ? homeScore : 1 - homeScore;
+    return Math.max(0.05, Math.min(0.95, mine));
+}
+
+function applyResultReputation(um, mode, compType, st = null) {
+    ensureBoardPress();
+    const uid = GameState.activeClubId;
+    const isHome = um.homeId === uid;
+    const my = isHome ? um.homeGoals : um.awayGoals;
+    const opp = isHome ? um.awayGoals : um.homeGoals;
+    const oppId = isHome ? um.awayId : um.homeId;
+    const won = um.winnerId ? um.winnerId === uid : my > opp;
+    const lost = um.winnerId ? um.winnerId !== uid : my < opp;
+    const actual = won ? 1 : (lost ? 0 : 0.5);
+    // Erwartung anhand der tatsächlich aufgestellten Startelf (nicht der Idealelf): Wer mit Ersatz antritt, wird milder beurteilt
+    const myStr = (st && typeof st.preStrength === 'number') ? st.preStrength : getClubTop11Strength(uid);
+    const exp = expectedResultScore(myStr, getClubTop11Strength(oppId), isHome, um.neutral);
+    const surprise = actual - exp;                                  // -0.9 … +0.9
+    const comp = compType === 'euro' ? 1.3 : (mode === 'cup' ? 1.2 : 1.0);
+    // Präsidium: reagiert vor allem auf Ergebnisse gegen die Erwartung und auf Serien
+    let b = surprise * 3.4 * comp + (won ? 0.5 : (lost ? -0.5 : 0));
+    // Fans: leiden und feiern mit, im eigenen Stadion noch stärker
+    let f = surprise * 4.2 * comp * (isHome && !um.neutral ? 1.2 : 1.0) + (won ? 0.6 : (lost ? -0.6 : 0));
+    let p = surprise * 2.0 * comp;
+    const margin = my - opp;
+    if (!um.winnerId) {
+        if (won && margin >= 3) { b += 0.6; f += 1.2; p += 0.8; }
+        if (lost && margin <= -3) { b -= 1.0; f -= 1.4; p -= 1.0; }
+    }
+    const rp = GameState.meta.recentPts || [];
+    const last3 = rp.slice(-3), last4 = rp.slice(-4);
+    const notes = [];
+    if (last3.length === 3 && last3.every(v => v === 0)) { b -= 1.6; f -= 1.8; p -= 1.0; notes.push('3 Niederlagen in Folge'); }
+    else if (last4.length === 4 && last4.every(v => v === 3)) { b += 1.2; f += 1.5; p += 1.0; notes.push('4 Siege in Folge'); }
+    else if (rp.length >= 5 && rp.slice(-5).every(v => v === 0)) { b -= 1.0; f -= 1.2; notes.push('5 Spiele ohne Sieg'); }
+    if (mode === 'cup' && um.winnerId && lost) { b -= 1.4; f -= 2.0; p -= 0.8; notes.push('Pokal-Aus'); }
+    b = Math.round(b * 10) / 10;
+    f = Math.round(f * 10) / 10;
+    p = Math.round(p * 10) / 10;
+    const tail = um.pens ? ' n. E.' : (um.et ? ' n. V.' : '');
+    const label = `${won ? 'Sieg' : (lost ? 'Niederlage' : 'Remis')} ${my}:${opp}${tail} gegen ${getAnyClubName(oppId)}${surprise >= 0.35 ? ' (Überraschung!)' : (surprise <= -0.35 ? ' (enttäuschend)' : '')}${notes.length ? ' • ' + notes.join(', ') : ''}`;
+    if (b) changeBoardMood(b, label);
+    if (f) changeFanMood(f, label);
+    if (p) changePressMood(p, label);
+    return { b, f, p, label, exp: Math.round(exp * 100) };
+}
+
+
+// Wöchentlich: Präsidium und Öffentlichkeit beruhigen sich langsam Richtung Normalwert
+// (ohne Dauer-Erfolge bzw. -Misserfolge verblasst die Stimmung)
+function driftBoardPressWeekly() {
+    ensureBoardPress();
+    const b = GameState.board, p = GameState.press;
+    const db = (65 - b.mood) * 0.02;
+    const dp = (60 - p.mood) * 0.03;
+    if (Math.abs(db) >= 0.15) b.mood = Math.max(0, Math.min(100, Math.round((b.mood + db) * 10) / 10));
+    if (Math.abs(dp) >= 0.15) p.mood = Math.max(0, Math.min(100, Math.round((p.mood + dp) * 10) / 10));
+}
