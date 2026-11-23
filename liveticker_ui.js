@@ -32,7 +32,10 @@ function renderLiveTickerView(viewport) {
     // Spieluhr-Anzeige
     let clockDisplay = `${st.minute}'`;
     let pillClass = "";
-    if (st.phase === 'HALFTIME') {
+    if (st.phase === 'PREMATCH') {
+        clockDisplay = "VOR ANPFIFF";
+        pillClass = "paused";
+    } else if (st.phase === 'HALFTIME') {
         clockDisplay = "HALBZEIT";
         pillClass = "paused";
     } else if (st.phase === 'FULLTIME') {
@@ -74,7 +77,7 @@ function renderLiveTickerView(viewport) {
                 </div>
             ` : ''}
 
-            ${st.phase !== 'FULLTIME' ? `
+            ${st.phase !== 'FULLTIME' && st.phase !== 'PREMATCH' ? `
                 <div class="live-controls-bar" style="margin-top:6px;">
                     <button id="btn-live-pause" class="speed-btn ${st.isPaused ? 'pause-active' : ''}">
                         ${st.phase === 'HALFTIME' ? (st.teamTalkApplied ? '▶ 2. HZ' : '🔒 PAUSE') : (st.isPaused ? '▶ WEITER' : '⏸ PAUSE')}
@@ -129,7 +132,7 @@ function renderLiveTickerView(viewport) {
 
     // 2b. Kompaktes Unterbrechungs-Banner (nur bei manueller Pause ohne In-App-Alert)
     let interruptionHtml = "";
-    if (!inAppAlertHtml && st.isPaused && st.phase !== 'HALFTIME' && st.phase !== 'FULLTIME') {
+    if (!inAppAlertHtml && st.isPaused && st.phase !== 'HALFTIME' && st.phase !== 'FULLTIME' && st.phase !== 'PREMATCH') {
         interruptionHtml = `
             <div class="live-pause-banner" style="padding:7px 9px; margin-bottom:6px;">
                 <div style="font-weight:bold; font-size:0.74rem; margin-bottom:4px;">${st.pauseReason || '⏸ PAUSE'}</div>
@@ -141,6 +144,43 @@ function renderLiveTickerView(viewport) {
         `;
     }
 
+    // 2c. Vor dem Anpfiff: Ansprache (überspringbar)
+    let prematchHtml = "";
+    if (st.phase === 'PREMATCH') {
+        const pc = getPreMatchContext();
+        const pt = st.preTalk;
+        const fitHint = (id) => {
+            const f = preTalkFit(id, pc);
+            return f >= 0.55 ? '<span style="color:#9be9a8; font-weight:bold;"> 👍 passt zur Lage</span>' : (f < 0 ? '<span style="color:#ffb3b3; font-weight:bold;"> ⚠️ riskant in dieser Lage</span>' : '');
+        };
+        const sg = (v, d = 0) => (v >= 0 ? '+' : '') + (d ? v.toFixed(d).replace('.', ',') : v);
+        const resultHtml = pt ? `
+            <div class="nego-result ${pt.result === 'good' ? 'success' : (pt.result === 'meh' ? 'neutral' : 'fail')}">
+                ${pt.icon} ${pt.short}: ${pt.text}
+            </div>
+            <p style="font-size:0.64rem; color:#d3f9d8; margin:5px 0 3px 0;">
+                Wirkung: Motivation Kader <strong>${sg(pt.mot)}%</strong> • Spielstärke <strong>${sg(pt.str, 2)}</strong> • Kartenrisiko <strong>${pt.card > 1.02 ? 'erhöht' : (pt.card < 0.98 ? 'gesenkt' : 'normal')}</strong>
+            </p>
+            ${pt.reactions.map(r => `<p style="font-size:0.64rem; color:#fff; margin:2px 0;">${r.text}</p>`).join('')}` : `
+            <p style="font-size:0.65rem; color:#d3f9d8; margin:4px 0 6px 0;">Wähle eine Ansprache – oder pfeife direkt an. Eine Ansprache kann wirken, verpuffen oder nach hinten losgehen.</p>
+            <div class="teamtalk-grid" style="gap:4px; margin-bottom:8px;">
+                ${PRE_TALK_OPTIONS.map(t => `
+                    <button type="button" class="teamtalk-btn btn-select-pretalk" data-talk="${t.id}" style="padding:5px 7px;">
+                        <strong style="font-size:0.71rem;">${t.icon} ${t.title}</strong>${fitHint(t.id)}
+                        <span style="display:block; font-size:0.60rem; color:#d3f9d8;">${t.desc}</span>
+                    </button>`).join('')}
+            </div>`;
+        prematchHtml = `
+            <div class="negotiation-box" style="padding:8px; margin-bottom:6px;">
+                <h3 style="font-size:0.78rem; margin-bottom:4px;">🗣️ ANSPRACHE VOR DEM SPIEL</h3>
+                <div style="font-size:0.66rem; color:#f4f4f4; line-height:1.4; margin-bottom:2px;">${pc.lines.map(l => `<div>${l}</div>`).join('')}</div>
+                ${resultHtml}
+                <button id="btn-prematch-tactics" type="button" class="bmh-btn small-btn" style="width:100%; margin:6px 0;">📋 AUFSTELLUNG & TAKTIK NOCH ANPASSEN</button>
+                <button id="btn-start-match" type="button" class="bmh-btn gold-btn" style="width:100%; padding:9px; font-size:0.80rem;">
+                    ${pt ? '▶ ANPFIFF' : '⏭ OHNE ANSPRACHE ANPFEIFEN'}
+                </button>
+            </div>`;
+    }
     // 3. Halbzeit-Pause: Schlanke Kabinen-Ansprache (inkl. "Keine Ansprache") -> erst danach 2. Halbzeit
     let halftimeHtml = "";
     if (st.phase === 'HALFTIME') {
@@ -349,7 +389,7 @@ function renderLiveTickerView(viewport) {
             }).join('');
 
             pitchOrListHtml = `
-                ${formEdit ? `<div class="swap-banner"><span>✏️ <strong>${st.phase === 'HALFTIME' ? 'HALBZEIT-FORMATION' : 'FORMATION ANPASSEN (Spiel pausiert)'}:</strong> Ziehe die Positionen an die gewünschte Stelle. Die Rolle passt sich automatisch an, der Torwart bleibt fix. Mit „FORMATION FERTIG“ läuft das Spiel weiter.</span></div>` : ''}
+                ${formEdit ? `<div class="swap-banner"><span>✏️<strong>${st.phase === 'HALFTIME' ? 'HALBZEIT-FORMATION' : (st.phase === 'PREMATCH' ? 'FORMATION VOR DEM ANPFIFF' : 'FORMATION ANPASSEN (Spiel pausiert)')}:</strong> Ziehe die Positionen an die gewünschte Stelle. Die Rolle passt sich automatisch an, der Torwart bleibt fix. Mit „FORMATION FERTIG“ läuft das Spiel weiter.</span></div>` : ''}
                 <div class="pitch-board live-pitch-board ${formEdit ? 'edit-mode' : ''}">
                     <div class="pitch-halfline"></div>
                     <div class="pitch-circle"></div>
@@ -443,7 +483,7 @@ function renderLiveTickerView(viewport) {
                         <button id="btn-live-edit-formation" type="button" class="bmh-btn ${liveFormationEditMode ? 'gold-btn' : ''} small-btn" style="flex:1;">${liveFormationEditMode ? '✅ FORMATION FERTIG' : '✏️ EIGENE FORMATION'}</button>
                         ${GameState.tactics.formation === 'custom' ? `<button id="btn-live-reset-formation" type="button" class="bmh-btn small-btn" style="flex:1;">↩ ZURÜCK ZU ${GameState.tactics.lastStandardFormation || '4-4-2'}</button>` : ''}
                     </div>
-                    ${!liveFormationEditMode && st.phase !== 'HALFTIME' ? '<p style="font-size:0.58rem; color:#555; margin:-3px 0 4px 0;">Beim Anpassen pausiert das Spiel automatisch.</p>' : ''}
+${!liveFormationEditMode && st.phase !== 'HALFTIME' && st.phase !== 'PREMATCH' ? '<p style="font-size:0.58rem; color:#555; margin:-3px 0 4px 0;">Beim Anpassen pausiert das Spiel automatisch.</p>' : ''}
                 ` : ''}
                 ${selectionBarHtml}
                 ${pitchOrListHtml}
@@ -458,6 +498,7 @@ function renderLiveTickerView(viewport) {
         ${inAppAlertHtml}
         ${scoreboardHtml}
         ${interruptionHtml}
+        ${prematchHtml}
         ${halftimeHtml}
         ${fulltimeHtml}
 
@@ -537,6 +578,14 @@ function renderLiveTickerView(viewport) {
         });
     }
 
+    // Ansprache vor dem Spiel
+    document.querySelectorAll('.btn-select-pretalk').forEach(btn => {
+        btn.addEventListener('click', (e) => applyPreMatchTalk(e.currentTarget.dataset.talk));
+    });
+    const startMatchBtn = document.getElementById('btn-start-match');
+    if (startMatchBtn) startMatchBtn.addEventListener('click', () => startMatchFromPrematch());
+    const preTacBtn = document.getElementById('btn-prematch-tactics');
+    if (preTacBtn) preTacBtn.addEventListener('click', () => { st.activeSubTab = 'livetactics'; liveTacticsDisplayMode = 'pitch'; renderLiveTickerView(viewport); });
     // Halbzeit Kabinen-Ansprache & Taktik
     document.querySelectorAll('.btn-select-teamtalk').forEach(btn => {
         btn.addEventListener('click', (e) => {

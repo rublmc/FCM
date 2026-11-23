@@ -552,9 +552,12 @@ const SoundFX = {
             this.wahWah({ syllables: 9, base: 165, spread: 35, minLen: 0.15, maxLen: 0.3, vol: 0.18 });
             this.clap(0.05, 0.25); // Klopfen an die Taktiktafel
             this.clap(0.35, 0.25);
-        } else if (talkId === 'calm') {
-            this.wahWah({ syllables: 6, base: 140, spread: 20, minLen: 0.22, maxLen: 0.38, vol: 0.15 });
-        }
+          } else if (talkId === 'calm') {
+              this.wahWah({ syllables: 6, base: 140, spread: 20, minLen: 0.22, maxLen: 0.38, vol: 0.15 });
+          } else if (talkId === 'humor') {
+              const t = this.wahWah({ syllables: 6, base: 185, spread: 45, minLen: 0.12, maxLen: 0.26, vol: 0.18 });
+              setTimeout(() => this.playNegotiation('happy'), Math.round(t * 1000) + 80);
+          }
     },
 
     // ---------- Verhandlungen ----------

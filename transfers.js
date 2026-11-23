@@ -46,7 +46,7 @@ function buildTransferWindowBannerHtml(compact = false) {
 }
 
 function buildPendingTransfersHtml() {
-    const list = getPendingTransfers();
+    const list = getPendingTransfers().filter(pt => pt.dir !== 'aiLoan');
     if (list.length === 0) return '';
     return `
         <div class="bmh-box" style="padding:6px; background:#fff9db; border-color:#b58900;">
@@ -160,10 +160,14 @@ function executePendingTransfers() {
           } else if (pt.dir === 'loanIn') {
               const club = GameState.clubs[uid];
               if (p.clubId !== pt.fromId) addInbox('❌', `Leihe geplatzt: ${p.name}`, `${p.name} steht bei ${getAnyClubName(pt.fromId)} nicht mehr unter Vertrag – die vereinbarte Leihe ist hinfällig.`, 'transfer');
-              else if (club.budget < pt.fee) addInbox('❌', `Leihe geplatzt: ${p.name}`, `Zum Fensterstart fehlte das Geld für die Leihgebühr (${formatMoneyShort(pt.fee)}).`, 'transfer');
+                else if (club.budget < pt.fee + (pt.bonus || 0)) addInbox('❌', `Leihe geplatzt: ${p.name}`, `Zum Fensterstart fehlte das Geld für Leihgebühr und Leihprämie (${formatMoneyShort(pt.fee + (pt.bonus || 0))}).`, 'transfer');
               else if (getClubPlayers().length >= MAX_SQUAD_USER) addInbox('❌', `Leihe geplatzt: ${p.name}`, `Dein Kader war zum Fensterstart voll (${MAX_SQUAD_USER} Spieler).`, 'transfer');
-              else executeLoanIn(p, { fee: pt.fee, share: pt.share, option: pt.option, fromId: pt.fromId });
-          } else if (pt.dir === 'ai') {
+                else executeLoanIn(p, { fee: pt.fee, share: pt.share, option: pt.option, raise: pt.raise || 0, bonus: pt.bonus || 0, fromId: pt.fromId });
+            } else if (pt.dir === 'aiLoan') {
+                if (p.clubId === pt.fromId && GameState.clubs[pt.toId] && getClubPlayers(pt.toId).length < MAX_SQUAD_SIZE) {
+                    executeRivalLoan(p, { clubId: pt.toId, fee: pt.fee, share: pt.share, salary: pt.salary }, pt.fromId);
+                }
+            } else if (pt.dir === 'ai') {
               executeAiSigning(pt, p);
           } else if (pt.dir === 'out') {
               if (p.clubId !== uid) return;

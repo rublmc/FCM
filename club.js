@@ -292,7 +292,8 @@ function buildLastMatchReportHtml(rep = GameState.lastMatchReport, closeBtnId = 
             <div class="match-events-list">
                 <strong style="color:#e5b822;">BESONDERE VORKOMMNISSE</strong><br>
                 ${hl.length ? hl.map(h => `${iconFor(h.type)} <strong>${h.min}</strong> ${h.text.replace(/^[🟨🟥🚑🔄⚽]\uFE0F?\s*/u, '')}`).join('<br>') : 'Keine Karten, Verletzungen oder Wechsel.'}
-                ${rep.teamTalk ? `<br>🗣️ Halbzeit: ${rep.teamTalk}` : ''}
+${rep.preTalk ? `<br>🗣️ Vor dem Spiel: ${rep.preTalk}` : ''}
+                  ${rep.teamTalk ? `<br>🗣️ Halbzeit: ${rep.teamTalk}` : ''}
             </div>
             ${buildGradesReportHtml(rep.grades)}
             ${rep.repDelta ? `<div class="rep-line">🏛️ Präsidium <strong class="${rep.repDelta.b >= 0 ? 'rep-up' : 'rep-down'}">${rep.repDelta.b >= 0 ? '▲ +' : '▼ '}${String(rep.repDelta.b).replace('.', ',')}</strong> • 📣 Fans <strong class="${rep.repDelta.f >= 0 ? 'rep-up' : 'rep-down'}">${rep.repDelta.f >= 0 ? '▲ +' : '▼ '}${String(rep.repDelta.f).replace('.', ',')}</strong> • 📰 Presse <strong class="${rep.repDelta.p >= 0 ? 'rep-up' : 'rep-down'}">${rep.repDelta.p >= 0 ? '▲ +' : '▼ '}${String(rep.repDelta.p).replace('.', ',')}</strong><br><span style="font-size:0.58rem; color:#99b8a1;">Erwartet waren ca. ${rep.repDelta.exp}% der möglichen Punkte</span></div>` : ''}

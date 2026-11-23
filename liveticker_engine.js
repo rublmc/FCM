@@ -82,6 +82,208 @@ const TEAM_TALK_OPTIONS = [
     }
 ];
 
+// ==========================================
+// ANSPRACHE VOR DEM SPIEL
+// Eigener Schritt vor dem Anpfiff (Phase 'PREMATCH'), überspringbar. Die Wirkung hängt von der Lage ab:
+// Favorit oder Außenseiter, Pokal oder Liga, Stimmung im Team, Serie – und vom Charakter der Spieler.
+// Auch eine gute Idee kann verpuffen oder nach hinten losgehen (Zufall).
+// ==========================================
+const PRE_TALK_OPTIONS = [
+    { id: 'motivate', icon: '💪', short: 'Motivieren', title: 'Motivieren („Ihr seid bereit!“)', desc: 'Selbstvertrauen tanken – hilft besonders, wenn die Stimmung im Team niedrig ist.' },
+    { id: 'calm', icon: '🧊', short: 'Ruhe bewahren', title: 'Ruhe bewahren („Kühlen Kopf!“)', desc: 'Weniger Karten, saubere Abläufe – gut für Favoriten, große Spiele und Hitzköpfe.' },
+    { id: 'tactics', icon: '🧠', short: 'Taktik einschärfen', title: 'Taktik einschärfen („Räume eng!“)', desc: 'Volle Konzentration auf den Spielplan – stark gegen überlegene Gegner.' },
+    { id: 'fire', icon: '🔥', short: 'Aufrütteln', title: 'Aufrütteln („Zeigt, was in euch steckt!“)', desc: 'Hohes Risiko, hohe Wirkung: hilft in der Krise, kann bei gutem Lauf nach hinten losgehen.' },
+    { id: 'humor', icon: '😄', short: 'Mit Humor lockern', title: 'Mit Humor lockern („Habt Spaß!“)', desc: 'Nimmt den Druck raus – in einer Krise kommt es aber schlecht an.' }
+];
+const PRE_TALK_BASE = {
+    motivate: { mot: 4, str: 0.10, card: 1.00 }, calm: { mot: 2, str: 0.06, card: 0.80 }, tactics: { mot: 2, str: 0.12, card: 0.90 },
+    fire: { mot: 6, str: 0.20, card: 1.20 }, humor: { mot: 3, str: 0.06, card: 1.00 }
+};
+const PRE_TALK_BACKFIRE = {
+    motivate: { mot: -3, str: -0.05, card: 1.05 }, calm: { mot: -2, str: -0.04, card: 1.00 }, tactics: { mot: -2, str: -0.05, card: 1.00 },
+    fire: { mot: -6, str: -0.15, card: 1.30 }, humor: { mot: -4, str: -0.10, card: 1.10 }
+};
+const PRE_TALK_RISK = { motivate: 0.9, calm: 0.6, tactics: 0.7, fire: 1.7, humor: 1.3 };
+const PRE_TALK_SOUND = { motivate: 'praise', calm: 'calm', tactics: 'tactical', fire: 'wake_up', humor: 'humor' };
+const PRE_TALK_TEXTS = {
+    motivate: {
+        good: ['Die Mannschaft ist elektrisiert – jeder will sofort auf den Platz!', 'Die Spieler klatschen sich ab, die Stimmung in der Kabine ist glänzend.', 'Das Selbstvertrauen steigt spürbar – die Jungs brennen auf das Spiel.'],
+        meh: ['Die Worte verpuffen etwas – die Mannschaft hat das alles schon gehört.', 'Nettes Gerede, aber so richtig zündet es nicht.'],
+        backfire: ['Das war zu dick aufgetragen – einige Spieler schauen skeptisch.', 'Die Ansprache wirkt aufgesetzt, der Funke springt nicht über.']
+    },
+    calm: {
+        good: ['Ruhe kehrt ein – alle wissen, was zu tun ist.', 'Die Mannschaft läuft konzentriert und entspannt ein.', 'Eine sachliche Ansprache, die Sicherheit gibt.'],
+        meh: ['Die Mannschaft nimmt es zur Kenntnis – mehr nicht.', 'Solide, aber ohne großen Effekt.'],
+        backfire: ['Zu viel Ruhe: Ein paar Spieler wirken fast schläfrig.', 'Die Kabine ist still – vielleicht zu still.']
+    },
+    tactics: {
+        good: ['Jeder kennt seine Aufgabe – die Taktiktafel hat überzeugt.', 'Die Mannschaft ist hellwach und hat den Plan verinnerlicht.', 'Klare Ansagen: Die Laufwege sitzen schon in der Kabine.'],
+        meh: ['Viele Details, aber nicht alles bleibt hängen.', 'Die Mannschaft nickt – ob der Plan hält, zeigt sich auf dem Platz.'],
+        backfire: ['Zu viele Anweisungen auf einmal – die Spieler wirken verunsichert.', 'Das war zu kompliziert, einigen schwirrt der Kopf.']
+    },
+    fire: {
+        good: ['Die Kabine tobt! Die Mannschaft ist hellwach und heiß auf das Spiel.', 'Der Weckruf sitzt – die Spieler schlagen sich auf die Brust.', 'Gänsehaut-Stimmung: Jetzt will jeder seinen Gegenspieler fressen.'],
+        meh: ['Die Spieler zucken mit den Schultern – das war nicht der große Wurf.', 'Laut, aber ohne Wirkung. Die Mannschaft kennt das schon.'],
+        backfire: ['Das ging nach hinten los – die Stimmung kippt, einige Spieler schauen betreten zu Boden.', 'Zu viel Druck: Die Mannschaft wirkt eher gehemmt als motiviert.']
+    },
+    humor: {
+        good: ['Gelächter in der Kabine – die Anspannung ist wie weggeblasen.', 'Die Mannschaft geht locker und mit einem Grinsen aufs Feld.', 'Ein Spruch, und der Druck ist weg – die Jungs haben Spaß.'],
+        meh: ['Ein paar schmunzeln, der Rest bleibt unbeeindruckt.', 'Der Witz zündet nur halb.'],
+        backfire: ['Das kam nicht an: Einige fühlen sich nicht ernst genommen.', 'Falscher Moment für Späße – die Stimmung ist eher angespannt.']
+    }
+};
+
+function getPreMatchContext() {
+    const st = liveMatchState;
+    const um = st.userMatch;
+    const uid = GameState.activeClubId;
+    const isHome = um.homeId === uid;
+    const oppId = isHome ? um.awayId : um.homeId;
+    const myStr = calculateLiveClubStrength(uid, isHome && !um.neutral);
+    const oppStr = calculateClubMatchStrength(oppId, !isHome && !um.neutral);
+    const diff = myStr - oppStr;
+    const ids = new Set(GameState.tactics.lineup.filter(Boolean));
+    const starters = getClubPlayers().filter(p => ids.has(p.id));
+    const avgMot = starters.length ? starters.reduce((s, p) => s + (p.motivation || 78), 0) / starters.length : 75;
+    const rp = GameState.meta.recentPts || [];
+    const streakL = rp.length >= 3 && rp.slice(-3).every(v => v === 0);
+    const streakW = rp.length >= 3 && rp.slice(-3).every(v => v === 3);
+    let big = false, euro = false, final = false;
+    if (st.cupCtx && GameState.cups) {
+        const comp = GameState.cups.comps[st.cupCtx.compId];
+        big = true;
+        euro = comp.type === 'euro';
+        final = comp.rounds[st.cupCtx.roundIdx].stage === 'final';
+    }
+    const role = diff < -0.45 ? 'underdog' : (diff > 0.55 ? 'favorite' : 'even');
+    const c = {
+        oppName: getAnyClubName(oppId), diff, role, avgMot: Math.round(avgMot),
+        lowMood: avgMot < 68, highMood: avgMot >= 84, streakL, streakW, big, euro, final,
+        hot: starters.filter(p => hasTrait(p, 'hothead')).length,
+        diva: starters.filter(p => hasTrait(p, 'diva')).length,
+        leader: starters.filter(p => hasTrait(p, 'leader')).length,
+        pro: starters.filter(p => hasTrait(p, 'pro')).length,
+        starters
+    };
+    const fmt = (v) => Math.abs(v).toFixed(1).replace('.', ',');
+    c.lines = [];
+    c.lines.push(role === 'underdog' ? `🐺 Du bist <strong>Außenseiter</strong>: ${c.oppName} ist ca. ${fmt(diff)} Stärkepunkte besser.`
+        : (role === 'favorite' ? `🦁 Du bist <strong>Favorit</strong> gegen ${c.oppName} (ca. +${fmt(diff)}).` : `⚖️ <strong>Offenes Duell</strong> gegen ${c.oppName}.`));
+    c.lines.push(`${getMotivationIcon(c.avgMot)} Stimmung in der Startelf: <strong>${c.avgMot}%</strong>${streakL ? ' • 3 Niederlagen in Folge – der Druck wächst' : (streakW ? ' • 3 Siege in Folge – die Mannschaft ist im Flow' : '')}`);
+    if (final) c.lines.push('🏆 <strong>Endspiel</strong> – hier geht es um alles.');
+    else if (euro) c.lines.push('⭐ Europapokal-Abend – internationale Bühne.');
+    else if (big) c.lines.push('🏆 Pokalspiel – es zählt nur das Weiterkommen.');
+    if (c.hot > 0 || c.diva > 0) c.lines.push(`${c.hot > 0 ? `😡 ${c.hot}× Hitzkopf` : ''}${c.hot > 0 && c.diva > 0 ? ' • ' : ''}${c.diva > 0 ? `💅 ${c.diva}× Diva` : ''} in der Startelf – nicht jede Ansprache kommt bei allen gut an.`);
+    return c;
+}
+
+// Wie gut passt eine Ansprache zur Lage? (grob -1 … +1)
+function preTalkFit(id, c) {
+    switch (id) {
+        case 'motivate': return 0.30 + (c.lowMood ? 0.40 : 0) + (c.role === 'underdog' ? 0.20 : 0) + (c.streakL ? 0.15 : 0) - (c.highMood ? 0.35 : 0);
+        case 'calm': return 0.20 + (c.role === 'favorite' ? 0.35 : 0) + (c.big ? 0.20 : 0) + Math.min(0.40, c.hot * 0.20) - (c.role === 'underdog' ? 0.15 : 0) - (c.lowMood ? 0.10 : 0);
+        case 'tactics': return 0.20 + (c.role === 'underdog' ? 0.50 : 0) + (c.role === 'even' ? 0.20 : 0) - (c.role === 'favorite' ? 0.10 : 0) + (c.pro > 0 ? 0.10 : 0);
+        case 'fire': return 0.05 + (c.streakL ? 0.60 : 0) + (c.role === 'underdog' ? 0.30 : 0) + (c.lowMood ? 0.30 : 0) - (c.highMood ? 0.60 : 0) - (c.role === 'favorite' ? 0.35 : 0) - c.diva * 0.25 - (c.streakW ? 0.30 : 0);
+        case 'humor': return 0.05 + (c.big ? 0.25 : 0) + (c.streakW ? 0.30 : 0) + (c.role === 'favorite' ? 0.30 : 0) - (c.streakL ? 0.70 : 0) - (c.lowMood ? 0.25 : 0) - (c.role === 'underdog' ? 0.15 : 0) - (c.pro > 1 ? 0.10 : 0);
+        default: return 0;
+    }
+}
+
+// Reaktionen einzelner Charaktere (höchstens 3 Zeilen)
+function buildPreTalkReactions(id, result, c) {
+    const out = [];
+    const by = (t) => c.starters.filter(p => hasTrait(p, t));
+    const add = (p, icon, text, mot) => { if (p) out.push({ id: p.id, name: p.name, text: `${icon} ${p.name}: ${text}`, mot }); };
+    const lead = by('leader')[0], div = by('diva')[0], hot = by('hothead')[0], pro = by('pro')[0], lazy = by('lazy')[0], loy = by('loyal')[0];
+    if (hot && id === 'fire') add(hot, '😡', result === 'good' ? 'ist aufgeputscht und will sofort losgrätschen.' : 'kocht innerlich – das kann Ärger geben.', result === 'good' ? 4 : 1);
+    if (hot && id === 'calm') add(hot, '😡', 'atmet tief durch und nimmt sich vor, cool zu bleiben.', 1);
+    if (hot && id === 'humor' && result === 'backfire') add(hot, '😡', 'fühlt sich nicht ernst genommen.', -2);
+    if (div && (id === 'fire' || id === 'tactics')) add(div, '💅', 'rollt mit den Augen: „Das hätte man auch netter sagen können.“', -3);
+    if (div && (id === 'motivate' || id === 'humor') && result === 'good') add(div, '💅', 'genießt die Aufmerksamkeit.', 2);
+    if (lead && result === 'good') add(lead, '👑', 'greift die Worte auf und reißt die Kollegen mit.', 1);
+    if (lead && result === 'backfire') add(lead, '👑', 'redet beruhigend auf die Mitspieler ein.', 0);
+    if (pro && (id === 'calm' || id === 'tactics') && result !== 'backfire') add(pro, '🎯', 'nickt: „Genau so machen wir das.“', 1);
+    if (pro && id === 'humor' && result === 'backfire') add(pro, '🎯', 'schüttelt den Kopf – dafür ist jetzt nicht die Zeit.', -1);
+    if (lazy && id === 'fire') add(lazy, '🦥', 'schreckt auf und strafft die Schultern.', 2);
+    if (lazy && id === 'humor' && result === 'good') add(lazy, '🦥', 'lacht am lautesten.', 1);
+    if (loy && (id === 'motivate' || id === 'fire') && result === 'good') add(loy, '🤝', '„Für den Verein!“', 2);
+    return out.slice(0, 3);
+}
+
+function applyPreMatchTalk(talkId) {
+    const st = liveMatchState;
+    if (!st || st.phase !== 'PREMATCH' || st.preTalk) return;
+    const opt = PRE_TALK_OPTIONS.find(o => o.id === talkId);
+    if (!opt) return;
+    const c = getPreMatchContext();
+    const fit = preTalkFit(talkId, c);
+    const risk = PRE_TALK_RISK[talkId];
+    const pBack = Math.max(0.02, Math.min(0.60, (0.14 - fit * 0.20) * risk));
+    const pGood = Math.max(0.20, Math.min(0.92, 0.55 + fit * 0.40));
+    let result = 'meh';
+    if (Math.random() < pBack) result = 'backfire';
+    else if (Math.random() < pGood) result = 'good';
+    const base = PRE_TALK_BASE[talkId];
+    let mot, str, card;
+    if (result === 'good') {
+        let scale = Math.max(0.85, Math.min(1.35, 0.85 + 0.45 * Math.max(0, fit)));
+        if (c.leader > 0) scale *= 1.12;
+        mot = Math.round(base.mot * scale);
+        str = parseFloat((base.str * scale).toFixed(2));
+        card = base.card;
+    } else if (result === 'meh') {
+        mot = Math.round(base.mot * 0.3);
+        str = parseFloat((base.str * 0.3).toFixed(2));
+        card = 1;
+    } else {
+        const b = PRE_TALK_BACKFIRE[talkId];
+        mot = b.mot; str = b.str; card = b.card;
+    }
+    const reactions = buildPreTalkReactions(talkId, result, c);
+    if (talkId === 'fire' && c.hot > 0) card = Math.min(1.5, card + 0.08 * c.hot);
+    const squad = getClubPlayers();
+    squad.forEach(p => adjustPlayerMotivation(p, mot));
+    reactions.forEach(r => { const p = squad.find(x => x.id === r.id); if (p && r.mot) adjustPlayerMotivation(p, r.mot); });
+    const textPool = PRE_TALK_TEXTS[talkId][result];
+    st.preTalk = {
+        id: talkId, icon: opt.icon, short: opt.short, title: opt.title, result,
+        text: pickFrom(textPool), mot, str, card, reactions,
+        label: `${opt.icon} ${opt.short} (${result === 'good' ? 'wirkt' : (result === 'meh' ? 'verpufft' : 'geht nach hinten los')})`
+    };
+    st.preTalkStrBonus = str;
+    st.preTalkCardMult = card;
+    SoundFX.playTeamTalk(PRE_TALK_SOUND[talkId]);
+    setStatus(`🗣️ Ansprache: ${opt.short} – ${result === 'good' ? 'wirkt' : (result === 'meh' ? 'verpufft' : 'geht nach hinten los')}`);
+    renderView('liveticker');
+}
+
+// Anpfiff nach der Ansprache (oder ohne Ansprache)
+function startMatchFromPrematch() {
+    const st = liveMatchState;
+    if (!st || st.phase !== 'PREMATCH') return;
+    if (liveFormationEditMode) endLiveFormationEdit(false);
+    st.phase = 'FIRST_HALF';
+    st.isPaused = false;
+    st.pauseReason = "";
+    st.activeSubTab = 'ticker';
+    liveSelectedPitchSlot = null;
+    // Erwartung von Präsidium & Fans: Stärke der Startelf ohne den Ansprache-Bonus
+    const keep = st.preTalkStrBonus || 0;
+    st.preTalkStrBonus = 0;
+    st.preStrength = (st.userMatch && getClubPlayers().length) ? calculateLiveClubStrength(GameState.activeClubId, false) : null;
+    st.preTalkStrBonus = keep;
+    if (st.preTalk) {
+        addLiveTickerEntry("1'", "system", "halftime", `🗣️ ANSPRACHE VOR DEM SPIEL: ${st.preTalk.icon} ${st.preTalk.short} – ${st.preTalk.text}`);
+        st.preTalk.reactions.forEach(r => addLiveTickerEntry("1'", "system", "halftime", r.text));
+    }
+    addLiveTickerEntry("1'", "system", "halftime", st.pendingKickoffText || "🏟️ ANPFIFF!");
+    st.pendingKickoffText = null;
+    SoundFX.playWhistle('kickoff');
+    startLiveTickerTimer();
+    renderHeader();
+    renderView('liveticker');
+}
+
 function stopLiveTickerTimer() {
     if (liveTickerTimer) {
         clearInterval(liveTickerTimer);
@@ -111,6 +313,10 @@ function setLiveSpeed(newSpeed) {
     if (!liveMatchState) return;
     liveMatchState.speed = newSpeed;
     if (liveMatchState.phase === 'FIRST_HALF' || liveMatchState.phase === 'SECOND_HALF') {
+        if (liveMatchState.isPaused) {              // aus der Pause weiter: zurück in den Ticker
+            liveMatchState.activeSubTab = 'ticker';
+            liveSelectedPitchSlot = null;
+        }
         liveMatchState.isPaused = false;
         liveMatchState.pauseReason = "";
         startLiveTickerTimer();
@@ -142,14 +348,16 @@ function endLiveFormationEdit(announce = true) {
     if (!st) return;
     if (announce && wasEditing && GameState.tactics.formation === 'custom') {
         setStatus(`Formation ${describeCustomFormation()} übernommen.`);
-        if (st.phase !== 'HALFTIME') {
+        if (st.phase !== 'HALFTIME' && st.phase !== 'PREMATCH') {
             addLiveTickerEntry(`${st.minute}'`, "system", "halftime", `✏️ Neue Formation: ${describeCustomFormation()}`);
         }
     }
-    if (st.editResume && st.phase !== 'HALFTIME' && st.phase !== 'FULLTIME') {
+    if (st.editResume && st.phase !== 'HALFTIME' && st.phase !== 'FULLTIME' && st.phase !== 'PREMATCH') {
         st.editResume = false;
         st.isPaused = false;
         st.pauseReason = "";
+        st.activeSubTab = 'ticker';                  // nach dem Umstellen sofort zurück in den Ticker
+        liveSelectedPitchSlot = null;
         startLiveTickerTimer();
         renderHeader();
     }
@@ -161,6 +369,10 @@ function toggleLivePause() {
     if (liveFormationEditMode && liveMatchState.isPaused && liveMatchState.phase !== 'HALFTIME') {
         endLiveFormationEdit(true);
         renderView('liveticker');
+        return;
+    }
+    if (liveMatchState.phase === 'PREMATCH') {
+        startMatchFromPrematch();
         return;
     }
     if (liveMatchState.phase === 'HALFTIME') {
@@ -175,6 +387,8 @@ function toggleLivePause() {
     liveMatchState.pauseReason = liveMatchState.isPaused ? "⏸ MANUELLE PAUSE" : "";
     if (!liveMatchState.isPaused) {
         liveMatchState.inAppAlert = null;
+        liveMatchState.activeSubTab = 'ticker';      // nach Pause & Umstellen: sofort zurück in den Ticker
+        liveSelectedPitchSlot = null;
         startLiveTickerTimer();
     } else {
         stopLiveTickerTimer();
@@ -185,6 +399,7 @@ function toggleLivePause() {
 
 function skipLiveToNextBreak() {
     if (!liveMatchState) return;
+    if (liveMatchState.phase === 'PREMATCH') startMatchFromPrematch();
     if (liveMatchState.phase === 'HALFTIME') {
         startSecondHalf();
         return;
@@ -522,6 +737,7 @@ function startLiveSessionInner(opts) {
         dayNoiseA: gaussRandom() * 0.30,
         refStrict: 0.80 + Math.random() * 0.50,         // Strenge des Schiedsrichters in diesem Spiel
         oppReds: 0,
+        preTalk: null, preTalkStrBonus: 0, preTalkCardMult: 1.0, pendingKickoffText: null,
         initialMentality: GameState.tactics.mentality || 'normal',
         initialAggression: GameState.tactics.aggression || 'normal',
         initialCustomCoords: Array.isArray(GameState.tactics.customCoords) ? GameState.tactics.customCoords.map(c => ({ ...c })) : null,
@@ -541,6 +757,7 @@ function startLiveSessionInner(opts) {
     };
 
     initLiveGrades(liveMatchState);
+    const usePreTalk = Boolean(userMatchRef) && getSetting('preTalk') !== false && getClubPlayers().length > 0;
     // Stärke der eigenen Startelf zum Anpfiff (Maßstab für die Erwartung von Präsidium & Fans)
     liveMatchState.preStrength = (liveMatchState.userMatch && getClubPlayers().length) ? calculateLiveClubStrength(GameState.activeClubId, false) : null;
     if (cancelledLines.length > 0) {
@@ -562,11 +779,23 @@ function startLiveSessionInner(opts) {
             if (leg1) prefix += ` (Hinspiel ${getAnyClubName(leg1.homeId)} ${leg1.homeGoals}:${leg1.awayGoals} ${getAnyClubName(leg1.awayId)})`;
             if (m.neutral) prefix += ' • neutraler Ort';
         }
-        addLiveTickerEntry("1'", "system", "halftime", `${prefix}! ${userMatchRef.homeName} gegen ${userMatchRef.awayName} • Wetter: ${w.icon} ${w.label}`);
+        const kickoffText = `${prefix}! ${userMatchRef.homeName} gegen ${userMatchRef.awayName} • Wetter: ${w.icon} ${w.label}`;
+        if (usePreTalk) liveMatchState.pendingKickoffText = kickoffText;
+        else addLiveTickerEntry("1'", "system", "halftime", kickoffText);
     } else {
         addLiveTickerEntry("1'", "system", "halftime", `🏟️ ANPFIFF ZU SPIELTAG ${currentMd}!${userCancelled ? ' (Dein Spiel fällt aus – Konferenz läuft)' : ''}`);
     }
 
+    if (usePreTalk) {
+        // Erst die Ansprache vor dem Spiel (überspringbar) – der Anpfiff folgt danach
+        liveMatchState.phase = 'PREMATCH';
+        liveMatchState.isPaused = true;
+        liveMatchState.pauseReason = "🗣️ ANSPRACHE VOR DEM SPIEL";
+        renderHeader();
+        switchToView('liveticker');
+        setStatus(`🗣️ Ansprache vor dem Spiel – ${label}`);
+        return;
+    }
     startLiveTickerTimer();
     renderHeader();
     switchToView('liveticker');
@@ -698,6 +927,7 @@ function calculateLiveClubStrength(clubId, isHome) {
         if (liveMatchState && liveMatchState.phase === 'SECOND_HALF') {
             str += (liveMatchState.teamTalkStrengthBonus || 0);
         }
+        if (liveMatchState) str += (liveMatchState.preTalkStrBonus || 0);      // Ansprache vor dem Spiel (ganzes Spiel)
         str += getStaffQuality('co') * 0.04;
         str += getLeaderStrengthBonus();
         if (isHome && !(liveMatchState && liveMatchState.userMatch && liveMatchState.userMatch.neutral)) str += 0.35 + getFanHomeBonus();
@@ -1117,7 +1347,7 @@ function tickLiveMatchday(silentRender = false) {
 
         // Karten & Verletzungen beim eigenen Team prüfen
         const aggr = GameState.tactics.aggression || "normal";
-        const cardMult = (aggr === "hard" ? 1.65 : (aggr === "soft" ? 0.60 : 1.0)) * (liveMatchState.teamTalkCardMult || 1.0) * wx.cardMult;
+        const cardMult = (aggr === "hard" ? 1.65 : (aggr === "soft" ? 0.60 : 1.0))* (liveMatchState.teamTalkCardMult || 1.0) * (liveMatchState.preTalkCardMult || 1.0) * wx.cardMult;
         const injuryMult = (aggr === "hard" ? 1.35 : (aggr === "soft" ? 0.70 : 1.0)) * wx.injuryMult * (1 - 0.08 * getStaffQuality('fitness')) * getDifficulty().inj;
 
         const activeSlots = [];
@@ -1314,6 +1544,21 @@ function tickLiveMatchday(silentRender = false) {
 
 function performManualLiveSub(pitchSlotIdx, benchIdx) {
     if (!liveMatchState) return;
+    if (liveMatchState.phase === 'PREMATCH') {
+        // Vor dem Anpfiff: Aufstellung frei ändern (kein Wechsel, kein Ticker-Eintrag)
+        const lineup = GameState.tactics.lineup, bench = GameState.tactics.bench;
+        const inId0 = bench[benchIdx];
+        if (!inId0) return;
+        const outId0 = lineup[pitchSlotIdx];
+        lineup[pitchSlotIdx] = inId0;
+        bench[benchIdx] = outId0 || null;
+        if (typeof liveMatchState.minutesPlayedMap[inId0] !== 'number') liveMatchState.minutesPlayedMap[inId0] = 0;
+        liveMatchState.initialLineup = [...lineup];
+        liveMatchState.initialBench = [...bench];
+        liveSelectedPitchSlot = null;
+        renderView('liveticker');
+        return;
+    }
     if (liveMatchState.subsUsed >= liveMatchState.maxSubs) {
         alert("Du hast bereits alle 5 Wechsel ausgeschöpft!");
         return;
@@ -1715,7 +1960,8 @@ function finalizeLiveMatchdayInner() {
         highlights,
         stats: { ...st.stats },
         subsUsed: st.subsUsed,
-        teamTalk: st.teamTalkTitle || "",
+          teamTalk: st.teamTalkTitle || "",
+          preTalk: st.preTalk ? st.preTalk.label : "",
         visitors,
         ticketIncome,
         sponsorIncome,

@@ -1605,3 +1605,195 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
 .report-toggle .rt-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.74rem; }
 .report-toggle .rt-hint { font-size: 0.60rem; color: #99b8a1; flex-shrink: 0; }
 .report-toggle:focus-visible { outline: 2px solid var(--accent-gold); }
+
+/* ==========================================
+   v1.17: ANSPRACHE VOR DEM SPIEL, EINSTELLUNGEN AUFKLAPPBAR & ERSCHEINUNGSBILD
+   ========================================== */
+.nego-result.neutral { background: #6c757d; color: #fff; }
+.set-section { border-top: 1px dashed #b5bab7; }
+.set-head { display: flex; align-items: center; gap: 6px; padding: 9px 2px; cursor: pointer; font-size: 0.78rem; font-weight: bold; user-select: none; }
+.set-head:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: -2px; }
+.set-head .set-title { flex-shrink: 0; }
+.set-head .set-sum { flex: 1; min-width: 0; text-align: right; font-weight: normal; font-size: 0.62rem; color: #444; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-head .set-arrow { width: 14px; text-align: center; flex-shrink: 0; }
+.set-section.open > .set-head { color: var(--pitch-dark); }
+.set-body { padding: 0 0 8px 0; }
+.theme-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.theme-card { text-align: left; padding: 7px; background: #e9ecea; border: 2px solid var(--panel-shadow); cursor: pointer; display: flex; flex-direction: column; gap: 4px; font-size: 0.72rem; color: #111; min-width: 0; }
+.theme-card.on { border-color: var(--pitch-green); background: #d7eadc; }
+.theme-card:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 1px; }
+.theme-sw { display: block; height: 24px; border: 1px solid #111; }
+.sw-classic { background: linear-gradient(90deg, #184d25 0%, #184d25 38%, #e5b822 38%, #e5b822 52%, #c4c8c5 52%, #c4c8c5 100%); }
+.sw-win31 { background: linear-gradient(90deg, #000080 0%, #000080 38%, #ffff00 38%, #ffff00 52%, #c0c0c0 52%, #c0c0c0 100%); }
+.theme-desc { font-size: 0.58rem; color: #444; font-weight: normal; line-height: 1.25; }
+
+/* ==========================================
+   ERSCHEINUNGSBILD "WINDOWS 3.1" (blau) – aktiv über <html data-theme="win31">
+   Blaue Titelleisten, graue Fenster, abgeflachte Schaltflächen mit hellem/dunklem Rand, weiße Listen.
+   ========================================== */
+html[data-theme="win31"] {
+    --bg-dark: #0000a8; --panel-bg: #c0c0c0; --panel-light: #ffffff; --panel-shadow: #808080;
+    --pitch-green: #000080; --pitch-dark: #000080; --accent-gold: #ffff00; --accent-red: #c00000;
+    --text-dark: #000000; --text-light: #ffffff;
+}
+html[data-theme="win31"] * { font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; }
+html[data-theme="win31"] .newspaper, html[data-theme="win31"] .newspaper * { font-family: Georgia, 'Times New Roman', serif; }
+
+html[data-theme="win31"] .bmh-header { background: #000080; border-bottom: 2px solid #000; }
+html[data-theme="win31"] .bmh-header h1 { color: #ffffff; letter-spacing: 0; }
+html[data-theme="win31"] .sub-info { color: #c0c0ff; }
+html[data-theme="win31"] .header-logo { border: 1px solid #fff; }
+html[data-theme="win31"] .stat-box { background: #c0c0c0; border: 1px solid #000; box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808080; }
+html[data-theme="win31"] .stat-box .label { color: #404040; }
+html[data-theme="win31"] .stat-box .value { color: #000; }
+html[data-theme="win31"] .money { color: #006000; }
+html[data-theme="win31"] .section-title { background: #000080; color: #fff; border: 1px solid #000; border-left: 1px solid #000; letter-spacing: 0; padding: 5px 8px; box-shadow: inset 1px 1px 0 #5a5ad8; display: flex; align-items: center; }
+html[data-theme="win31"] .section-title::before { content: ""; display: inline-block; flex-shrink: 0; width: 14px; height: 11px; margin-right: 8px; background: #c0c0c0; border: 1px solid #000; box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808080; }
+html[data-theme="win31"] .bmh-box { background: #c0c0c0; border: 1px solid #000; box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808080, 2px 2px 0 #000; width: calc(100% - 3px); }
+html[data-theme="win31"] .bmh-table { background: #ffffff; border: 1px solid #000; }
+html[data-theme="win31"] .bmh-table th { background: #000080; color: #fff; }
+html[data-theme="win31"] .bmh-table td { border-bottom: 1px solid #c0c0c0; }
+html[data-theme="win31"] .bmh-table tr:hover, html[data-theme="win31"] .roster-row:hover td, html[data-theme="win31"] .club-row:hover td, html[data-theme="win31"] .club-player-row:hover td, html[data-theme="win31"] .mkt-row:hover td { background-color: #d0d0ff; }
+html[data-theme="win31"] .kpi-card { background: #ffffff; border: 1px solid #000; box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff; }
+html[data-theme="win31"] .kpi-label { color: #404040; }
+html[data-theme="win31"] .kpi-value { color: #000080; }
+html[data-theme="win31"] .sponsor-card, html[data-theme="win31"] .calendar-week-card, html[data-theme="win31"] .slot-card, html[data-theme="win31"] .world-check, html[data-theme="win31"] .fanev-row { background: #ffffff; border: 1px solid #000; }
+html[data-theme="win31"] .sponsor-card.active-deal, html[data-theme="win31"] .calendar-week-card.booked-week, html[data-theme="win31"] .slot-card.active, html[data-theme="win31"] .world-check.on, html[data-theme="win31"] .fanev-row.booked { background: #d0d8ff; border: 1px solid #000080; }
+html[data-theme="win31"] .calendar-week-card.current-week { background: #ffffcc; border: 2px solid #000080; }
+html[data-theme="win31"] .calendar-week-card.done-week { background: #d8d8d8; }
+html[data-theme="win31"] .sponsor-tag { background: #000080; color: #ffff00; }
+html[data-theme="win31"] .inbox-item { background: #ffffff; border: 1px solid #808080; }
+html[data-theme="win31"] .inbox-item.unread { background: #ffffe0; border-left: 4px solid #000080; }
+html[data-theme="win31"] .inbox-item.open { background: #ffffff; }
+html[data-theme="win31"] .player-card { background: #ffffff; border: 2px solid #000080; }
+html[data-theme="win31"] .pc-cell, html[data-theme="win31"] .pc-contract, html[data-theme="win31"] .pc-trait, html[data-theme="win31"] .sound-preview { background: #e8e8e8; border: 1px solid #808080; }
+html[data-theme="win31"] .match-detail-wrap, html[data-theme="win31"] .conf-detail { background: #ffffff; border: 1px solid #808080; }
+html[data-theme="win31"] .fixture-row { border-bottom: 1px solid #c0c0c0; }
+html[data-theme="win31"] .fixture-row.user-match { background: #c8c8ff; }
+html[data-theme="win31"] .table-row-user { background-color: #c8c8ff !important; }
+html[data-theme="win31"] .fixture-score { background: #000080; color: #ffff00; border: 1px solid #000; }
+html[data-theme="win31"] .fixture-score.unplayed { background: #808080; color: #000; }
+html[data-theme="win31"] .cal-open { background: #ffffcc !important; }
+html[data-theme="win31"] .progress-bar-wrap { background: #ffffff; border: 1px solid #000; box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff; }
+html[data-theme="win31"] .bmh-btn,
+html[data-theme="win31"] .nav-btn,
+html[data-theme="win31"] .sub-tab-btn,
+html[data-theme="win31"] .sort-btn,
+html[data-theme="win31"] .filter-btn,
+html[data-theme="win31"] .speed-btn {
+    background: #c0c0c0; color: #000; border: 1px solid #000; border-radius: 0; box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808080; text-shadow: none; }
+html[data-theme="win31"] .bmh-btn:active,
+html[data-theme="win31"] .nav-btn:active,
+html[data-theme="win31"] .sub-tab-btn:active,
+html[data-theme="win31"] .sort-btn:active,
+html[data-theme="win31"] .filter-btn:active,
+html[data-theme="win31"] .speed-btn:active,
+html[data-theme="win31"] .mini-action-btn:active { box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff; }
+html[data-theme="win31"] .bmh-btn.primary { background: #000080; color: #fff; box-shadow: inset 1px 1px 0 #6a6aff, inset -1px -1px 0 #000040; }
+html[data-theme="win31"] .bmh-btn.danger { background: #c00000; color: #fff; box-shadow: inset 1px 1px 0 #ff7070, inset -1px -1px 0 #600000; }
+html[data-theme="win31"] .bmh-btn.gold-btn { background: #ffff00; color: #000; box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808000; }
+html[data-theme="win31"] .mini-action-btn { background: #000080; color: #fff; border: 1px solid #000; border-radius: 0; box-shadow: inset 1px 1px 0 #6a6aff, inset -1px -1px 0 #000040; }
+html[data-theme="win31"] .mini-action-btn.sell { background: #c00000; box-shadow: inset 1px 1px 0 #ff7070, inset -1px -1px 0 #600000; }
+html[data-theme="win31"] .mini-action-btn.youth { background: #006060; box-shadow: inset 1px 1px 0 #50c0c0, inset -1px -1px 0 #003030; }
+html[data-theme="win31"] .sub-tab-btn.active { background: #000080; color: #ffff00; box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff; }
+html[data-theme="win31"] .sort-btn.active, html[data-theme="win31"] .filter-btn.active { background: #000080; color: #fff; box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff; }
+html[data-theme="win31"] .nav-btn.active, html[data-theme="win31"] .nav-btn:active { background: #000080; color: #fff; border-color: #000; box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff; }
+html[data-theme="win31"] .nav-btn.admin-btn { background: #c0c0c0; }
+html[data-theme="win31"] .speed-btn.active { background: #ffff00; color: #000; }
+html[data-theme="win31"] .speed-btn.pause-active { background: #c00000; color: #fff; }
+html[data-theme="win31"] .bmh-btn:focus-visible, html[data-theme="win31"] .nav-btn:focus-visible, html[data-theme="win31"] .sort-btn:focus-visible, html[data-theme="win31"] .mini-action-btn:focus-visible, html[data-theme="win31"] .sub-tab-btn:focus-visible { outline: 1px dotted #000; outline-offset: -4px; }
+html[data-theme="win31"] .bmh-select, html[data-theme="win31"] .bmh-input { background: #ffffff; border: 1px solid #000; border-radius: 0; box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff; }
+html[data-theme="win31"] .toggle-switch { background: #c0c0c0; border: 1px solid #000; border-radius: 0; box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808080; }
+html[data-theme="win31"] .toggle-switch.on { background: #000080; box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff; }
+html[data-theme="win31"] .toggle-knob { background: #c0c0c0; border: 1px solid #000; border-radius: 0; box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808080; }
+html[data-theme="win31"] .set-section { border-top: 1px solid #808080; }
+html[data-theme="win31"] .set-head .set-sum { color: #404040; }
+html[data-theme="win31"] .set-section.open > .set-head { color: #000080; }
+html[data-theme="win31"] .theme-card { background: #ffffff; border: 1px solid #000; border-radius: 0; box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808080; }
+html[data-theme="win31"] .theme-card.on { background: #d0d8ff; border: 2px solid #000080; }
+html[data-theme="win31"] .theme-sw { border: 1px solid #000; }
+html[data-theme="win31"] .bmh-bottom-dock { background: #c0c0c0; border-top: 2px solid #fff; }
+html[data-theme="win31"] .bmh-footer { border-bottom: 1px solid #808080; }
+html[data-theme="win31"] #status-message { color: #000; }
+html[data-theme="win31"] .bmh-nav.nav-locked::after { background: rgba(0, 0, 128, 0.55); }
+html[data-theme="win31"] .open-window-banner { background: #e0e0ff; border: 1px solid #000080; color: #000040; }
+html[data-theme="win31"] .locked-banner { border: 1px solid #800000; }
+html[data-theme="win31"] .backup-banner { border: 1px solid #000; }
+html[data-theme="win31"] .negotiation-box,
+html[data-theme="win31"] .swap-banner { background: #000080; color: #fff; border: 2px solid #fff; outline: 1px solid #000; }
+html[data-theme="win31"] .negotiation-box h3 { color: #ffff00; }
+html[data-theme="win31"] .nego-log-entry { background: #000060; border: 1px solid #8080ff; border-left-width: 4px; }
+html[data-theme="win31"] .nego-log-head { color: #e0e0ff; }
+html[data-theme="win31"] .match-report-card, html[data-theme="win31"] .live-scoreboard-card, html[data-theme="win31"] .report-toggle { background: #000080; color: #fff; border: 2px solid #fff; outline: 1px solid #000; }
+html[data-theme="win31"] .report-toggle .rt-title { color: #ffff00; }
+html[data-theme="win31"] .report-toggle .rt-hint { color: #c0c0ff; }
+html[data-theme="win31"] .match-report-score, html[data-theme="win31"] .live-teams-row { background: #000060; border: 1px solid #8080ff; }
+html[data-theme="win31"] .match-report-result { color: #ffff00; }
+html[data-theme="win31"] .match-events-list { color: #e0e0ff; border-left: 2px solid #ffff00; }
+html[data-theme="win31"] .finance-recap, html[data-theme="win31"] .ht-grades, html[data-theme="win31"] .rep-line { background: #000060; border: 1px solid #8080ff; }
+html[data-theme="win31"] .live-score-digits { background: #000040; color: #ffff00; border: 1px solid #ffff00; }
+html[data-theme="win31"] .live-clock-bar span { color: #c0c0ff; }
+html[data-theme="win31"] .live-minute-pill.paused { background: #ffff00; color: #000; border-color: #fff; }
+html[data-theme="win31"] .live-minute-pill.fulltime { background: #008000; color: #fff; }
+html[data-theme="win31"] .live-pause-banner { background: #ffffcc; border: 2px solid #000080; }
+html[data-theme="win31"] .ticker-feed-box { background: #ffffff; border: 1px solid #000; }
+html[data-theme="win31"] .ticker-item { border-bottom: 1px solid #c0c0c0; }
+html[data-theme="win31"] .ticker-item.halftime { background: #000080; color: #ffff00; }
+html[data-theme="win31"] .ticker-club.own { background: #000080; color: #fff; }
+html[data-theme="win31"] .venue-badge.home { background: #000080; }
+html[data-theme="win31"] .teamtalk-btn { background: #000060; color: #fff; border: 2px solid #8080ff; border-radius: 0; }
+html[data-theme="win31"] .teamtalk-btn.selected { background: #0000c0; border-color: #ffff00; }
+html[data-theme="win31"] .nego-result.success { background: #008000; }
+html[data-theme="win31"] .iv-answer { background: #ffffff; box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808080; }
+html[data-theme="win31"] .iv-answer.picked { background: #ffffcc; }
+html[data-theme="win31"] .iv-question { color: #000080; }
+html[data-theme="win31"] .iv-feedback { background: #ffffff; border: 1px solid #808080; }
+html[data-theme="win31"] .br-col-title, html[data-theme="win31"] .br-champion { background: #000080; color: #ffff00; }
+html[data-theme="win31"] .br-tie { background: #ffffff; border: 1px solid #000; border-left: 3px solid #808080; }
+html[data-theme="win31"] .br-tie.user-tie { border-left-color: #000080; background: #e0e0ff; }
+html[data-theme="win31"] .br-team.win { background: #d0d8ff; }
+html[data-theme="win31"] .pitch-board { border: 2px solid #000; box-shadow: inset 0 0 0 1px #fff; }
+html[data-theme="win31"] .pitch-node { background: #000080; border: 1px solid #fff; border-radius: 0; box-shadow: 1px 1px 0 #000; }
+html[data-theme="win31"] .pitch-node-top { background: #000050; }
+html[data-theme="win31"] .pitch-node-pos { color: #ffff00; }
+html[data-theme="win31"] .pitch-node-rating { color: #00ff00; }
+html[data-theme="win31"] .pitch-node.empty-slot { background: rgba(0, 0, 128, 0.72); border-color: #c0c0c0; }
+html[data-theme="win31"] .pitch-node.selected-swap { background: #0000d0 !important; border: 2px solid #ffff00 !important; }
+html[data-theme="win31"] .pitch-node.edit-node { border-color: #ffff00; }
+html[data-theme="win31"] .player-chip { background: #ffffff; border: 1px solid #000; box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808080; }
+html[data-theme="win31"] .player-chip.stands-chip { background: #e0e0e0; }
+html[data-theme="win31"] .player-chip.empty-bench { background: #d0d0d0; }
+html[data-theme="win31"] .player-chip.selected-swap { background: #ffffcc !important; border: 2px solid #000080 !important; }
+html[data-theme="win31"] .zone-badge.xi { background: #000080; color: #fff; }
+html[data-theme="win31"] .live-sub-row { background: #ffffff; border: 1px solid #808080; }
+html[data-theme="win31"] .nav-badge { border-radius: 0; }
+html[data-theme="win31"] .version-pill { background: #000080; color: #ffff00; }
+html[data-theme="win31"] ::-webkit-scrollbar { width: 16px; height: 16px; background: #e0e0e0; }
+html[data-theme="win31"] ::-webkit-scrollbar-thumb { background: #c0c0c0; border: 1px solid #000; box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808080; }
+html[data-theme="win31"] ::-webkit-scrollbar-button { background: #c0c0c0; border: 1px solid #000; box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808080; height: 16px; width: 16px; }
+
+/* --- Inline-Farben im generierten HTML: Grün/Gold -> Blau/Gelb --- */
+html[data-theme="win31"] [style^="color:#184d25"], html[data-theme="win31"] [style*=" color:#184d25"], html[data-theme="win31"] [style*=";color:#184d25"], html[data-theme="win31"] [style^="color: #184d25"], html[data-theme="win31"] [style*=" color: #184d25"], html[data-theme="win31"] [style*=";color: #184d25"] { color: #000080 !important; }
+html[data-theme="win31"] [style^="color:#246b35"], html[data-theme="win31"] [style*=" color:#246b35"], html[data-theme="win31"] [style*=";color:#246b35"], html[data-theme="win31"] [style^="color: #246b35"], html[data-theme="win31"] [style*=" color: #246b35"], html[data-theme="win31"] [style*=";color: #246b35"] { color: #000080 !important; }
+html[data-theme="win31"] [style^="color:#d3f9d8"], html[data-theme="win31"] [style*=" color:#d3f9d8"], html[data-theme="win31"] [style*=";color:#d3f9d8"], html[data-theme="win31"] [style^="color: #d3f9d8"], html[data-theme="win31"] [style*=" color: #d3f9d8"], html[data-theme="win31"] [style*=";color: #d3f9d8"] { color: #e0e0ff !important; }
+html[data-theme="win31"] [style^="color:#e5b822"], html[data-theme="win31"] [style*=" color:#e5b822"], html[data-theme="win31"] [style*=";color:#e5b822"], html[data-theme="win31"] [style^="color: #e5b822"], html[data-theme="win31"] [style*=" color: #e5b822"], html[data-theme="win31"] [style*=";color: #e5b822"] { color: #ffff00 !important; }
+html[data-theme="win31"] [style^="color:#6ee787"], html[data-theme="win31"] [style*=" color:#6ee787"], html[data-theme="win31"] [style*=";color:#6ee787"], html[data-theme="win31"] [style^="color: #6ee787"], html[data-theme="win31"] [style*=" color: #6ee787"], html[data-theme="win31"] [style*=";color: #6ee787"] { color: #00ff00 !important; }
+html[data-theme="win31"] [style^="color:#99b8a1"], html[data-theme="win31"] [style*=" color:#99b8a1"], html[data-theme="win31"] [style*=";color:#99b8a1"], html[data-theme="win31"] [style^="color: #99b8a1"], html[data-theme="win31"] [style*=" color: #99b8a1"], html[data-theme="win31"] [style*=";color: #99b8a1"] { color: #c0c0ff !important; }
+html[data-theme="win31"] [style^="color:#c3dec9"], html[data-theme="win31"] [style*=" color:#c3dec9"], html[data-theme="win31"] [style*=";color:#c3dec9"], html[data-theme="win31"] [style^="color: #c3dec9"], html[data-theme="win31"] [style*=" color: #c3dec9"], html[data-theme="win31"] [style*=";color: #c3dec9"] { color: #c0c0ff !important; }
+html[data-theme="win31"] [style^="color:#ffe066"], html[data-theme="win31"] [style*=" color:#ffe066"], html[data-theme="win31"] [style*=";color:#ffe066"], html[data-theme="win31"] [style^="color: #ffe066"], html[data-theme="win31"] [style*=" color: #ffe066"], html[data-theme="win31"] [style*=";color: #ffe066"] { color: #ffff00 !important; }
+html[data-theme="win31"] [style*="background:#184d25"], html[data-theme="win31"] [style*="background: #184d25"], html[data-theme="win31"] [style*="background-color:#184d25"], html[data-theme="win31"] [style*="background-color: #184d25"] { background-color: #000080 !important; }
+html[data-theme="win31"] [style*="background:#122918"], html[data-theme="win31"] [style*="background: #122918"], html[data-theme="win31"] [style*="background-color:#122918"], html[data-theme="win31"] [style*="background-color: #122918"] { background-color: #000080 !important; }
+html[data-theme="win31"] [style*="background:#0e2e16"], html[data-theme="win31"] [style*="background: #0e2e16"], html[data-theme="win31"] [style*="background-color:#0e2e16"], html[data-theme="win31"] [style*="background-color: #0e2e16"] { background-color: #000060 !important; }
+html[data-theme="win31"] [style*="background:#0b1c10"], html[data-theme="win31"] [style*="background: #0b1c10"], html[data-theme="win31"] [style*="background-color:#0b1c10"], html[data-theme="win31"] [style*="background-color: #0b1c10"] { background-color: #000050 !important; }
+html[data-theme="win31"] [style*="background:#26292c"], html[data-theme="win31"] [style*="background: #26292c"], html[data-theme="win31"] [style*="background-color:#26292c"], html[data-theme="win31"] [style*="background-color: #26292c"] { background-color: #000080 !important; }
+html[data-theme="win31"] [style*="background:#d7eadc"], html[data-theme="win31"] [style*="background: #d7eadc"], html[data-theme="win31"] [style*="background-color:#d7eadc"], html[data-theme="win31"] [style*="background-color: #d7eadc"] { background-color: #d0d8ff !important; }
+html[data-theme="win31"] [style*="background:#d3f9d8"], html[data-theme="win31"] [style*="background: #d3f9d8"], html[data-theme="win31"] [style*="background-color:#d3f9d8"], html[data-theme="win31"] [style*="background-color: #d3f9d8"] { background-color: #d0d8ff !important; }
+html[data-theme="win31"] [style*="background:#e9ecea"], html[data-theme="win31"] [style*="background: #e9ecea"], html[data-theme="win31"] [style*="background-color:#e9ecea"], html[data-theme="win31"] [style*="background-color: #e9ecea"] { background-color: #ffffff !important; }
+html[data-theme="win31"] [style*="background:#e5b822"], html[data-theme="win31"] [style*="background: #e5b822"], html[data-theme="win31"] [style*="background-color:#e5b822"], html[data-theme="win31"] [style*="background-color: #e5b822"] { background-color: #ffff00 !important; }
+html[data-theme="win31"] [style*="border"][style*="#e5b822"] { border-color: #ffff00 !important; }
+html[data-theme="win31"] [style*="border"][style*="#246b35"] { border-color: #8080ff !important; }
+
+html[data-theme="win31"] .negotiation-box .bmh-btn.primary,
+html[data-theme="win31"] .match-report-card .bmh-btn.primary,
+html[data-theme="win31"] .live-scoreboard-card .bmh-btn.primary,
+html[data-theme="win31"] .swap-banner .bmh-btn.primary { background: #008000; color: #fff; box-shadow: inset 1px 1px 0 #60d060, inset -1px -1px 0 #004000; }

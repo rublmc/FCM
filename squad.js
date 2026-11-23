@@ -1410,6 +1410,8 @@ function buildTransferNegotiationPanelHtml() {
     if (n.kind === 'transferFee') return buildTransferFeeNegotiationHtml();
     if (n.kind === 'transferBid') return buildTransferBidHtml();
     if (n.kind === 'loan') return buildLoanNegotiationHtml();
+    if (n.kind === 'loanPlayer') return buildLoanPlayerNegotiationHtml();
+    if (n.kind === 'loanBid') return buildLoanBidHtml();
     if (n.kind !== 'transfer') return '';
     const club = GameState.clubs[GameState.activeClubId];
     const target = GameState.players.find(p => p.id === n.targetId);
@@ -1446,6 +1448,14 @@ function bindTransferNegotiationPanel(rerender) {
     }
     if (n.kind === 'loan') {
         bindLoanNegotiation(rerender);
+        return;
+    }
+    if (n.kind === 'loanPlayer') {
+        bindLoanPlayerNegotiation(rerender);
+        return;
+    }
+    if (n.kind === 'loanBid') {
+        bindLoanBid(rerender);
         return;
     }
     if (n.kind !== 'transfer') return;

@@ -2,7 +2,7 @@
 // FC MANAGER 27 - MODUL: DATA & KONSTANTEN
 // ==========================================
 window.FCM_APP_STARTED = true;
-const GAME_VERSION = "1.16.0";
+const GAME_VERSION = "1.17.1";
 const GAME_BUILD_DATE = "23.11.2026";
 
 
@@ -273,7 +273,7 @@ const WINTER_EVENTS = [
 
 let GameState = {
     meta: {
-        coreVersion: "1.16.0",
+        coreVersion: "1.17.1",
         season: "2026/27",
         phase: "preseason", // 'preseason' | 'season' | 'winter'
         preseasonWeek: 1,   // 1..4

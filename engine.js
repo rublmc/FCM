@@ -16,6 +16,7 @@ window.addEventListener('pagehide', flushPendingSaveOnHide);
 
 function startGameAfterStorage() {
     applyWakeLock();
+    if (typeof applyTheme === 'function') applyTheme();
     if (!getActiveSlotId()) {
         window.location.href = 'start.html';
         return;
@@ -377,12 +378,13 @@ function setupNavigation() {
             setStatus('🎙️ Bitte erst das Interview beenden.');
             return;
         }
-        if (liveMatchState) {
-            if (liveMatchState.phase === 'FULLTIME') finalizeLiveMatchday();
-            else if (liveMatchState.phase === 'HALFTIME') startSecondHalf();
-            else toggleLivePause();
-            return;
-        }
+          if (liveMatchState) {
+              if (liveMatchState.phase === 'FULLTIME') finalizeLiveMatchday();
+              else if (liveMatchState.phase === 'PREMATCH') startMatchFromPrematch();
+              else if (liveMatchState.phase === 'HALFTIME') startSecondHalf();
+              else toggleLivePause();
+              return;
+          }
         if (GameState.meta.phase === 'preseason' || GameState.meta.phase === 'winter') {
             advanceBreakWeek();
         } else {
@@ -407,6 +409,7 @@ function renderHeader() {
         dateEl.textContent = `🔴 ${liveMatchState.shortLabel || 'ST ' + liveMatchState.matchday}`;
         if (nextBtn) {
             if (liveMatchState.phase === 'FULLTIME') nextBtn.textContent = "🏢 INS BÜRO ▶";
+            else if (liveMatchState.phase === 'PREMATCH') nextBtn.textContent = "▶ ANPFIFF";
             else if (liveMatchState.phase === 'HALFTIME') nextBtn.textContent = "▶ 2. HZ";
             else if (liveMatchState.isPaused) nextBtn.textContent = "▶ WEITER";
             else nextBtn.textContent = "⏸ PAUSE";
