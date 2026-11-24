@@ -928,8 +928,9 @@ function calculateLiveClubStrength(clubId, isHome) {
             str += (liveMatchState.teamTalkStrengthBonus || 0);
         }
         if (liveMatchState) str += (liveMatchState.preTalkStrBonus || 0);      // Ansprache vor dem Spiel (ganzes Spiel)
-        str += getStaffQuality('co') * 0.04;
+                str += getStaffQuality('co') * 0.04;
         str += getLeaderStrengthBonus();
+        str += getTrainingTeamBonus();                                          // Taktik & Pressing aus dem Training
         if (isHome && !(liveMatchState && liveMatchState.userMatch && liveMatchState.userMatch.neutral)) str += 0.35 + getFanHomeBonus();
         return Math.max(1.0, str);
     }
@@ -1073,7 +1074,7 @@ function getLiveSideXI(clubId) {
                     return { name: nm, pos };
                 });
             } else {
-                list = sq.map(p => ({ name: p.name, pos: p.pos }));
+                list = sq.map(p => ({ id: p.id, name: p.name, pos: p.pos }));
             }
             st.xiCache[clubId] = list;
         }
@@ -1084,6 +1085,23 @@ function getLiveSideXI(clubId) {
 }
 function getLiveOpponentXI(oppId) {
     return getLiveSideXI(oppId);
+}
+
+// Torschütze im eigenen Live-Spiel: nur wer gerade auf dem Platz steht (kein Platzverweis, nicht ausgewechselt).
+// Für den Gegner wird dieselbe Elf wie im Ticker verwendet – vom Platz gestellte Spieler können nicht mehr treffen.
+function pickLiveScorer(clubId) {
+    if (clubId === GameState.activeClubId) return pickScorerForClub(clubId);
+    const xi = getLiveSideXI(clubId);
+    const pool = xi.outfield.length ? xi.outfield : xi.all;
+    if (!pool.length) return null;
+    const w = (p) => {
+        let v = ATTACK_WEIGHTS[p.pos] || 1;
+        const real = p.id ? GameState.players.find(x => x.id === p.id) : null;
+        if (real && hasTrait(real, 'clutch')) v *= 1.7;
+        return v;
+    };
+    const pick = pickWeighted(pool, w);
+    return { id: pick.id || null, name: pick.name };
 }
 
 const ATTACK_WEIGHTS = { ST: 5, LA: 4, RA: 4, OM: 4, LM: 3, RM: 3, ZM: 3, DM: 1.5, LV: 1.2, RV: 1.2, IV: 1 };
@@ -1134,6 +1152,16 @@ const ACTION_LIB = [
     [1, 'play', false, c => `Der Schiedsrichter gibt Vorteil für ${c.a} – der Angriff läuft weiter, endet aber im Abseits.`]
 ];
 
+// Kurzname eines Vereins für den Ticker ("Borussia Dortmund" -> "Dortmund")
+function getTickerShortName(name) {
+    const drop = new Set(['1.', 'FC', 'SV', 'VfB', 'VfL', 'TSV', 'SC', 'SpVgg', 'FSV', 'TSG', 'SG', 'Borussia', 'Eintracht', 'Fortuna', 'Hertha', 'BSC', 'AS', 'AC', 'SSC', 'US', 'CF', 'CD', 'RC', 'OGC', 'FK', 'SK', 'KRC', 'KAA', 'RSC']);
+    const parts = String(name || '').split(' ').filter(Boolean);
+    const rest = parts.filter(w => !drop.has(w));
+    let out = (rest.length ? rest : parts).join(' ');
+    if (out.length > 18) out = out.slice(0, 17) + '.';
+    return out || name;
+}
+
 function buildActionTickerEntry(minLabel, um, hStr, aStr) {
     const st = liveMatchState;
     const uid = GameState.activeClubId;
@@ -1154,12 +1182,14 @@ function buildActionTickerEntry(minLabel, um, hStr, aStr) {
     } while (idx === st.lastActionIdx && guard++ < 6);
     st.lastActionIdx = idx;
     const [, kind, big, fn] = ACTION_LIB[idx];
-    const a = pickAttackerName(attXI);
+        const a = pickAttackerName(attXI);
+    // Spieler der ausführenden Mannschaft fett, Spieler der anderen Mannschaft mit Vereinskürzel – jede Szene ist eindeutig
+    const defTag = getTickerShortName(homeAttacks ? um.awayName : um.homeName);
     const ctx = {
-        a,
-        b: pickAttackerName(attXI, a),
-        d: pickDefenderName(defXI),
-        gk: defXI.gk ? defXI.gk.name : 'der Torwart',
+        a: `<strong>${a}</strong>`,
+        b: `<strong>${pickAttackerName(attXI, a)}</strong>`,
+        d: `${pickDefenderName(defXI)} <span class="tk-other">(${defTag})</span>`,
+        gk: `${defXI.gk ? defXI.gk.name : 'der Torwart'} <span class="tk-other">(${defTag})</span>`,
         own: homeAttacks ? um.homeName : um.awayName,
         opp: homeAttacks ? um.awayName : um.homeName
     };
@@ -1298,8 +1328,9 @@ function tickLiveMatchday(silentRender = false) {
         // Rote Karte gegen den Gegner: er wird schwächer, du stärker
         const oppRedMult = (liveMatchState.oppReds || 0) > 0 ? { own: 1 + 0.18 * liveMatchState.oppReds, opp: Math.pow(0.82, liveMatchState.oppReds) } : { own: 1, opp: 1 };
         const userHome = um.homeId === GameState.activeClubId;
-        const pHomeGoal = Math.max(0.003, Math.min(0.058, (rates.lh * goalFactor * (userHome ? oppRedMult.own : oppRedMult.opp)) / 90));
-        const pAwayGoal = Math.max(0.003, Math.min(0.055, (rates.la * goalFactor * (userHome ? oppRedMult.opp : oppRedMult.own)) / 90));
+                const stdMult = getStandardsGoalMult();                                  // Standards-Training: eigene Torgefahr
+        const pHomeGoal = Math.max(0.003, Math.min(0.058, (rates.lh * goalFactor * (userHome ? oppRedMult.own * stdMult : oppRedMult.opp)) / 90));
+        const pAwayGoal = Math.max(0.003, Math.min(0.055, (rates.la * goalFactor * (userHome ? oppRedMult.opp : oppRedMult.own * stdMult)) / 90));
 
         let highlightOccurred = false;
 
@@ -1307,7 +1338,7 @@ function tickLiveMatchday(silentRender = false) {
         if (Math.random() < pHomeGoal) {
             um.homeGoals++;
             liveMatchState.stats.homeShots++;
-            const scorer = pickScorerForClub(um.homeId);
+            const scorer = pickLiveScorer(um.homeId);
             um.events.push({
                 minute: liveMatchState.minute,
                 side: "home",
@@ -1317,9 +1348,9 @@ function tickLiveMatchday(silentRender = false) {
             });
             if (userIsHome) {
                 if (scorer) adjustPlayerMotivation(scorer, 3);
-                addLiveTickerEntry(minLabel, "home", "goal", `⚽ TOR FÜR ${um.homeName.toUpperCase()}! ${scorer ? scorer.name : 'Stürmer'} trifft zum ${um.homeGoals}:${um.awayGoals}!`);
+                addLiveTickerEntry(minLabel, "home", "goal", `⚽ TOR FÜR ${um.homeName.toUpperCase()}! <strong>${scorer ? scorer.name : 'Stürmer'}</strong> trifft zum ${um.homeGoals}:${um.awayGoals}!`);
             } else {
-                addLiveTickerEntry(minLabel, "home", "opp-goal", `⚽ TOR FÜR ${um.homeName.toUpperCase()}! ${scorer ? scorer.name : 'Stürmer'} trifft zum ${um.homeGoals}:${um.awayGoals}.`);
+                addLiveTickerEntry(minLabel, "home", "opp-goal", `⚽ TOR FÜR ${um.homeName.toUpperCase()}! <strong>${scorer ? scorer.name : 'Stürmer'}</strong> trifft zum ${um.homeGoals}:${um.awayGoals}.`);
             }
             highlightOccurred = true;
         }
@@ -1328,7 +1359,7 @@ function tickLiveMatchday(silentRender = false) {
         if (!highlightOccurred && Math.random() < pAwayGoal) {
             um.awayGoals++;
             liveMatchState.stats.awayShots++;
-            const scorer = pickScorerForClub(um.awayId);
+            const scorer = pickLiveScorer(um.awayId);
             um.events.push({
                 minute: liveMatchState.minute,
                 side: "away",
@@ -1338,9 +1369,9 @@ function tickLiveMatchday(silentRender = false) {
             });
             if (!userIsHome) {
                 if (scorer) adjustPlayerMotivation(scorer, 3);
-                addLiveTickerEntry(minLabel, "away", "goal", `⚽ TOR FÜR ${um.awayName.toUpperCase()}! ${scorer ? scorer.name : 'Stürmer'} trifft zum ${um.homeGoals}:${um.awayGoals}!`);
+                addLiveTickerEntry(minLabel, "away", "goal", `⚽ TOR FÜR ${um.awayName.toUpperCase()}! <strong>${scorer ? scorer.name : 'Stürmer'}</strong> trifft zum ${um.homeGoals}:${um.awayGoals}!`);
             } else {
-                addLiveTickerEntry(minLabel, "away", "opp-goal", `⚽ TOR FÜR ${um.awayName.toUpperCase()}! ${scorer ? scorer.name : 'Stürmer'} trifft zum ${um.homeGoals}:${um.awayGoals}.`);
+                addLiveTickerEntry(minLabel, "away", "opp-goal", `⚽ TOR FÜR ${um.awayName.toUpperCase()}! <strong>${scorer ? scorer.name : 'Stürmer'}</strong> trifft zum ${um.homeGoals}:${um.awayGoals}.`);
             }
             highlightOccurred = true;
         }
@@ -1474,7 +1505,7 @@ function tickLiveMatchday(silentRender = false) {
                 liveMatchState.yellowCardIds.push(pl.id);
                 if (userIsHome) liveMatchState.stats.homeYellows++;
                 else liveMatchState.stats.awayYellows++;
-                addLiveTickerEntry(minLabel, "user", "card-yellow", `🟨 Gelbe Karte für ${pl.name} (${pl.pos}) ${pickFrom(YELLOW_REASONS)}.`);
+                addLiveTickerEntry(minLabel, "user", "card-yellow", `🟨 Gelbe Karte für <strong>${pl.name}</strong> (${pl.pos}) ${pickFrom(YELLOW_REASONS)}.`);
             }
         }
 
@@ -1500,13 +1531,13 @@ function tickLiveMatchday(silentRender = false) {
                         liveMatchState.oppReds = (liveMatchState.oppReds || 0) + 1;
                         if (userIsHome) liveMatchState.stats.awayReds++; else liveMatchState.stats.homeReds++;
                         addLiveTickerEntry(minLabel, oppSide, "card-red", second
-                            ? `🟨🟥 GELB-ROT für ${culprit.name} (${oppName}) – ${ban.detail}! Der Gegner ist nur noch zu zehnt.`
-                            : `🟥 ROTE KARTE für ${culprit.name} (${oppName}) wegen ${ban.detail}! Der Gegner ist nur noch zu zehnt.`);
+                            ? `🟨🟥 GELB-ROT für <strong>${culprit.name}</strong> (${oppName}) – ${ban.detail}! ${oppName} ist nur noch zu zehnt.`
+                            : `🟥 ROTE KARTE für <strong>${culprit.name}</strong> (${oppName}) wegen ${ban.detail}! ${oppName} ist nur noch zu zehnt.`);
                         highlightOccurred = true;
                     } else {
                         liveMatchState.oppYellowIds.push(culprit.name);
                         if (userIsHome) liveMatchState.stats.awayYellows++; else liveMatchState.stats.homeYellows++;
-                        addLiveTickerEntry(minLabel, oppSide, "card-yellow", `🟨 Gelbe Karte für ${culprit.name} (${oppName}) ${pickFrom(YELLOW_REASONS)}.`);
+                        addLiveTickerEntry(minLabel, oppSide, "card-yellow", `🟨 Gelbe Karte für <strong>${culprit.name}</strong> (${oppName}) ${pickFrom(YELLOW_REASONS)}.`);
                     }
                 }
             }
@@ -1521,16 +1552,13 @@ function tickLiveMatchday(silentRender = false) {
                 if (Math.random() < (hStr / (hStr + aStr))) liveMatchState.stats.homeCorners++;
                 else liveMatchState.stats.awayCorners++;
             }
-            if (Math.random() < 0.115) {
-                const r = Math.random();
-                if (r < 0.74) {
-                    buildActionTickerEntry(minLabel, um, hStr, aStr);
+                        if (Math.random() < 0.115) {
+                // Spielszenen immer mit Mannschaft und Spielernamen; ohne Mannschaftsbezug nur noch Wetter-Hinweise
+                const wxComments = WEATHER_COMMENTS[um.weather];
+                if (wxComments && Math.random() < 0.12) {
+                    addLiveTickerEntry(minLabel, "neutral", "info", `${wx.icon} ${wxComments[Math.floor(Math.random() * wxComments.length)]}`);
                 } else {
-                    const wxComments = WEATHER_COMMENTS[um.weather];
-                    const useWx = wxComments && Math.random() < 0.40;
-                    const pool = useWx ? wxComments : ATMOSPHERIC_COMMENTS;
-                    const phrase = pool[Math.floor(Math.random() * pool.length)];
-                    addLiveTickerEntry(minLabel, "neutral", "info", useWx ? `${wx.icon} ${phrase}` : phrase);
+                    buildActionTickerEntry(minLabel, um, hStr, aStr);
                 }
             }
         }
@@ -1787,7 +1815,8 @@ function finalizeLiveMatchdayInner() {
         const won = um.winnerId ? um.winnerId === club.id : userGoals > oppGoals;
         const draw = !um.winnerId && userGoals === oppGoals;
         const cleanSheet = oppGoals === 0;
-        userResult = { won, draw, isHome };
+                userResult = { won, draw, isHome };
+        recordCareerMatch(userGoals, oppGoals, won, draw);
         squad.forEach(p => {
             const mins = minMap[p.id] || 0;
             if (mins > 0) {

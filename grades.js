@@ -117,6 +117,8 @@ function fitnessLabel(p) {
 // Nach dem Spiel: Erholung bis zum nächsten Termin (je nach Abstand in Tagen) – die angezeigte Kondition
 // ist damit der Wert, mit dem das Team ins nächste Spiel geht.
 function recoverFitnessForNextGame(dateISO) {
+    // Seit v1.18 übernimmt das Trainingsmodul die tägliche Erholung (Regeneration, Belastung, Kondition)
+    if (typeof processTrainingDays === 'function') return;
     let gap = 7;
     try {
         const ev = getNextUserEvent();
@@ -136,7 +138,7 @@ function applyFatigueAfterMatch(minMap, dateISO) {
         const mins = minMap[p.id] || 0;
         if (mins <= 0) return;
         const hard = GameState.tactics.aggression === 'hard' ? 1.12 : 1.0;
-        const drain = Math.min(15, (mins / 90) * 12 * hard) * (hasTrait(p, 'fragile') ? 1.1 : 1);
+                const drain = Math.min(18, (mins / 90) * 12 * hard) * (hasTrait(p, 'fragile') ? 1.1 : 1) * getConditionDrainFactor(p) * getPressingDrainFactor();
         p.fit = Math.max(20, parseFloat((getFitness(p) - drain).toFixed(1)));
     });
 }

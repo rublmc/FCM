@@ -6,13 +6,18 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <!-- Nicht in Suchmaschinen aufnehmen -->
+    <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+    <meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+    <meta name="bingbot" content="noindex, nofollow, noarchive, nosnippet">
+    <meta name="referrer" content="no-referrer">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>FC Manager - Retro Edition</title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="apple-touch-icon" href="logo.png">
     <script>try{var __t=localStorage.getItem('fcm_theme');if(__t)document.documentElement.setAttribute('data-theme',__t);}catch(e){}</script>
-    <link rel="stylesheet" href="style.css?v=27.1">
+    <link rel="stylesheet" href="style.css?v=28.0">
 </head>
 <body>
     <div id="app-container">
@@ -20,7 +25,7 @@
         <header class="bmh-header">
             <div class="header-top-row">
                 <div class="header-left">
-                    <img src="logo.png?v=27.1" alt="FC Manager Logo" class="header-logo">
+                    <img src="logo.png?v=28.0" alt="FC Manager Logo" class="header-logo">
                     <div class="club-title-wrap">
                         <h1 id="header-club-name">KEIN VEREIN</h1>
                         <span id="header-league-info" class="sub-info">Bitte Update laden</span>
@@ -44,24 +49,19 @@
             <!-- Inhalte werden dynamisch von den Spiel-Modulen gerendert -->
         </main>
 
-        <!-- Fixierter unterer Bereich: Status/Weiter-Button + 10 Kacheln in 2 Reihen -->
+        <!-- Fixierter unterer Bereich: Status/Weiter-Button + Schnellzugriff (alle Bereiche im 🏠 MENÜ) -->
         <div class="bmh-bottom-dock">
             <div class="bmh-footer">
-                <span id="status-message">Bereit (v1.17.1)</span>
+                <span id="status-message">Bereit (v1.18.0)</span>
                 <button id="btn-next-day" class="bmh-btn primary small-btn">WEITER ▶</button>
             </div>
 
             <nav class="bmh-nav">
-                <button class="nav-btn active" data-view="office"><span class="nav-icon">🏢</span><span>BÜRO</span></button>
-                <button class="nav-btn" data-view="calendar"><span class="nav-icon">📅</span><span>KALENDER</span></button>
-                <button class="nav-btn" data-view="squad"><span class="nav-icon">👥</span><span>KADER</span></button>
+                <button class="nav-btn nav-home active" data-view="menu"><span class="nav-icon">🏠</span><span>MENÜ</span></button>
+                <button class="nav-btn" data-view="office"><span class="nav-icon">🏢</span><span>BÜRO</span></button>
                 <button class="nav-btn" data-view="tactics"><span class="nav-icon">📋</span><span>TAKTIK</span></button>
-                <button class="nav-btn" data-view="contracts"><span class="nav-icon">✍️</span><span>VERTRÄGE</span></button>
-                <button class="nav-btn" data-view="sponsors"><span class="nav-icon">💼</span><span>SPONSOREN</span></button>
-                <button class="nav-btn" data-view="stadium"><span class="nav-icon">🏟️</span><span>STADION</span></button>
+                <button class="nav-btn" data-view="training"><span class="nav-icon">🏋️</span><span>TRAINING</span></button>
                 <button class="nav-btn" data-view="league"><span class="nav-icon">📊</span><span>TABELLE</span></button>
-                <button class="nav-btn" data-view="cups"><span class="nav-icon">🏆</span><span>POKAL</span></button>
-                <button class="nav-btn admin-btn" data-view="admin"><span class="nav-icon">⚙️</span><span>ADMIN</span></button>
             </nav>
         </div>
     </div>
@@ -75,36 +75,39 @@
             if (st) st.textContent = 'Fehler: ' + window.FCM_SCRIPT_ERROR;
         });
     </script>
-    <script src="storage.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'storage.js';"></script>
-    <script src="settings.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'settings.js';"></script>
-    <script src="crowd.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'crowd.js';"></script>
-    <script src="sound.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'sound.js';"></script>
-    <script src="data.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'data.js';"></script>
-    <script src="engine.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'engine.js';"></script>
-    <script src="world.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'world.js';"></script>
-    <script src="negotiation.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'negotiation.js';"></script>
-    <script src="cups.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'cups.js';"></script>
-    <script src="life.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'life.js';"></script>
-    <script src="transfers.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'transfers.js';"></script>
-    <script src="loans.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'loans.js';"></script>
-    <script src="stadium.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'stadium.js';"></script>
-    <script src="finance.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'finance.js';"></script>
-    <script src="grades.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'grades.js';"></script>
-    <script src="interview.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'interview.js';"></script>
-    <script src="coach.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'coach.js';"></script>
-    <script src="motivation.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'motivation.js';"></script>
-    <script src="calendar.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'calendar.js';"></script>
-    <script src="league.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'league.js';"></script>
-    <script src="liveticker_engine.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'liveticker_engine.js';"></script>
-    <script src="liveticker_ui.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'liveticker_ui.js';"></script>
-    <script src="squad.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'squad.js';"></script>
-    <script src="tactics.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'tactics.js';"></script>
-    <script src="club.js?v=27.1" onerror="window.FCM_NETWORK_ERROR = 'club.js';"></script>
+    <script src="storage.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'storage.js';"></script>
+    <script src="settings.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'settings.js';"></script>
+    <script src="crowd.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'crowd.js';"></script>
+    <script src="sound.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'sound.js';"></script>
+    <script src="data.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'data.js';"></script>
+    <script src="engine.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'engine.js';"></script>
+    <script src="world.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'world.js';"></script>
+    <script src="negotiation.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'negotiation.js';"></script>
+    <script src="cups.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'cups.js';"></script>
+    <script src="life.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'life.js';"></script>
+    <script src="transfers.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'transfers.js';"></script>
+    <script src="loans.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'loans.js';"></script>
+    <script src="stadium.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'stadium.js';"></script>
+    <script src="finance.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'finance.js';"></script>
+    <script src="grades.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'grades.js';"></script>
+    <script src="interview.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'interview.js';"></script>
+    <script src="coach.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'coach.js';"></script>
+    <script src="motivation.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'motivation.js';"></script>
+    <script src="training.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'training.js';"></script>
+    <script src="trainer.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'trainer.js';"></script>
+    <script src="calendar.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'calendar.js';"></script>
+    <script src="league.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'league.js';"></script>
+    <script src="liveticker_engine.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'liveticker_engine.js';"></script>
+    <script src="liveticker_ui.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'liveticker_ui.js';"></script>
+    <script src="squad.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'squad.js';"></script>
+    <script src="tactics.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'tactics.js';"></script>
+    <script src="menu.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'menu.js';"></script>
+    <script src="club.js?v=28.0" onerror="window.FCM_NETWORK_ERROR = 'club.js';"></script>
     <script>
         if (!window.FCM_APP_LOADED) {
             var vp = document.getElementById('main-viewport');
             var reason = window.FCM_NETWORK_ERROR
-                ? 'Netzwerk/404-Fehler beim Laden von <code>' + window.FCM_NETWORK_ERROR + '</code> (stelle sicher, dass alle 25 JS-Module im Hauptverzeichnis von GitHub liegen).'
+                ? 'Netzwerk/404-Fehler beim Laden von <code>' + window.FCM_NETWORK_ERROR + '</code> (stelle sicher, dass alle 28 JS-Module im Hauptverzeichnis von GitHub liegen).'
                 : (window.FCM_SCRIPT_ERROR
                     ? 'JavaScript-Syntax-/Laufzeitfehler: <strong>' + window.FCM_SCRIPT_ERROR + '</strong>'
                     : 'Ein Modul wurde nicht vollständig ausgeführt (möglicherweise beschädigte/abgeschnittene Datei auf GitHub).');

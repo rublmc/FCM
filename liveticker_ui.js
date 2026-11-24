@@ -790,13 +790,17 @@ function buildMatchDetail(homeId, awayId, seedKey, events) {
             bench.push(xi[idx]);
             xi[idx] = entry;
         });
+                // Letzte Torminute je Spieler: Wer später noch trifft, kann vorher weder ausgewechselt noch vom Platz gestellt werden
+        const lastGoal = {};
+        (events || []).filter(ev => ev.type === 'goal' && ev.side === side).forEach(ev => { lastGoal[ev.playerName] = Math.max(lastGoal[ev.playerName] || 0, ev.minute); });
+        const freeAfter = (nm, minute) => (lastGoal[nm] || 0) <= minute;
         const subs = [];
         const usedOut = new Set();
         const usedIn = new Set();
         const n = Math.min(bench.length, 2 + rint(3));
         const minutes = Array.from({ length: n }, () => 55 + rint(34)).sort((x, y) => x - y);
         minutes.forEach(minute => {
-            const outs = xi.filter(p => p.pos !== 'TW' && !usedOut.has(p.name));
+            const outs = xi.filter(p => p.pos !== 'TW' && !usedOut.has(p.name) && freeAfter(p.name, minute));
             const ins = bench.filter(p => !usedIn.has(p.name) && p.pos !== 'TW');
             if (!outs.length || !ins.length) return;
             const out = outs[rint(outs.length)];
@@ -813,9 +817,10 @@ function buildMatchDetail(homeId, awayId, seedKey, events) {
             const pl = xi[1 + rint(10)];
             cards.push({ minute: 8 + rint(82), side, name: pl.name, red: false });
         }
-        if (rng() < 0.04) {
-            const pl = xi[1 + rint(10)];
-            cards.push({ minute: 30 + rint(58), side, name: pl.name, red: true });
+                if (rng() < 0.04) {
+            const minute = 30 + rint(58);
+            const cand = xi.slice(1).filter(p => freeAfter(p.name, minute) && !subs.some(x => x.out === p.name));
+            if (cand.length) cards.push({ minute, side, name: cand[rint(cand.length)].name, red: true });
         }
         return { xi, bench, subs, cards };
     };

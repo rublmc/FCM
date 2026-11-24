@@ -254,9 +254,8 @@ function renderContractsView(viewport) {
     const expiringPlayers = squad.filter(p => (p.contractUntil || seasonEnd) <= seasonEnd);
 
     let bodyHtml = "";
-    if (contractsSubTab === 'coach') {
-        bodyHtml = buildCoachTabHtml();
-    } else if (contractsSubTab === 'staff') {
+        if (contractsSubTab === 'coach') contractsSubTab = 'players';      // Trainervertrag liegt jetzt im Modul 🎓 TRAINER
+    if (contractsSubTab === 'staff') {
         bodyHtml = buildStaffTabHtml();
     } else {
         let filtered = [...squad];
@@ -324,11 +323,11 @@ function renderContractsView(viewport) {
             <div class="kpi-card"><span class="kpi-label">GEHÄLTER SPIELER / STAB & TRAINER</span><span class="kpi-value">${formatMoneyShort(totalAnnualSalary)} / ${formatMoneyShort(staffCost)}</span></div>
             <div class="kpi-card"><span class="kpi-label">KOSTEN PRO LIGA-SPIELTAG</span><span class="kpi-value">${formatMoneyShort(perMatchSalary)}</span></div>
         </div>
-        <div class="sub-tab-bar">
+                <div class="sub-tab-bar two-tabs">
             <button type="button" class="sub-tab-btn ${contractsSubTab === 'players' ? 'active' : ''}" data-ctab="players">👥 SPIELER</button>
             <button type="button" class="sub-tab-btn ${contractsSubTab === 'staff' ? 'active' : ''}" data-ctab="staff">🧑‍🏫 STAB</button>
-            <button type="button" class="sub-tab-btn ${contractsSubTab === 'coach' ? 'active' : ''}" data-ctab="coach">🎓 TRAINER</button>
         </div>
+        <p style="font-size:0.60rem; color:#444; margin:-4px 0 8px 0;">Dein eigener Trainervertrag: 🎓 TRAINER → ✍️ VERTRAG</p>
         ${bodyHtml}
     `;
 
@@ -340,11 +339,7 @@ function renderContractsView(viewport) {
         });
     });
 
-    if (contractsSubTab === 'coach') {
-        bindCoachTabEvents(viewport);
-        return;
-    }
-    if (contractsSubTab === 'staff') {
+        if (contractsSubTab === 'staff') {
         bindStaffTabEvents(viewport);
         return;
     }

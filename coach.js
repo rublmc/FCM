@@ -199,15 +199,15 @@ function buildCoachTabHtml() {
         </div>`;
 }
 
-function bindCoachTabEvents(viewport) {
+function bindCoachTabEvents(viewport, rerender = () => renderTrainerView(viewport)) {
     const b = document.getElementById('btn-coach-nego');
     if (b) b.addEventListener('click', () => {
         if (startCoachNegotiation()) {
-            renderContractsView(viewport);
+            rerender();
             document.getElementById('main-viewport').scrollTop = 0;
         }
     });
-    if (activeNegotiation && activeNegotiation.kind === 'coach') bindCoachNegotiation(() => renderContractsView(viewport));
+    if (activeNegotiation && activeNegotiation.kind === 'coach') bindCoachNegotiation(rerender);
 }
 
 // ---------- Saisonziel am Saisonende bewerten (wird von evaluateBoardAfterSeason genutzt) ----------
@@ -232,7 +232,7 @@ function processCoachContractAtSeasonEnd(seasonEnd) {
     if (mood >= 50) {
         c.untilYear = seasonEnd + 1;
         c.salary = Math.max(c.salary, Math.round(market * (mood >= 75 ? 1.05 : 0.98) / 10000) * 10000);
-        addInbox('🎓', 'Präsidium verlängert deinen Vertrag', `Dein Vertrag lief aus. Das Präsidium (${Math.round(mood)}%) hat ihn von sich aus um ein Jahr bis ${c.untilYear} verlängert – Gehalt ${formatMoneyShort(c.salary)}/J. Mit einem Vertragsgespräch (✍️ VERTRÄGE → 🎓 TRAINER) kannst du mehr herausholen.`, 'board');
+        addInbox('🎓', 'Präsidium verlängert deinen Vertrag', `Dein Vertrag lief aus. Das Präsidium (${Math.round(mood)}%) hat ihn von sich aus um ein Jahr bis ${c.untilYear} verlängert – Gehalt ${formatMoneyShort(c.salary)}/J. Mit einem Vertragsgespräch (🎓 TRAINER → ✍️ VERTRAG) kannst du mehr herausholen.`, 'board');
     } else if (mood >= 25) {
         c.untilYear = seasonEnd + 1;
         c.salary = Math.round(c.salary * 0.85 / 10000) * 10000;
@@ -256,5 +256,5 @@ function coachReminders() {
     const total = getLeagueTotalMatchdays(getUserLeagueId());
     if (GameState.meta.matchday < total - 9) return;
     c.reminded = true;
-    addInbox('🎓', 'Dein Trainervertrag läuft aus', `Dein Vertrag endet nach dieser Saison (${c.untilYear}). Verhandle jetzt mit dem Präsidium (✍️ VERTRÄGE → 🎓 TRAINER) – die Stimmung liegt bei ${Math.round(GameState.board.mood)}%.`, 'board');
+    addInbox('🎓', 'Dein Trainervertrag läuft aus', `Dein Vertrag endet nach dieser Saison (${c.untilYear}). Verhandle jetzt mit dem Präsidium (🎓 TRAINER → ✍️ VERTRAG) – die Stimmung liegt bei ${Math.round(GameState.board.mood)}%.`, 'board');
 }

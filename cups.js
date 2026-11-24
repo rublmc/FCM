@@ -853,7 +853,8 @@ function completeCupRoundIfDone(comp, roundIdx) {
 
     if (round.stage === 'final') {
         comp.winner = winners[0] || null;
-        if (comp.winner === uid) {
+                if (comp.winner === uid) {
+            recordCareerTitle(comp.type === 'national' ? 'national' : comp.id, `${comp.name}-Sieger`);
             const bonus = comp.type === 'national' ? NATIONAL_CUP_WINNER_BONUS : koPrizeFor(comp, 'winner');
             bookMoney('prizes', bonus);
             GameState.clubs[uid] && GameState.players.filter(p => p.clubId === uid).forEach(p => adjustPlayerMotivation(p, 10));
@@ -1058,10 +1059,7 @@ function applyLiveKoDecider() {
     const m = round.matches[um.ref.idx];
     // Temporäres Match-Objekt mit Live-Stand für die Entscheidung
     const tmp = { ...m, homeGoals: um.homeGoals, awayGoals: um.awayGoals, events: [], neutral: m.neutral, tie: m.tie };
-    const lines = decideKoMatch(comp, st.cupCtx.roundIdx, tmp, (id) => {
-        if (id === GameState.activeClubId) return pickScorerForClub(id);
-        return null;
-    });
+    const lines = decideKoMatch(comp, st.cupCtx.roundIdx, tmp, (id) => pickLiveScorer(id));
     const leg1 = getFirstLeg(comp, st.cupCtx.roundIdx, m);
     if (leg1) {
         const agg = getAggregate(comp, st.cupCtx.roundIdx, { ...m, homeGoals: um.homeGoals, awayGoals: um.awayGoals });

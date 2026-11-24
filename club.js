@@ -554,10 +554,7 @@ function renderOfficeView(viewport) {
             <p class="clickable" data-goto="coach" role="button" tabindex="0" style="margin-top:4px;"><strong>🎓 Trainervertrag ›</strong> ${(() => { const c = ensureCoachInitialized(); const left = c.untilYear - getCurrentSeasonEndYear(); return `bis ${c.untilYear} • ${formatMoneyShort(c.salary)}/J.${left <= 0 ? ' <span style="color:#a82424; font-weight:bold;">⚠️ läuft aus</span>' : ''}`; })()}</p>
 ${GameState.stadiumProject ? (() => { const pi = getStadiumProjectInfo(GameState.stadiumProject); return `<p class="clickable" data-goto="stadium" role="button" tabindex="0" style="margin-top:4px; color:#184d25;"><strong>🏗️ Baustelle ›</strong> ${GameState.stadiumProject.title} (noch ${pi.remainingDays} Tage • ca. ${formatGameDate(pi.etaISO)})</p>`; })() : ''}
         </div>
-        <div class="bmh-box">
-            <button id="btn-back-to-start" type="button" class="bmh-btn" style="width:100%;">🏠 ZUM STARTBILDSCHIRM / NEUES SPIEL</button>
-        </div>
-        ${buildSettingsHtml()}
+                <p style="font-size:0.60rem; color:#555; text-align:center; margin:4px 0 8px 0;">⚙️ Sound, Design & Backup findest du jetzt unter 🏠 MENÜ → EINSTELLUNGEN.</p>
     `;
 
     const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
@@ -573,8 +570,7 @@ ${GameState.stadiumProject ? (() => { const pi = getStadiumProjectInfo(GameState
     bind('btn-office-spons', () => switchToView('sponsors'));
     bind('btn-office-staff', () => { contractsSubTab = 'staff'; switchToView('contracts'); });
     bind('btn-office-tactics', () => switchToView('tactics'));
-    bind('btn-back-to-start', () => saveAndNavigate('start.html'));
-    bindSettings(() => renderOfficeView(viewport));
+    
     bind('btn-inbox-readall', () => {
         GameState.inbox.forEach(m => { m.read = true; });
         saveGame();
@@ -616,9 +612,9 @@ ${GameState.stadiumProject ? (() => { const pi = getStadiumProjectInfo(GameState
                 switchToView('contracts');
                 return;
             }
-            if (target === 'coach') {
-                contractsSubTab = 'coach';
-                switchToView('contracts');
+                        if (target === 'coach') {
+                trainerSubTab = 'contract';
+                switchToView('trainer');
                 return;
             }
             if (target === 'contracts') {
@@ -987,15 +983,11 @@ function renderStadiumView(viewport) {
 }
 
 // ==========================================
-// ADMIN-BEREICH UI
+// EINSTELLUNGEN & ADMIN (Sound, Bildschirm, Schwierigkeit, Design, Backup, Datenbank)
 // ==========================================
 function renderAdminView(viewport) {
-    const clubOptions = Object.values(GameState.clubs).filter(c => isPlayableCountry(getLeagueCountry(c.leagueId))).map(c =>  
-        `<option value="${c.id}" ${c.id === GameState.activeClubId ? 'selected' : ''}>${c.name} (${GameState.leagues[c.leagueId]?.name || c.leagueId})</option>`
-    ).join('');
-
     viewport.innerHTML = `
-        <h2 class="section-title">⚙️ ADMIN & UPDATE-MANAGER</h2>
+        <h2 class="section-title">⚙️ EINSTELLUNGEN & ADMIN</h2>
         <div class="bmh-box version-box">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
                 <span><strong>🎮 FC MANAGER 27</strong><br><span style="font-size:0.66rem; color:#444;">Spielversion</span></span>
@@ -1003,7 +995,7 @@ function renderAdminView(viewport) {
             </div>
             <p style="font-size:0.64rem; color:#444; margin-top:4px;">Stand: ${GAME_BUILD_DATE} • Spielstand-Format: v${GameState.meta.coreVersion || '-'} • Saison ${GameState.meta.season}</p>
         </div>
-        
+        ${buildSettingsHtml()}
         <div class="bmh-box">
             <h3>💾 Speichern & Backup</h3>
             <p style="font-size:0.72rem; margin:6px 0;">
@@ -1012,98 +1004,22 @@ function renderAdminView(viewport) {
                 Letztes Datei-Backup: <strong>${GameState.meta.lastFileBackup ? new Date(GameState.meta.lastFileBackup).toLocaleString('de-DE') : 'noch nie'}</strong><br>
                 Dauerhafter Speicher vom Browser bestätigt: <strong>${FCMStore.persisted === true ? '✅ ja' : (FCMStore.persisted === false ? '❌ nein' : 'unbekannt')}</strong>
             </p>
-            <p style="font-size:0.64rem; color:#a82424; margin-bottom:6px;">Löscht Safari die Website-Daten (Verlauf löschen, Speicher knapp oder 7 Tage nicht geöffnet), ist auch der Autosave weg. Sicher ist nur eine Backup-Datei in „Dateien“/iCloud. Tipp: Spiel über „Teilen → Zum Home-Bildschirm“ als Web-App starten – dann löscht Safari seltener.</p>
+            <p style="font-size:0.64rem; color:#a82424; margin-bottom:6px;">Löscht Safari die Website-Daten (Verlauf löschen, Speicher knapp oder 7 Tage nicht geöffnet), ist auch der Autosave weg. Sicher ist nur eine Backup-Datei in „Dateien“/iCloud.</p>
             <button id="btn-admin-backup" type="button" class="bmh-btn gold-btn" style="width:100%;">💾 JETZT BACKUP-DATEI ERSTELLEN</button>
         </div>
         <div class="bmh-box">
-            <h3>1. Verein wechseln</h3><br>
-            <select id="admin-club-select" class="bmh-select">
-                <option value="">-- Verein wählen --</option>
-                ${clubOptions}
-            </select>
-            <button id="btn-switch-club" class="bmh-btn primary">Übernehmen</button>
+            <h3>🗄️ Datenbank</h3>
+            <p style="font-size:0.72rem; margin:6px 0;">Spielwelt: ${Array.isArray(GameState.meta.playableCountries) ? GameState.meta.playableCountries.map(c => COUNTRY_FLAGS[c] || c).join(' ') + ' spielbar, Rest im Hintergrund' : 'alle Länder spielbar'}<br>Datenbank: ${Object.keys(GameState.leagues).length} Ligen • ${Object.keys(GameState.clubs).length} Vereine • ${GameState.players.length} Spieler<br>Spielstand & Datenbank: <strong>${getStorageUsageKB()} KB</strong><br>Speicherort: ${storeModeLabel()}</p>
+            <button id="btn-reset-db" type="button" class="bmh-btn danger" style="width:100%;">🗑️ ALLES LÖSCHEN (alle Spielstände & Länderpakete)</button>
         </div>
-
         <div class="bmh-box">
-            <h3>2. Update-Paket einspielen</h3><br>
-            <p style="font-size:0.78rem; margin-bottom:8px;">Wähle eine <code>.json</code> Update-Datei aus:</p>
-            <input type="file" id="admin-file-upload" accept=".json" class="bmh-input" multiple>
-        </div>
-
-        <div class="bmh-box">
-            <h3>3. Installierte Updates (${GameState.meta.installedUpdates.length})</h3><br>
-            ${GameState.meta.installedUpdates.length === 0 ? '<p style="font-size:0.8rem;">Noch keine Updates eingespielt.</p>' : `
-                <table class="bmh-table">
-                    <thead><tr><th style="width:55%;">NAME</th><th style="width:25%;">TYP</th><th style="width:20%;">DATUM</th></tr></thead>
-                    <tbody>
-                        ${GameState.meta.installedUpdates.map(u => `
-                            <tr><td>${u.name}</td><td>${u.type}</td><td>${u.date.split(',')[0]}</td></tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `}
-        </div>
-
-        <div class="bmh-box">
-            <h3>4. Datenbank-Wartung</h3><br>
-            <p style="font-size:0.72rem; margin-bottom:6px;">Spielwelt: ${Array.isArray(GameState.meta.playableCountries) ? GameState.meta.playableCountries.map(c => COUNTRY_FLAGS[c] || c).join(' ') + ' spielbar, Rest im Hintergrund' : 'alle Länder spielbar'}<br>Datenbank: ${Object.keys(GameState.leagues).length} Ligen • ${Object.keys(GameState.clubs).length} Vereine • ${GameState.players.length} Spieler<br>Spielstand & Datenbank: <strong>${getStorageUsageKB()} KB</strong><br>Speicherort: ${storeModeLabel()}</p>
-            <button id="btn-export-db" class="bmh-btn" style="margin-bottom:6px;">💾 Backup-Datei dieses Spielstands</button>
-            <button id="btn-reset-db" class="bmh-btn danger">🗑️ ALLES LÖSCHEN (alle Spielstände & Länderpakete)</button>
+            <button id="btn-back-to-start" type="button" class="bmh-btn" style="width:100%;">🏠 ZUM STARTBILDSCHIRM / SPIELSTÄNDE / NEUES SPIEL</button>
         </div>
     `;
-
-    document.getElementById('btn-switch-club').addEventListener('click', () => {
-        const selectedId = document.getElementById('admin-club-select').value;
-        if (selectedId) {
-            GameState.activeClubId = selectedId;
-            GameState.tactics.lineup = [];
-            GameState.tactics.bench = [];
-            GameState.sponsors = { clubId: selectedId, main: null, boards: null, offersMain: [], offersBoards: [] };
-            GameState.stadiumProject = null;
-            GameState.staff = {};
-            GameState.cups = null;
-            GameState.finance = null;
-            selectedLeagueViewId = GameState.clubs[selectedId]?.leagueId || null;
-            ensureValidSquadAssignment();
-            ensureYouthPool(true);
-            ensureSponsorOffersInitialized(true);
-            ensureClubStadiumInitialized();
-            ensureCompetitionsInitialized();
-            saveGame();
-            renderHeader();
-            setStatus(`Verein: ${GameState.clubs[selectedId].name}`);
-        }
-    });
-
-    document.getElementById('admin-file-upload').addEventListener('change', (e) => {
-        const files = Array.from(e.target.files || []);
-        let done = 0;
-        files.forEach(file => {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                try {
-                    applyUpdatePackage(JSON.parse(event.target.result));
-                } catch (err) {
-                    alert(`Fehler beim Lesen von ${file.name}: ${err.message}`);
-                }
-                done++;
-                if (done === files.length) {
-                    ensureAllSchedulesInitialized(false);
-                    saveGame();
-                    renderAdminView(viewport);
-                }
-            };
-            reader.readAsText(file);
-        });
-    });
-
-    document.getElementById('btn-export-db').addEventListener('click', () => {
-        exportCurrentBackup();
-        renderAdminView(viewport);
-    });
-
+    bindSettings(() => renderAdminView(viewport));
     document.getElementById('btn-reset-db').addEventListener('click', resetGame);
     document.getElementById('btn-admin-backup').addEventListener('click', () => { exportCurrentBackup(); renderAdminView(viewport); });
+    document.getElementById('btn-back-to-start').addEventListener('click', () => saveAndNavigate('start.html'));
 }
 
 window.FCM_APP_LOADED = true;

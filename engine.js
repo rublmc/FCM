@@ -31,8 +31,8 @@ function startGameAfterStorage() {
     renderHeader();
     if (GameState.meta.phase === 'preseason' || GameState.meta.phase === 'winter') {
         switchToView('calendar');
-    } else {
-        switchToView('office');
+        } else {
+        switchToView('menu');
     }
 }
 
@@ -54,6 +54,8 @@ function initGameWorld() {
     ensureTransferWindowInitialized();
     ensureInterviewInitialized();
     ensureCoachInitialized();
+    ensureTrainingInitialized();
+    ensureCareerInitialized();
     syncGameClock();
     if (GameState.inbox.filter(m => m.cat === 'board').length === 0) {
         const club = GameState.clubs[GameState.activeClubId];
@@ -483,9 +485,14 @@ function renderView(viewName) {
         case 'league': renderLeagueView(viewport); break;
         case 'cups': renderCupsView(viewport); break;
         case 'admin': renderAdminView(viewport); break;
-        case 'interview': renderInterviewView(viewport); break;
-        default: renderOfficeView(viewport);
+                case 'interview': renderInterviewView(viewport); break;
+        case 'menu': renderMenuView(viewport); break;
+        case 'training': renderTrainingView(viewport); break;
+        case 'trainer': renderTrainerView(viewport); break;
+        default: renderMenuView(viewport);
     }
+    // Titel gewonnen? Feier mit Pokalbild zeigen (nicht während Live-Spiel oder Interview)
+    if (!liveMatchState && !interviewState && typeof showPendingCelebration === 'function') showPendingCelebration();
 }
 
 function setStatus(msg) {

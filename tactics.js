@@ -357,7 +357,7 @@ function performPlayerSwap(src, tgt) {
 
 function calculateSlotEffectiveRating(player, slotPos) {
     if (!player) return 0;
-    const r = player.rating - fitnessPenalty(player);               // müde Spieler sind schwächer
+    const r = player.rating - fitnessPenalty(player) + getTrainingAttrBonus(player);   // Trainingsstand zählt mit               // müde Spieler sind schwächer
     if (player.pos === slotPos) return r;
     const related = POS_GROUPS[slotPos] || [];
     if (related.includes(player.pos)) {

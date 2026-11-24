@@ -201,8 +201,9 @@ function calculateClubMatchStrength(clubId, isHome) {
             const avgMot = starters.reduce((s, p) => s + (p.motivation || 78), 0) / starters.length;
             str += (avgMot - 75) * 0.008;
         }
-        str += getStaffQuality('co') * 0.04;
+                str += getStaffQuality('co') * 0.04;
         str += getLeaderStrengthBonus();
+        str += getTrainingTeamBonus();
         str += getDifficulty().str;
         if (isHome) str += 0.35 + getFanHomeBonus();
         return Math.max(1.0, str);
@@ -427,8 +428,13 @@ function evaluatePlayerSeasonDevelopment(player, teamSuccessDelta, isUserClub, h
             extra += cGain;
             reasons.push(`Vorbereitung & Camps: +${cGain.toFixed(2)}`);
         }
-        const capped = Math.min(0.12, extra);
+                const capped = Math.min(0.12, extra);
         score += capped;
+        // Trainingsstand der Saison (siehe training.js)
+        if (!half) {
+            const tb = getTrainingSeasonBonus(player);
+            if (Math.abs(tb) >= 0.01) { score += tb; reasons.push(`Training: ${tb > 0 ? '+' : ''}${tb.toFixed(2)}`); }
+        }
     }
     // 5. Charakter
     if (hasTrait(player, 'pro')) { score += 0.06; reasons.push('Musterprofi: +0.06'); }
@@ -527,7 +533,11 @@ function finishSeasonAndAdvance() {
     if (myRank === 1 || userPromoted) teamSuccessDelta = 0.14;
     else if (myRank <= 4) teamSuccessDelta = 0.07;
     else if (userRelegated || myRank >= standings.length - 1) teamSuccessDelta = -0.14;
-    evaluateBoardAfterSeason(myRank, standings.length, userPromoted, userRelegated, titles, isTopTier);
+        evaluateBoardAfterSeason(myRank, standings.length, userPromoted, userRelegated, titles, isTopTier);
+    // Trainerkarriere: Saison eintragen, Meisterschaft feiern
+    ensureCareerInitialized();
+    if (myRank === 1) recordCareerTitle('league', `Meister ${league ? league.name : 'der Liga'}`);
+    recordCareerSeason(myRank, standings.length, userPromoted, userRelegated, league ? league.name : '');
     processCoachContractAtSeasonEnd(seasonEnd);
 
     // Leihspieler kehren zu ihren Vereinen zurück (vor Stärkeentwicklung & Vertragsprüfung)
@@ -592,6 +602,7 @@ function finishSeasonAndAdvance() {
             p.winterDelta = 0;
         }
     });
+        resetTrainingAfterSeason();
     // Nach größter Veränderung sortieren (Aufsteiger & Absteiger sofort erkennbar)
     userDevList.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || b.newRating - a.newRating);
 

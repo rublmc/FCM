@@ -1323,9 +1323,7 @@ p.clickable:focus-visible, .bmh-box.clickable:focus-visible { outline: 2px solid
 /* ==========================================
    v1.5: NAVIGATION (2 REIHEN), TURNIERBAUM, SPIELERKARTE, FORMATIONS-EDITOR, FINANZEN
    ========================================== */
-@media (min-width: 700px) {
-    .bmh-nav { grid-template-columns: repeat(10, 1fr); }
-}
+/* v1.18: Schnellzugriff unten = 5 Kacheln, alle Bereiche im Hauptmenü */
 
 .bracket-scroll {
     width: 100%;
@@ -1797,3 +1795,92 @@ html[data-theme="win31"] .negotiation-box .bmh-btn.primary,
 html[data-theme="win31"] .match-report-card .bmh-btn.primary,
 html[data-theme="win31"] .live-scoreboard-card .bmh-btn.primary,
 html[data-theme="win31"] .swap-banner .bmh-btn.primary { background: #008000; color: #fff; box-shadow: inset 1px 1px 0 #60d060, inset -1px -1px 0 #004000; }
+
+/* ==========================================
+   v1.18: HAUPTMENÜ, TRAINING, TRAINER-KARRIERE, TITEL-FEIER, TICKER
+   ========================================== */
+.nav-btn { font-size: 0.62rem; padding: 6px 0 5px 0; }
+.nav-btn .nav-icon { font-size: 1.2rem; }
+.nav-btn.nav-home { background-color: #d4c391; }
+.menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
+@media (min-width: 560px) { .menu-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 860px) { .menu-grid { grid-template-columns: repeat(4, 1fr); } }
+.menu-tile {
+    position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    min-height: 104px; padding: 10px 6px; text-align: center; cursor: pointer; color: var(--text-dark);
+    background-color: var(--panel-bg); border: 2px solid var(--panel-light); border-right-color: var(--panel-shadow); border-bottom-color: var(--panel-shadow);
+    min-width: 0; overflow: hidden;
+}
+.menu-tile:active { transform: scale(0.97); background-color: var(--pitch-green); color: var(--text-light); }
+.menu-tile:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 1px; }
+.menu-tile.warn { border-left: 5px solid var(--accent-red); }
+.menu-icon { font-size: 2.0rem; line-height: 1; }
+.menu-title { font-weight: bold; font-size: 0.80rem; letter-spacing: 0.4px; }
+.menu-sub { font-size: 0.60rem; color: #333; line-height: 1.2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.menu-tile:active .menu-sub { color: #e2e5e3; }
+.menu-badge { position: absolute; top: 5px; right: 6px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--accent-red); color: #fff; font-size: 0.62rem; line-height: 18px; font-weight: bold; }
+
+.tk-other { font-size: 0.64rem; color: #555; }
+.ticker-item.halftime .tk-other { color: #c3dec9; }
+
+.train-mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.train-mode-btn { display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 8px; background: #e9ecea; border: 2px solid var(--panel-shadow); cursor: pointer; font-size: 0.72rem; color: #111; min-width: 0; }
+.train-mode-btn span { font-size: 0.60rem; color: #444; line-height: 1.25; }
+.train-mode-btn.on { background: #d7eadc; border-color: var(--pitch-green); box-shadow: inset 0 0 0 1px var(--pitch-green); }
+.train-bar { margin-bottom: 6px; }
+.train-bar-head { display: flex; justify-content: space-between; font-size: 0.72rem; }
+.train-bar-eff { font-size: 0.58rem; color: #444; }
+.train-week-row { display: grid; grid-template-columns: 28px 1fr 1fr; gap: 4px; align-items: center; margin-bottom: 3px; }
+.train-week-head span { font-size: 0.58rem; font-weight: bold; color: #444; }
+.train-wd { font-weight: bold; font-size: 0.72rem; color: var(--pitch-dark); }
+.train-sel { margin-bottom: 0 !important; font-size: 0.64rem !important; padding: 3px !important; }
+.train-table td { font-size: 0.66rem; }
+.train-tag { font-size: 0.52rem; background: #fff3bf; border: 1px solid #b58900; padding: 0 3px; }
+.unit-chip { display: inline-block; font-size: 0.58rem; font-weight: bold; padding: 1px 4px; border: 1px solid #111; white-space: nowrap; background: #e2e5e3; color: #111; }
+.unit-chip.u-kondition, .unit-chip.u-pressing, .unit-chip.u-zweikampf, .unit-chip.u-spritzig { background: #ffd8a8; }
+.unit-chip.u-taktik, .unit-chip.u-spielverh, .unit-chip.u-standards { background: #d0ebff; }
+.unit-chip.u-technik, .unit-chip.u-torschuss, .unit-chip.u-torwart, .unit-chip.u-spielform { background: #d3f9d8; }
+.unit-chip.u-frische, .unit-chip.u-frei { background: #f3f0ff; }
+.train-unit-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-top: 1px dashed #b5bab7; font-size: 0.70rem; }
+.train-unit-row span { color: #333; font-size: 0.64rem; }
+.train-unit-row em { font-style: normal; font-size: 0.58rem; color: #555; }
+.train-unit-row .unit-chip { flex-shrink: 0; min-width: 62px; text-align: center; }
+.train-attr-table th, .train-attr-table td { padding: 4px 2px; font-size: 0.64rem; text-align: center; }
+.train-attr-table td:nth-child(2), .train-attr-table th:nth-child(2) { text-align: left; }
+.train-attr-table sup { color: #2b8a3e; font-size: 0.48rem; }
+.train-sort { cursor: pointer; }
+.train-sort.on { color: var(--accent-gold) !important; }
+.at-top { background: #b2f2bb; font-weight: bold; }
+.at-good { background: #d3f9d8; }
+.at-ok { background: #fff9db; }
+.at-low { background: #ffe3e3; }
+
+.career-station { background: #e9ecea; border: 2px solid var(--panel-shadow); padding: 7px; margin-bottom: 8px; font-size: 0.72rem; }
+.career-station.current { border-color: var(--pitch-green); background: #d7eadc; }
+.career-head { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.career-head span { font-size: 0.62rem; color: #444; }
+.career-kit { display: inline-block; width: 22px; height: 26px; border: 1px solid #111; flex-shrink: 0; clip-path: polygon(25% 0, 75% 0, 100% 18%, 88% 34%, 82% 30%, 82% 100%, 18% 100%, 18% 30%, 12% 34%, 0 18%); }
+.career-stats { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 0.66rem; }
+.career-titles { background: #fff9db; border: 1px solid #b58900; padding: 4px 6px; margin-top: 5px; font-size: 0.66rem; font-weight: bold; }
+
+.trophy-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+@media (min-width: 560px) { .trophy-grid { grid-template-columns: repeat(3, 1fr); } }
+.trophy-tile { display: flex; flex-direction: column; gap: 2px; background: #122918; color: #f4f4f4; border: 2px solid var(--accent-gold); padding: 4px; cursor: pointer; font-size: 0.66rem; text-align: center; min-width: 0; }
+.trophy-tile .trophy-svg { width: 100%; height: auto; display: block; }
+.trophy-tile span { font-size: 0.56rem; color: #c3dec9; }
+
+.trophy-overlay { position: fixed; inset: 0; z-index: 9999; background: rgba(0, 0, 0, 0.82); display: flex; align-items: center; justify-content: center; padding: calc(env(safe-area-inset-top, 10px) + 10px) 12px calc(env(safe-area-inset-bottom, 10px) + 10px); animation: toastSlideIn 0.3s ease-out; }
+.trophy-card { width: 100%; max-width: 380px; max-height: 100%; overflow-y: auto; background: #122918; border: 3px solid var(--accent-gold); padding: 10px; color: #fff; text-align: center; box-shadow: 0 0 40px rgba(229, 184, 34, 0.45); }
+.trophy-card .trophy-svg { width: 100%; height: auto; display: block; border: 1px solid #0b1c10; animation: trophyLift 1.4s ease-out; }
+.trophy-kicker { font-size: 1.05rem; font-weight: bold; color: var(--accent-gold); letter-spacing: 1px; margin-bottom: 6px; }
+.trophy-title { font-size: 0.92rem; font-weight: bold; margin-top: 8px; }
+.trophy-sub { font-size: 0.70rem; color: #c3dec9; margin-top: 3px; }
+@keyframes trophyLift { from { transform: translateY(14px) scale(0.96); opacity: 0.4; } to { transform: none; opacity: 1; } }
+
+html[data-theme="win31"] .menu-tile { background: #c0c0c0; border: 1px solid #000; box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808080, 2px 2px 0 #000; }
+html[data-theme="win31"] .menu-tile:active { background: #000080; color: #fff; }
+html[data-theme="win31"] .menu-sub { color: #202020; }
+html[data-theme="win31"] .nav-btn.nav-home { background: #c0c0c0; }
+html[data-theme="win31"] .train-mode-btn, html[data-theme="win31"] .career-station { background: #ffffff; border: 1px solid #000; }
+html[data-theme="win31"] .train-mode-btn.on, html[data-theme="win31"] .career-station.current { background: #d0d8ff; border: 2px solid #000080; box-shadow: none; }
+html[data-theme="win31"] .trophy-card, html[data-theme="win31"] .trophy-tile { background: #000080; border-color: #ffff00; }

@@ -144,6 +144,7 @@ function syncGameClock() {
     const newISO = getCurrentGameDate();
     const oldISO = GameState.meta.currentDate;
     if (oldISO && newISO > oldISO) processBirthdays(oldISO, newISO);
+        if (oldISO && newISO > oldISO && typeof processTrainingDays === 'function') processTrainingDays(oldISO, newISO);
     if (!oldISO || newISO > oldISO) {
         GameState.meta.currentDate = newISO;
         onTransferClockAdvance(oldISO, newISO);
