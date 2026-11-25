@@ -357,7 +357,7 @@ function performPlayerSwap(src, tgt) {
 
 function calculateSlotEffectiveRating(player, slotPos) {
     if (!player) return 0;
-    const r = player.rating - fitnessPenalty(player) + getTrainingAttrBonus(player);   // Trainingsstand zählt mit               // müde Spieler sind schwächer
+    const r = player.rating - fitnessPenalty(player) + getTrainingAttrBonus(player);   // müde Spieler sind schwächer, Trainingsstand zählt mit
     if (player.pos === slotPos) return r;
     const related = POS_GROUPS[slotPos] || [];
     if (related.includes(player.pos)) {
@@ -492,7 +492,7 @@ function renderTacticsView(viewport) {
                          data-zone="stands"
                          data-index=""
                          data-playerid="${player.id}"
-                         title="${unavailable ? `${player.name}: ${getUnavailableLabel(player)}` : player.name}">
+                         title="${escAttr(unavailable ? `${player.name}: ${getUnavailableLabel(player)}` : player.name)}">
                         <span class="chip-pos" style="${unavailable ? 'background:#a82424; color:#fff; width:auto; padding:0 2px;' : ''}">${badgeTxt}</span>
                           <span class="chip-name">${getShortName(player.name)}</span>
                           <span class="chip-form">${getFormArrow(player)}</span>
@@ -671,6 +671,7 @@ function renderTacticsView(viewport) {
         });
 
         el.addEventListener('click', () => {
+            if (Date.now() < suppressSwapClickUntil) return;     // synthetischer Klick nach Touch-Drop (iOS)
             const clickedSlot = getSlotObj(el);
 
             if (!selectedSwapSource) {
@@ -762,6 +763,7 @@ function renderTacticsView(viewport) {
                     const srcSlot = getSlotObj(touchDragEl);
                     const tgtSlot = getSlotObj(targetSlotEl);
                     performPlayerSwap(srcSlot, tgtSlot);
+                    suppressSwapClickUntil = Date.now() + 350;
                     touchStartPos = null;
                     touchDragEl = null;
                     renderTacticsView(viewport);

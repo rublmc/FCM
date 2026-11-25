@@ -2,7 +2,8 @@
 // FC MANAGER 27 - MODUL: DATA & KONSTANTEN
 // ==========================================
 window.FCM_APP_STARTED = true;
-const GAME_VERSION = "1.18.0";
+const GAME_VERSION = "1.18.1";
+const ASSET_VERSION = "28.1";   // muss zum ?v= in index.html/start.html passen (Cache-Busting)
 const GAME_BUILD_DATE = "24.11.2026";
 
 
@@ -273,7 +274,7 @@ const WINTER_EVENTS = [
 
 let GameState = {
     meta: {
-        coreVersion: "1.18.0",
+        coreVersion: "1.18.1",
         season: "2026/27",
         phase: "preseason", // 'preseason' | 'season' | 'winter'
         preseasonWeek: 1,   // 1..4
@@ -392,6 +393,12 @@ function resetCareerFields(clubId) {
 // Temporärer UI-State für Klick- & Drag-Wechsel
 let selectedSwapSource = null;
 let draggedSwapSource = null;
+let suppressSwapClickUntil = 0;   // iPhone: nach einem Touch-Drop kurz keine Klicks auswerten
+
+// Text sicher in HTML-Attribute (title="…") einsetzen – Namen mit " & < > brechen sonst das Attribut
+function escAttr(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
 // Temporärer UI-State für Kader, Sortierung & Transfermarkt
 let squadSubTab = 'roster';

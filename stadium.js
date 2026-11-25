@@ -150,9 +150,14 @@ const STADIUM_EVENTS = [
 // Pro Spielrunde / Pausenwoche (nur wenn gebaut wird)
 function rollStadiumConstructionEvent() {
     const proj = GameState.stadiumProject;
-    if (!proj || Math.random() > 0.05) return;
+    if (!proj) return;
     migrateStadiumProject(proj);
     const now = GameState.meta.currentDate || getCurrentGameDate();
+    // Wahrscheinlichkeit hängt an den verstrichenen Tagen (ca. 5,5 % pro Woche), nicht an der Anzahl der Spielrunden
+    const last = proj.lastEventCheckISO || proj.startISO || now;
+    const daysPassed = Math.max(0, dayDiff(last, now));
+    proj.lastEventCheckISO = now;
+    if (daysPassed === 0 || Math.random() > 1 - Math.pow(0.992, daysPassed)) return;
     if (dayDiff(now, proj.etaISO) <= 3) return;
     const ev = pickWeighted(STADIUM_EVENTS, e => e.w);
     let days = ev.days;

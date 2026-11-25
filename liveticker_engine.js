@@ -24,15 +24,6 @@ function registerLiveInjury(player, reasonObj) {
     return matches;
 }
 
-const ATMOSPHERIC_COMMENTS = [
-    "Gute Kombination im Mittelfeld, der Steilpass wird aber abgefangen.",
-    "Flanke von außen in den Strafraum – der Torwart faustet den Ball weg.",
-    "Distanzschuss aus 22 Metern rauscht knapp am Pfosten vorbei!",
-    "Intensives Pressing im Zentrum, beide Teams schenken sich keinen Meter.",
-    "Eckball segelt gefährlich an den Fünfer, die Abwehr klärt in höchster Not.",
-    "Schneller Konter über den Flügel, im letzten Moment zur Ecke geblockt.",
-    "Freistoß aus halblinker Position – sicher in den Armen des Keepers."
-];
 
 const TEAM_TALK_OPTIONS = [
     {
@@ -492,7 +483,7 @@ function checkLineupBeforeKickoff() {
 function startLiveMatchday(skipInterview = false) {
     const club = GameState.clubs[GameState.activeClubId];
     if (!club) {
-        alert("Bitte zuerst im Adminbereich ein Datenpaket einspielen!");
+        alert("Es sind keine Ligen geladen. Bitte auf dem Startbildschirm unter 📦 DATENBANK ein Länderpaket einspielen!");
         return;
     }
     if (GameState.meta.phase !== 'season') {

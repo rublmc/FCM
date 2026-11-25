@@ -50,8 +50,8 @@ function getClubColors(clubId) {
 
 // ---------- Pokal-Formen ----------
 // type: 'league' (Meisterschale) | 'national' (Pokal) | 'cl' (Henkelpokal) | 'el' (schlanker Pokal) | 'ecl' (Pokal mit Spirale)
-function trophyShapeSvg(type, cx, cy, s) {
-    const silver = 'url(#trSilver)', gold = 'url(#trGold)';
+function trophyShapeSvg(type, cx, cy, s, uid) {
+    const silver = `url(#${uid}Silver)`, gold = `url(#${uid}Gold)`;
     if (type === 'league') {
         // Meisterschale: runde Schale, leicht schräg gehalten
         return `<g transform="translate(${cx},${cy}) rotate(-8)">
@@ -96,10 +96,11 @@ function trophyShapeSvg(type, cx, cy, s) {
     </g>`;
 }
 
+let trophySvgCounter = 0;
 // Spieler in Vereinsfarben, der den Pokal in die Höhe stemmt. Kein Wappen, nur Trikotfarben.
 function buildTrophySvg(type, clubId, opts = {}) {
     const [c1, c2] = getClubColors(clubId);
-    const uid = 'tr' + Math.floor(Math.random() * 1e6);
+    const uid = 'tr' + (++trophySvgCounter) + '_' + Math.floor(Math.random() * 1e6);   // eindeutig je Bild (sonst schwarze Flächen in Safari)
     const w = 320, h = 400;
     const skin = opts.skin || ['#f1c7a5', '#d9a47c', '#a8714c', '#7a4b2f'][traitHash(String(clubId) + 'skin') % 4];
     const hair = ['#2b1d14', '#5a3a22', '#111111', '#c9a15a'][traitHash(String(clubId) + 'hair') % 4];
@@ -113,8 +114,8 @@ function buildTrophySvg(type, clubId, opts = {}) {
     return `
     <svg class="trophy-svg" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Spieler stemmt den Pokal">
         <defs>
-            <linearGradient id="trSilver" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="0.45" stop-color="#c9cfd6"/><stop offset="1" stop-color="#8a9099"/></linearGradient>
-            <linearGradient id="trGold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff3b0"/><stop offset="0.5" stop-color="#e5b822"/><stop offset="1" stop-color="#9c7412"/></linearGradient>
+            <linearGradient id="${uid}Silver" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="0.45" stop-color="#c9cfd6"/><stop offset="1" stop-color="#8a9099"/></linearGradient>
+            <linearGradient id="${uid}Gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff3b0"/><stop offset="0.5" stop-color="#e5b822"/><stop offset="1" stop-color="#9c7412"/></linearGradient>
             <radialGradient id="${uid}bg" cx="0.5" cy="0.25" r="0.9"><stop offset="0" stop-color="#3b5d8f"/><stop offset="0.55" stop-color="#14213a"/><stop offset="1" stop-color="#070b14"/></radialGradient>
             <linearGradient id="${uid}beam" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity="0.35"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></linearGradient>
             <pattern id="${uid}stripe" width="22" height="10" patternUnits="userSpaceOnUse"><rect width="11" height="10" fill="${c1}"/><rect x="11" width="11" height="10" fill="${c2}"/></pattern>
@@ -155,7 +156,7 @@ function buildTrophySvg(type, clubId, opts = {}) {
             <circle cx="-8" cy="106" r="2.4" fill="#222"/><circle cx="8" cy="106" r="2.4" fill="#222"/>
         </g>
         <!-- Pokal über dem Kopf -->
-        ${trophyShapeSvg(type, 160, type === 'league' ? 48 : 46, type === 'league' ? 0.95 : 1.05)}
+        ${trophyShapeSvg(type, 160, type === 'league' ? 48 : 46, type === 'league' ? 0.95 : 1.05, uid)}
         ${small ? '' : `<text x="160" y="388" text-anchor="middle" font-family="Arial, sans-serif" font-weight="bold" font-size="15" fill="#ffffff">${opts.caption || ''}</text>`}
     </svg>`;
 }

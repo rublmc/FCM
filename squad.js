@@ -304,7 +304,7 @@ function renderContractsView(viewport) {
                             return `
                             <tr>
                                 <td><strong>${p.pos}</strong></td>
-                                <td title="${p.name} (${p.age} J.)"><strong>${p.name}</strong><br><span style="font-size:0.62rem; color:#444;">${p.age} Jahre • ${getMotivationIcon(p.motivation)}${p.motivation || 78}%</span></td>
+                                <td title="${escAttr(p.name)} (${p.age} J.)"><strong>${p.name}</strong><br><span style="font-size:0.62rem; color:#444;">${p.age} Jahre • ${getMotivationIcon(p.motivation)}${p.motivation || 78}%</span></td>
                                 <td><strong>${p.rating.toFixed(1)}</strong></td>
                                 <td>${formatMoneyShort(p.salary)}</td>
                                 <td><span class="contract-pill ${pillClass}">'${String(p.contractUntil).slice(-2)}</span></td>
@@ -679,7 +679,7 @@ function buildRosterTabHtml(mySquad) {
                             <td>${statusBadge}</td>
                             <td><strong>${p.pos}</strong></td>
                             <td class="form-cell">${getFormArrow(p)}</td>
-                            <td title="${p.name} (${p.age} J. | Mot: ${mot}%)">
+                            <td title="${escAttr(p.name)} (${p.age} J. | Mot: ${mot}%)">
 <strong>${youthIcon}${p.name}</strong> ${traitBadgeHtml(p)}${p.lifeEvent && (GameState.meta.tick || 0) - p.lifeEvent.tick <= 6 ? `<span title="Privat: ${p.lifeEvent.title}">${p.lifeEvent.icon}</span>` : ''}<br>
 <span style="font-size:0.60rem; color:#444;">${p.age}J • ${getMotivationIcon(mot)}${mot}%${p.wantsOut ? '🚪' : ((p.unhappyWeeks || 0) >= 3 ? '⚠️' : '')} • <span title="Kondition: ${fitnessLabel(p)}" style="${getFitness(p) < 70 ? 'color:#a82424; font-weight:bold;' : ''}">⚡${Math.round(getFitness(p))}%</span> • ${p.loanFrom ? '🔁bis ' + (p.loanUntil || '') : "'" + String(p.contractUntil).slice(-2)}${suspNote}</span>
                             </td>
@@ -802,7 +802,7 @@ function buildTransferMarketTabHtml() {
                     ${filtered.map(p => `
                         <tr class="mkt-row" data-pid="${p.id}" style="cursor:pointer;" title="Spielerkarte öffnen">
                             <td><strong>${p.pos}</strong></td>
-                            <td title="${p.name} (${p.clubLabel})">
+                            <td title="${escAttr(p.name)} (${escAttr(p.clubLabel)})">
                                 ${getFormArrow(p)} <strong>${p.name}</strong><br>
                                 <span style="font-size:0.62rem; color:#444;">${p.clubLabel}${p.aiListed ? ' • 📋 Transferliste' : ''}</span>
                             </td>
@@ -884,7 +884,7 @@ function buildYouthCampTabHtml() {
                     ${youths.map(y => `
                         <tr>
                             <td><strong>${y.pos}</strong></td>
-                            <td title="${y.name}">
+                            <td title="${escAttr(y.name)}">
                                 <strong>${y.name}</strong><br>
                                 <span class="youth-badge">${y.potential}</span>
                             </td>

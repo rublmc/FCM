@@ -12,6 +12,9 @@
 // • Mannschafts-Werte (0–100): Taktik, Pressing, Standards. Ohne Training fallen sie Richtung 40.
 //   Wirkung: Taktik und Pressing auf die Mannschaftsstärke, Standards auf die eigene Torgefahr.
 // • Frische = durchschnittliche Kondition der Spieler (harte Einheiten kosten Kraft, Regeneration gibt sie zurück).
+// • KI-Vereine gelten als „durchschnittlich trainiert“: Dein Zuschlag wird gegen diesen Vergleichswert gerechnet.
+//   Wer besser trainiert als der Schnitt, ist im Vorteil – wer schlechter trainiert, im Nachteil.
+// • Sommerpause: Zwischen Saisonende und Vorbereitung wird nicht trainiert (Urlaub = volle Erholung, leichter Abbau).
 // ==========================================
 
 const TRAINING_UNITS = {
@@ -52,6 +55,10 @@ const TRAIN_PROFILES = {
 const TRAIN_TR_CAP = 1.2;          // maximaler Trainingsstand je Wert
 const TRAIN_TR_DECAY = 0.997;      // pro Tag ohne Training dieses Werts
 const TRAIN_TEAM_FLOOR = 40;       // Mannschafts-Werte fallen ohne Training Richtung 40
+// Vergleichswerte eines durchschnittlich trainierten (KI-)Vereins
+const TRAIN_AI_TEAM = { tactics: 70, pressing: 60, standards: 60 };
+const TRAIN_AI_STATE = 0.25;       // gewichteter Trainingsstand eines KI-Spielers
+const TRAIN_VACATION_DAYS = 28;    // längere Lücken = Sommerpause ohne Training
 const WEEKDAY_LONG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 
 function trainGroupOf(p) {
@@ -66,9 +73,9 @@ function defaultTrainingPlan() {
     return {
         1: { am: 'frische', pm: 'technik' },
         2: { am: 'kondition', pm: 'torschuss' },
-        3: { am: 'taktik', pm: 'zweikampf' },
-        4: { am: 'spritzig', pm: 'spielverh' },
-        5: { am: 'taktik', pm: 'standards' },
+        3: { am: 'taktik', pm: 'pressing' },
+        4: { am: 'spritzig', pm: 'zweikampf' },
+        5: { am: 'spielverh', pm: 'standards' },
         6: { am: 'spielform', pm: 'frei' },
         0: { am: 'frische', pm: 'frei' }
     };
@@ -111,10 +118,10 @@ function getWeightedTrainingState(p) {
     return s;
 }
 
-// Zuschlag auf die Spielstärke durch den Trainingsstand (nur eigene Spieler)
+// Zuschlag auf die Spielstärke durch den Trainingsstand (nur eigene Spieler, gemessen am KI-Schnitt)
 function getTrainingAttrBonus(p) {
-    if (!p || !p.tr || p.clubId !== GameState.activeClubId) return 0;
-    return Math.max(-0.25, Math.min(0.25, getWeightedTrainingState(p) * 0.22));
+    if (!p || p.clubId !== GameState.activeClubId) return 0;
+    return Math.max(-0.25, Math.min(0.25, (getWeightedTrainingState(p) - TRAIN_AI_STATE) * 0.22));
 }
 
 // Kondition senkt die Ermüdung im Spiel (Faktor 0,85 … 1,15)
@@ -131,13 +138,18 @@ function getTrainingTeam() {
 // Stärke-Zuschlag für die eigene Mannschaft (Taktik & Pressing)
 function getTrainingTeamBonus() {
     const t = getTrainingTeam();
-    return (t.tactics - 50) * 0.0018 + (t.pressing - 50) * 0.0012;
+    return (t.tactics - TRAIN_AI_TEAM.tactics) * 0.0018 + (t.pressing - TRAIN_AI_TEAM.pressing) * 0.0012;
 }
 
-// Torgefahr durch Standards (0,93 … 1,08)
+// Torgefahr durch Standards (ca. 0,97 … 1,06)
 function getStandardsGoalMult() {
     const t = getTrainingTeam();
-    return 1 + (t.standards - 50) * 0.0015;
+    return 1 + (t.standards - TRAIN_AI_TEAM.standards) * 0.0015;
+}
+
+// Mannschafts-Werte steigen oberhalb von 70 % immer langsamer (100 % ist kaum zu halten)
+function teamGainFactor(v) {
+    return v < 70 ? 1 : Math.max(0.15, (100 - v) / 30);
 }
 
 // Mehr Pressing kostet im Spiel mehr Kraft
@@ -184,7 +196,7 @@ function getTrainingNeeds() {
 }
 
 // Co-Trainer-Plan für einen Tag. daysSince = Tage seit dem letzten Spiel, daysTo = Tage bis zum nächsten Spiel
-function coTrainerPlanFor(daysSince, daysTo, fresh, usedRecently = []) {
+function coTrainerPlanFor(daysSince, daysTo, fresh, usedRecently = [], deterministic = false) {
     const q = getStaffQuality('co');
     if (daysTo === 1) return { am: (daysSince % 2 === 0 ? 'standards' : 'taktik'), pm: 'frische' };
     if (daysSince === 1) return { am: 'frische', pm: fresh < 80 ? 'frei' : 'technik' };
@@ -194,7 +206,7 @@ function coTrainerPlanFor(daysSince, daysTo, fresh, usedRecently = []) {
     let pool = needs;
     if (fresh < 75) pool = needs.filter(n => !hard.has(n.unit));
     // schwacher Co-Trainer greift öfter daneben
-    const pick = (list) => (Math.random() < Math.max(0, 0.35 - q * 0.07) ? list[Math.floor(Math.random() * list.length)] : list[0]);
+    const pick = (list) => (!deterministic && Math.random() < Math.max(0, 0.35 - q * 0.07) ? list[Math.floor(Math.random() * list.length)] : list[0]);
     const first = pick(pool.length ? pool : needs);
     const rest = (pool.length ? pool : needs).filter(n => n.unit !== first.unit && !(hard.has(n.unit) && hard.has(first.unit)));
     const second = rest.length ? pick(rest) : { unit: 'frische' };
@@ -229,10 +241,8 @@ function buildTrainingSchedule(fromISO, toISO, preview = false) {
         const iso = toISODate(addDaysDate(start, i));
         let plan;
         if (t.mode === 'co') {
-            // Vorschau ohne Zufall: der Co-Trainer zeigt seinen Plan
-            const rnd = Math.random;
-            if (preview) Math.random = () => 0.99;
-            try { plan = coTrainerPlanFor(i, total - i, fresh, recent.slice(-3)); } finally { Math.random = rnd; }
+            // Vorschau ohne Zufall: der Co-Trainer zeigt seinen bevorzugten Plan
+            plan = coTrainerPlanFor(i, total - i, fresh, recent.slice(-3), preview);
             recent.push(plan.am, plan.pm);
         } else {
             plan = manualPlanFor(iso);
@@ -283,6 +293,8 @@ function applyTrainingSession(p, unitKey, eff, log) {
 function processTrainingDays(fromISO, toISO) {
     if (!fromISO || !toISO || toISO <= fromISO || !GameState.activeClubId) return;
     const t = ensureTrainingInitialized();
+    const gap = Math.round((fromISODate(toISO) - fromISODate(fromISO)) / 86400000);
+    if (gap > TRAIN_VACATION_DAYS) { processTrainingVacation(fromISO, toISO, gap); return; }
     const days = buildTrainingSchedule(fromISO, toISO, false);
     if (days.length === 0) return;
     const squad = getClubPlayers();
@@ -312,14 +324,20 @@ function processTrainingDays(fromISO, toISO) {
         dayUnits.forEach(uk => {
             units[uk] = (units[uk] || 0) + 1;
             const team = TRAINING_UNITS[uk]?.team || {};
-            Object.keys(team).forEach(k => { t.team[k] = Math.min(100, t.team[k] + team[k] * eff); });
+            Object.keys(team).forEach(k => { t.team[k] = Math.min(100, t.team[k] + team[k] * eff * teamGainFactor(t.team[k])); });
         });
         // Abbau der Mannschafts-Werte und nicht trainierter Spieler-Werte
         ['tactics', 'pressing', 'standards'].forEach(k => { t.team[k] = Math.max(TRAIN_TEAM_FLOOR, t.team[k] - (t.team[k] - TRAIN_TEAM_FLOOR) * 0.03); });
-        const trainedToday = new Set();
-        dayUnits.forEach(uk => Object.keys(TRAINING_UNITS[uk]?.attr || {}).forEach(k => trainedToday.add(k)));
         squad.forEach(p => {
             if (!p.tr) return;
+            // Was dieser Spieler heute trainiert hat (Feldspieler beim Torwarttraining: Torschuss)
+            const trainedToday = new Set();
+            dayUnits.forEach(uk => {
+                const u = TRAINING_UNITS[uk];
+                if (!u) return;
+                const map = (p.pos !== 'TW' && u.fieldAttr) ? u.fieldAttr : u.attr;
+                Object.keys(map || {}).forEach(k => trainedToday.add(k));
+            });
             const ageDecay = (p.age || 25) >= 31 ? 0.9985 : 1;
             TRAIN_ATTR_KEYS.forEach(k => {
                 if (typeof p.tr[k] !== 'number' || trainedToday.has(k)) return;
@@ -334,9 +352,11 @@ function processTrainingDays(fromISO, toISO) {
                 const p = pickWeighted(pool, x => (hasTrait(x, 'fragile') ? 2 : 1) * (1 + fitnessPenalty(x) * 4));
                 const n = Math.max(1, 1 + Math.floor(Math.random() * 2) - Math.floor(getStaffQuality('physio') / 3));
                 p.injuredMatches = n;
-                p.injuryReason = `Trainingsverletzung (${TRAINING_UNITS[dayUnits[0]].label})`;
+                // Die Einheit mit dem höheren Risiko ist wahrscheinlicher die Ursache
+                const cause = pickWeighted(dayUnits.filter(uk => (TRAINING_UNITS[uk]?.inj || 0) > 0), uk => TRAINING_UNITS[uk].inj);
+                p.injuryReason = `Trainingsverletzung (${TRAINING_UNITS[cause].label})`;
                 const wasIn = removePlayerFromMatchSquad(p.id);
-                addInbox('🚑', `Trainingsverletzung: ${p.name}`, `${p.name} (${p.pos}) hat sich am ${formatGameDate(d.iso, true)} beim ${TRAINING_UNITS[dayUnits[0]].label}-Training verletzt und fällt voraussichtlich ${n} ${n === 1 ? 'Spiel' : 'Spiele'} aus.${wasIn ? ' Er wurde aus der Startelf genommen.' : ''}`, 'injury', d.iso);
+                addInbox('🚑', `Trainingsverletzung: ${p.name}`, `${p.name} (${p.pos}) hat sich am ${formatGameDate(d.iso, true)} beim ${TRAINING_UNITS[cause].label}-Training verletzt und fällt voraussichtlich ${n} ${n === 1 ? 'Spiel' : 'Spiele'} aus.${wasIn ? ' Er wurde aus der Startelf genommen.' : ''}`, 'injury', d.iso);
             }
         }
         lastUnits = dayUnits;
@@ -346,6 +366,26 @@ function processTrainingDays(fromISO, toISO) {
         from: days[0].iso, to: days[days.length - 1].iso, days: days.map(d => ({ iso: d.iso, am: d.am, pm: d.pm })),
         mode: t.mode, units, fitBefore, fitAfter,
         team: { tactics: [Math.round(teamBefore.tactics), Math.round(t.team.tactics)], pressing: [Math.round(teamBefore.pressing), Math.round(t.team.pressing)], standards: [Math.round(teamBefore.standards), Math.round(t.team.standards)] }
+    };
+}
+
+// Sommerpause: kein Training, volle Erholung, Trainingswerte bauen leicht ab
+function processTrainingVacation(fromISO, toISO, gap) {
+    const t = ensureTrainingInitialized();
+    const before = { ...t.team };
+    const fitBefore = getTeamFreshness();
+    getClubPlayers().forEach(p => {
+        p.fit = 100;
+        if (!p.tr) return;
+        TRAIN_ATTR_KEYS.forEach(k => {
+            if (typeof p.tr[k] === 'number') p.tr[k] = parseFloat((p.tr[k] * Math.pow(TRAIN_TR_DECAY, gap)).toFixed(4));
+        });
+    });
+    ['tactics', 'pressing', 'standards'].forEach(k => { t.team[k] = Math.max(TRAIN_TEAM_FLOOR, t.team[k] - (t.team[k] - TRAIN_TEAM_FLOOR) * 0.35); });
+    t.lastReport = {
+        from: toISODate(addDaysDate(fromISODate(fromISO), 1)), to: toISODate(addDaysDate(fromISODate(toISO), -1)), days: [], vacation: true,
+        mode: t.mode, units: {}, fitBefore, fitAfter: getTeamFreshness(),
+        team: { tactics: [Math.round(before.tactics), Math.round(t.team.tactics)], pressing: [Math.round(before.pressing), Math.round(t.team.pressing)], standards: [Math.round(before.standards), Math.round(t.team.standards)] }
     };
 }
 
@@ -418,11 +458,11 @@ function buildTrainingPlanHtml() {
         </div>
         <div class="bmh-box" style="padding:8px;">
             <h3 style="font-size:0.82rem; color:#184d25; margin-bottom:6px;">📊 MANNSCHAFTS-WERTE</h3>
-            ${teamBarHtml('Taktik', '🧠', team.tactics, `Spielstärke ${sg((team.tactics - 50) * 0.0018)}`)}
-            ${teamBarHtml('Pressing', '⚡', team.pressing, `Spielstärke ${sg((team.pressing - 50) * 0.0012)} • ${team.pressing > 50 ? 'mehr Laufarbeit im Spiel' : 'normale Laufarbeit'}`)}
-            ${teamBarHtml('Standards', '🎯', team.standards, `Torgefahr ${sg((getStandardsGoalMult() - 1) * 100, 0)} %`)}
+            ${teamBarHtml('Taktik', '🧠', team.tactics, `Spielstärke ${sg((team.tactics - TRAIN_AI_TEAM.tactics) * 0.0018)} ggü. Liga-Schnitt (${TRAIN_AI_TEAM.tactics} %)`)}
+            ${teamBarHtml('Pressing', '⚡', team.pressing, `Spielstärke ${sg((team.pressing - TRAIN_AI_TEAM.pressing) * 0.0012)} ggü. Schnitt (${TRAIN_AI_TEAM.pressing} %) • ${team.pressing > 50 ? 'mehr Laufarbeit im Spiel' : 'normale Laufarbeit'}`)}
+            ${teamBarHtml('Standards', '🎯', team.standards, `Torgefahr ${sg((getStandardsGoalMult() - 1) * 100, 0)} % ggü. Schnitt (${TRAIN_AI_TEAM.standards} %)`)}
             ${teamBarHtml('Frische', '🔋', fresh, fresh >= 85 ? 'ausgeruht' : (fresh >= 70 ? 'leicht müde – Stärkeabzug bei einzelnen Spielern' : 'müde – mehr Regeneration einplanen!'))}
-            <p style="font-size:0.58rem; color:#555; margin-top:3px;">Ohne Training fallen Taktik, Pressing und Standards langsam auf ${TRAIN_TEAM_FLOOR} % zurück.</p>
+            <p style="font-size:0.58rem; color:#555; margin-top:3px;">Ohne Training fallen Taktik, Pressing und Standards langsam auf ${TRAIN_TEAM_FLOOR} % zurück. Oberhalb von 70 % steigen sie immer langsamer. Die anderen Vereine gelten als durchschnittlich trainiert.</p>
         </div>
         <div class="bmh-box" style="padding:8px;">
             <h3 style="font-size:0.82rem; color:#184d25; margin-bottom:4px;">🗓️ KOMMENDE TRAININGSTAGE${ev ? ` • bis ${ev.short} ${formatGameDate(ev.date)}` : ''}</h3>
@@ -448,7 +488,7 @@ function buildTrainingPlanHtml() {
         <div class="bmh-box" style="padding:8px;">
             <h3 style="font-size:0.80rem; color:#184d25; margin-bottom:4px;">📋 LETZTE TRAININGSTAGE (${formatGameDate(rep.from)} – ${formatGameDate(rep.to)})</h3>
             <p style="font-size:0.66rem; line-height:1.45;">
-                ${Object.keys(rep.units).map(k => `${TRAINING_UNITS[k].icon} ${TRAINING_UNITS[k].label} ×${rep.units[k]}`).join(' • ')}<br>
+                ${rep.vacation ? '🏖️ Sommerpause – kein Training, die Spieler haben sich vollständig erholt. Taktik, Pressing und Standards haben etwas nachgelassen.' : Object.keys(rep.units).map(k => `${TRAINING_UNITS[k].icon} ${TRAINING_UNITS[k].label} ×${rep.units[k]}`).join(' • ')}<br>
                 🔋 Frische ${rep.fitBefore}% → <strong>${rep.fitAfter}%</strong> • 🧠 Taktik ${rep.team.tactics[0]}→<strong>${rep.team.tactics[1]}</strong> • ⚡ Pressing ${rep.team.pressing[0]}→<strong>${rep.team.pressing[1]}</strong> • 🎯 Standards ${rep.team.standards[0]}→<strong>${rep.team.standards[1]}</strong>
             </p>
         </div>` : ''}`;
@@ -473,7 +513,7 @@ function buildTrainingPlayersHtml() {
     const head = (k, label) => `<th class="train-sort ${trainingSortKey === k ? 'on' : ''}" data-tsort="${k}">${label}</th>`;
     return `
         <div class="bmh-box" style="padding:6px;">
-            <p style="font-size:0.60rem; color:#444; margin-bottom:4px;">Werte auf der Stärke-Skala (1–10). ▲ = deutlich durch Training verbessert. Bei Torhütern zeigt die letzte Spalte das <strong>Torwartspiel</strong>. „+STÄ“ ist der aktuelle Zuschlag auf die Spielstärke durch den Trainingsstand. Tippe auf eine Spalte zum Sortieren.</p>
+            <p style="font-size:0.60rem; color:#444; margin-bottom:4px;">Werte auf der Stärke-Skala (1–10). ▲ = deutlich durch Training verbessert. Bei Torhütern zeigt die letzte Spalte das <strong>Torwartspiel</strong>. „+STÄ“ ist der Zuschlag auf die Spielstärke durch den Trainingsstand – gemessen an einem durchschnittlich trainierten Spieler der Konkurrenz (zu Saisonbeginn daher leicht negativ). Tippe auf eine Spalte zum Sortieren.</p>
             <table class="bmh-table train-attr-table">
                 <thead><tr>
                     ${head('pos', 'POS')}<th style="width:24%;">SPIELER</th>
@@ -484,7 +524,7 @@ function buildTrainingPlayersHtml() {
                         const b = getTrainingAttrBonus(p);
                         return `<tr style="${isPlayerInjured(p) ? 'background:#fff0e0;' : ''}">
                             <td><strong>${p.pos}</strong></td>
-                            <td title="${p.name}">${getShortName(p.name)}${isPlayerInjured(p) ? ' 🚑' : ''}<br><span style="font-size:0.56rem; color:#555;">${p.rating.toFixed(1)} • ⚡${Math.round(getFitness(p))}%</span></td>
+                            <td title="${escAttr(p.name)}">${getShortName(p.name)}${isPlayerInjured(p) ? ' 🚑' : ''}<br><span style="font-size:0.56rem; color:#555;">${p.rating.toFixed(1)} • ⚡${Math.round(getFitness(p))}%</span></td>
                             ${keys.map(k => cell(p, k)).join('')}
                             <td style="font-weight:bold; color:${b > 0.005 ? '#184d25' : (b < -0.005 ? '#a82424' : '#555')};">${b >= 0 ? '+' : ''}${b.toFixed(2)}</td>
                         </tr>`;
@@ -506,7 +546,7 @@ function buildTrainingUnitsHtml() {
                 const load = u.drain < 0 ? `🔋 +${Math.abs(u.drain)} Frische` : (u.drain >= 2 ? `🔥 hohe Belastung (−${u.drain})` : `leichte Belastung (−${u.drain})`);
                 return `<div class="train-unit-row"><span class="unit-chip u-${k}">${u.icon} ${u.short}</span><div style="flex:1; min-width:0;"><strong>${u.label}</strong><br><span>${u.desc}</span><br><em>Trainiert: ${effect} • ${load}${u.inj >= 0.8 ? ' • erhöhtes Verletzungsrisiko' : ''}</em></div></div>`;
             }).join('')}
-            <p style="font-size:0.60rem; color:#444; margin-top:6px;">Junge Spieler lernen schneller, Routiniers langsamer. Musterprofis holen mehr heraus, faule Spieler weniger, motivierte mehr als frustrierte. Was nicht trainiert wird, baut langsam wieder ab. Zum Saisonende fließt ein Teil des Trainingsstands in die dauerhafte Stärke ein.</p>
+            <p style="font-size:0.60rem; color:#444; margin-top:6px;">Junge Spieler lernen schneller, Routiniers langsamer. Musterprofis holen mehr heraus, faule Spieler weniger, motivierte mehr als frustrierte. Was nicht trainiert wird, baut langsam wieder ab. Zum Saisonende fließt ein Teil des Trainingsstands in die dauerhafte Stärke ein. In der Sommerpause wird nicht trainiert.</p>
         </div>`;
 }
 

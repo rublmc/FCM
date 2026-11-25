@@ -55,7 +55,8 @@ const SoundFX = {
             }
         } catch (e) { /* ältere Geräte */ }
         // 2) Ältere iPhones: kurzer stiller HTML-Audio-Clip schaltet ebenfalls auf "Wiedergabe" um
-        if (!this.unlocked && !(typeof navigator !== 'undefined' && navigator.audioSession)) {
+        // Immer beim ersten Freischalten – audioSession greift als Home-Bildschirm-App nicht zuverlässig
+        if (!this.unlocked) {
             try {
                 if (!this.silentEl) {
                     this.silentEl = new Audio('data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==');
@@ -245,7 +246,7 @@ const SoundFX = {
                     if (buf.copyToChannel) buf.copyToChannel(arr, 0);
                     else buf.getChannelData(0).set(arr);
                     this.crowd[name] = buf;
-                } catch (e) { this.noteError('Publikum ' + name, e); }
+                } catch (e) { console.warn('Publikum ' + name + ' konnte nicht erzeugt werden', e); }
                 this.crowdProgress++;
                 next();
             });

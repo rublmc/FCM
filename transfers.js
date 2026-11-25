@@ -302,7 +302,7 @@ function buildClubSquadHtml(clubId) {
             <tr class="club-player-row" data-pid="${p.id}" style="cursor:pointer;" title="Spielerkarte öffnen">
                 <td><strong>${p.pos}</strong></td>
 <td class="form-cell">${getFormArrow(p)}</td>
-                  <td title="${p.name}"><strong>${p.name}</strong> ${p.aiListed ? '<span title="Steht auf der Transferliste">📋</span>' : ''}<br><span style="font-size:0.60rem; color:#444;">${p.age} J. • Vertrag '${String(p.contractUntil).slice(-2)}${yrs <= 0 ? ' ⚠️' : ''} • Ablöse ${fee === 0 ? 'frei' : formatMoneyShort(fee)}</span></td>
+                  <td title="${escAttr(p.name)}"><strong>${p.name}</strong> ${p.aiListed ? '<span title="Steht auf der Transferliste">📋</span>' : ''}<br><span style="font-size:0.60rem; color:#444;">${p.age} J. • Vertrag '${String(p.contractUntil).slice(-2)}${yrs <= 0 ? ' ⚠️' : ''} • Ablöse ${fee === 0 ? 'frei' : formatMoneyShort(fee)}</span></td>
                 <td><strong>${p.rating.toFixed(1)}</strong></td>
                 <td style="font-size:0.66rem;">${formatMoneyShort(calculateMarketValue(p))}</td>
                 <td>${action}</td>
@@ -697,7 +697,7 @@ function executeAiDeal(p, rival, fromId) {
 function executeAiSigning(pt, p) {
     if (p.clubId !== pt.fromId) return;
     const buyer = GameState.clubs[pt.toId];
-    if (!buyer || getClubPlayers(pt.toId).length > MAX_SQUAD_SIZE) return;
+    if (!buyer || getClubPlayers(pt.toId).length >= MAX_SQUAD_SIZE) return;
     executeAiDeal(p, { clubId: pt.toId, fee: pt.fee, salary: pt.salary, years: pt.years }, pt.fromId);
     const myLeague = GameState.clubs[GameState.activeClubId] && GameState.clubs[GameState.activeClubId].leagueId;
     if (buyer.leagueId === myLeague || (GameState.clubs[pt.fromId] && GameState.clubs[pt.fromId].leagueId === myLeague)) {

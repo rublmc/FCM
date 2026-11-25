@@ -121,7 +121,7 @@ function renderSetup() {
     if (setupStep === 0) {
         viewport.innerHTML = `
             <div class="bmh-box" style="text-align:center; padding: 12px 10px; background: #26292c; color: #f4f4f4; border-color: #e5b822;">
-                <img src="logo.png" alt="FC Manager 27 Logo" style="width: 100%; max-width: 260px; height: auto; display: block; margin: 0 auto 6px auto; border-radius: 4px;">
+                <img src="logo.png?v=${ASSET_VERSION}" alt="FC Manager 27 Logo" style="width: 100%; max-width: 260px; height: auto; display: block; margin: 0 auto 6px auto; border-radius: 4px;">
                 <p style="font-size: 0.76rem; color: #e5b822; letter-spacing: 0.5px;">KLASSISCHE MANAGEMENT-SIMULATION</p>
             </div>
 
@@ -207,7 +207,8 @@ function renderSetup() {
             <h2 class="section-title">SCHRITT 1 / 4: MANAGER-PROFIL</h2>
             <div class="bmh-box">
                 <p style="margin-bottom: 8px;">Wie lautet dein Name als Trainer & Manager?</p>
-                <input type="text" id="input-manager-name" class="bmh-input" placeholder="z.B. Michi" value="${GameState.meta.managerName || ''}" maxlength="24">
+                <input type="text" id="input-manager-name" class="bmh-input" placeholder="z.B. Michi" value="${escAttr(GameState.meta.managerName || '')}" maxlength="24">
+                <p id="setup-name-hint" class="setup-hint" style="display:none;">⚠️ Bitte gib deinen Manager-Namen ein.</p>
                 <div style="display:flex; gap:8px; margin-top:8px;">
                     <button id="btn-step1-back" class="bmh-btn" style="flex:1;">◀ ZURÜCK</button>
                     <button id="btn-step1-next" class="bmh-btn primary" style="flex:2;">WEITER ZUM LAND ▶</button>
@@ -216,6 +217,7 @@ function renderSetup() {
         `;
 
         const inputEl = document.getElementById('input-manager-name');
+        inputEl.addEventListener('input', () => { document.getElementById('setup-name-hint').style.display = 'none'; });
         inputEl.focus();
 
         document.getElementById('btn-step1-back').addEventListener('click', () => {
@@ -228,7 +230,8 @@ function renderSetup() {
         document.getElementById('btn-step1-next').addEventListener('click', () => {
             const name = inputEl.value.trim();
             if (!name) {
-                alert("Bitte gib deinen Manager-Namen ein!");
+                document.getElementById('setup-name-hint').style.display = 'block';
+                inputEl.focus();
                 return;
             }
             GameState.meta.managerName = name;
@@ -596,6 +599,7 @@ function renderWorldChoice(viewport) {
                         return `<label class="world-check ${on ? 'on' : ''}"><input type="checkbox" class="world-cb" value="${c}" ${on ? 'checked' : ''}> ${COUNTRY_NAMES[c] || c}<br><span>${s.leagues} Liga${s.leagues === 1 ? '' : 'en'} • ${s.clubs} Vereine</span></label>`;
                     }).join('')}
                 </div>` : ''}
+            <p id="world-hint" class="setup-hint" style="display:none;">⚠️ Bitte wähle mindestens ein Land aus.</p>
             <div style="display:flex; gap:8px; margin-top:8px;">
                 <button id="btn-world-back" type="button" class="bmh-btn" style="flex:1;">◀ ZURÜCK</button>
                 <button id="btn-world-next" type="button" class="bmh-btn primary" style="flex:2;">WEITER ZUM LAND ▶</button>
@@ -616,7 +620,8 @@ function renderWorldChoice(viewport) {
         if (worldChoice.mode === 'top') list = tops;
         if (worldChoice.mode === 'custom') list = all.filter(c => worldChoice.custom.includes(c));
         if (Array.isArray(list) && list.length === 0) {
-            alert('Bitte wähle mindestens ein Land aus!');
+            const h = document.getElementById('world-hint');
+            if (h) h.style.display = 'block';
             return;
         }
         GameState.meta.playableCountries = list && list.length < all.length ? list : null;

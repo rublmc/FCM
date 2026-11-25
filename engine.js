@@ -59,7 +59,7 @@ function initGameWorld() {
     syncGameClock();
     if (GameState.inbox.filter(m => m.cat === 'board').length === 0) {
         const club = GameState.clubs[GameState.activeClubId];
-        addInbox('🤝', 'Willkommen beim Verein!', `Hallo ${GameState.meta.managerName}, der Vorstand von ${club ? club.name : 'deinem neuen Verein'} heißt dich herzlich willkommen! In der Saisonvorbereitung kannst du Testspiele, Trainingslager und Events buchen, Sponsoren verhandeln und deinen Trainerstab (✍️ VERTR. → TRAINERSTAB) zusammenstellen. Viel Erfolg!`, 'board');
+        addInbox('🤝', 'Willkommen beim Verein!', `Hallo ${GameState.meta.managerName}, der Vorstand von ${club ? club.name : 'deinem neuen Verein'} heißt dich herzlich willkommen! In der Saisonvorbereitung kannst du Testspiele, Trainingslager und Events buchen, Sponsoren verhandeln und deinen Trainerstab (✍️ 🏠 MENÜ → VERTRÄGE → STAB) zusammenstellen. Viel Erfolg!`, 'board');
     }
     saveGame();
 }
@@ -311,44 +311,6 @@ function getMotivationIcon(mot) {
     return "😞";
 }
 
-// ==========================================
-// ADMIN-UPDATE-ENGINE
-// ==========================================
-function applyUpdatePackage(updateData) {
-    if (!updateData || !updateData.updateId || !updateData.type) {
-        alert("Ungültiges Update-Paket! 'updateId' oder 'type' fehlt.");
-        return false;
-    }
-    if (updateData.leagues) Object.assign(GameState.leagues, updateData.leagues);
-    if (updateData.clubs) Object.assign(GameState.clubs, updateData.clubs);
-    if (Array.isArray(updateData.players)) {
-        updateData.players.forEach(newPlayer => {
-            newPlayer.rating = Math.max(0.0, Math.min(10.0, parseFloat(newPlayer.rating.toFixed(1))));
-            const idx = GameState.players.findIndex(p => p.id === newPlayer.id);
-            if (idx > -1) GameState.players[idx] = { ...GameState.players[idx], ...newPlayer };
-            else GameState.players.push(newPlayer);
-        });
-    }
-    if (updateData.competitions) Object.assign(GameState.competitions, updateData.competitions);
-    applyPackageToDatabaseSnapshot(updateData);
-    GameState.meta.installedUpdates.push({
-        id: updateData.updateId,
-        name: updateData.name || updateData.updateId,
-        type: updateData.type,
-        date: new Date().toLocaleString('de-DE')
-    });
-    GameState.meta.salaryCalib = null;
-    GameState.meta.revCalib = null;
-    ensurePlayerStatsInitialized();
-    ensureFreeAgentsInitialized();
-    ensureSalaryCalibration();
-    ensureClubStadiumInitialized();
-    ensureAllSchedulesInitialized(false);
-    saveGame();
-    renderHeader();
-    setStatus(`Update "${updateData.name}" installiert!`);
-    return true;
-}
 
 // ==========================================
 // NAVIGATION & ZEIT-FORTSCHRITT
@@ -491,8 +453,8 @@ function renderView(viewName) {
         case 'trainer': renderTrainerView(viewport); break;
         default: renderMenuView(viewport);
     }
-    // Titel gewonnen? Feier mit Pokalbild zeigen (nicht während Live-Spiel oder Interview)
-    if (!liveMatchState && !interviewState && typeof showPendingCelebration === 'function') showPendingCelebration();
+    // Titel gewonnen? Feier mit Pokalbild zeigen – liegt über einer anschließenden Pressekonferenz (erst feiern, dann Interview)
+    if (!liveMatchState && typeof showPendingCelebration === 'function') showPendingCelebration();
 }
 
 function setStatus(msg) {

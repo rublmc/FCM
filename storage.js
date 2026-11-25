@@ -51,14 +51,11 @@ function storeInit() {
             FCMStore.db = openReq.result;
             FCMStore.mode = 'idb';
             try {
-                // Alle gespeicherten Einträge (Spielstände, Datenbank, Index) in den Cache laden
-                const keyTx = FCMStore.db.transaction(FCM_IDB_STORE, 'readonly');
-                const allKeys = await idbRequest(keyTx.objectStore(FCM_IDB_STORE).getAllKeys());
-                for (const key of allKeys) {
-                    const tx = FCMStore.db.transaction(FCM_IDB_STORE, 'readonly');
-                    const val = await idbRequest(tx.objectStore(FCM_IDB_STORE).get(key));
-                    if (typeof val === 'string') FCMStore.cache[key] = val;
-                }
+                // Alle gespeicherten Einträge (Spielstände, Datenbank, Index) in EINER Transaktion laden – schneller Start auf dem iPhone
+                const tx = FCMStore.db.transaction(FCM_IDB_STORE, 'readonly');
+                const os = tx.objectStore(FCM_IDB_STORE);
+                const [allKeys, allVals] = await Promise.all([idbRequest(os.getAllKeys()), idbRequest(os.getAll())]);
+                allKeys.forEach((key, i) => { if (typeof allVals[i] === 'string') FCMStore.cache[key] = allVals[i]; });
                 for (const key of FCM_STORE_KEYS) {
                     if (typeof FCMStore.cache[key] === 'string') {
                         // bereits in IndexedDB

@@ -231,6 +231,8 @@ function ensureFinanceLedger() {
 
 // Vereinswechsel: Statistiken "für den Verein" zurücksetzen
 function movePlayerToClub(p, clubId) {
+    // Trainingsstand gilt nur im eigenen Verein – beim Abgang löschen (hält den Spielstand klein)
+    if (p.clubId === GameState.activeClubId && clubId !== GameState.activeClubId) delete p.tr;
     if (p.clubId !== clubId) {
         p.clubApps = 0;
         p.clubGoals = 0;
@@ -500,19 +502,7 @@ function generateRoutineEvents() {
         addInbox('😡', `Zoff im Training: ${p.name}`, `Hitzkopf ${p.name} ist im Training mit ${other.name} aneinandergeraten. Beide mussten vorzeitig duschen gehen (je -3% Motivation).`, 'mood');
     }
 
-    const fit = getStaffQuality('fitness');
-    if (Math.random() < 0.05 * (1 - 0.1 * fit)) {
-        const pool = squad.filter(p => !isPlayerUnavailable(p));
-        if (pool.length > 0) {
-            const p = pickWeighted(pool, x => (hasTrait(x, 'fragile') ? 2 : 1));
-            const n = Math.max(1, 1 + Math.floor(Math.random() * 3) - Math.floor(getStaffQuality('physio') / 2));
-            p.injuredMatches = n;
-            p.injuryReason = "Trainingsverletzung";
-            const wasIn = removePlayerFromMatchSquad(p.id);
-            addInbox('🚑', `Trainingsverletzung: ${p.name}`, `${p.name} (${p.pos}) hat sich im Training verletzt und fällt voraussichtlich ${n} ${n === 1 ? 'Spiel' : 'Spiele'} aus.${wasIn ? ' Er wurde aus der Startelf genommen – bitte stelle einen Ersatz auf!' : ''}`, 'injury');
-        }
-    }
-
+    // Trainingsverletzungen entstehen seit v1.18.1 nur noch im Trainingsmodul (abhängig von Einheit & Belastung)
     updateMotivationWeekly();
     driftBoardPressWeekly();
     loanReminders();
