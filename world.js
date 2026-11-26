@@ -73,7 +73,7 @@ function ensureScheduleDates(leagueId) {
     const total = sched.matchdays.length;
     const half = Math.ceil(total / 2);
     const wb = getWinterBreakWeeks(leagueId);
-    const intlBreaks = total <= 34 ? [3, 7, 11] : [4, 12];
+    const intlBreaks = total <= 34 ? [3, 7, 11] : [4, 8, 12];   // 3 Länderspielpausen im Herbst
     let d = addDaysDate(getPreseasonStartDate(), 33);
     while (d.getDay() !== 6) d = addDaysDate(d, 1);
     sched.matchdays.forEach((md, i) => {
@@ -144,12 +144,14 @@ function syncGameClock() {
     const newISO = getCurrentGameDate();
     const oldISO = GameState.meta.currentDate;
     if (oldISO && newISO > oldISO) processBirthdays(oldISO, newISO);
+    if (oldISO && newISO > oldISO && typeof intlPrepare === 'function') intlPrepare(newISO);      // Kader für Länderspiele berufen
         if (oldISO && newISO > oldISO && typeof processTrainingDays === 'function') processTrainingDays(oldISO, newISO);
     if (!oldISO || newISO > oldISO) {
         GameState.meta.currentDate = newISO;
         onTransferClockAdvance(oldISO, newISO);
         processStadiumProject();
     }
+    if (oldISO && newISO > oldISO && typeof intlProcess === 'function') intlProcess(newISO);      // Länderspiele austragen
 }
 
 // Alte Spielstände / Spielstart: Transferlisten passend zum aktuellen Fenster aufbauen
@@ -592,6 +594,7 @@ function createGeneratedPlayer(clubId, pos, avgRating, seasonEnd, isYouth = fals
     const p = {
         id, clubId, pos,
         name: randomPlayerName(country),
+        nat: country,
         age, rating,
         salary: 0,
         contractUntil: seasonEnd + 1 + Math.floor(Math.random() * 3),

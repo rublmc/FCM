@@ -306,6 +306,7 @@ ${rep.preTalk ? `<br>🗣️ Vor dem Spiel: ${rep.preTalk}` : ''}
 
 function buildInboxActionHtml(msg) {
     if (msg.action && msg.action.type === 'newspaper') return buildNewspaperHtml(msg.action, msg.date);
+    if (msg.action && msg.action.type === 'intlOffer' && typeof buildIntlInboxActionHtml === 'function') return buildIntlInboxActionHtml(msg);
     if (!msg.action || msg.action.type !== 'transferOffer') return '';
     const off = (GameState.transferOffers || []).find(o => o.id === msg.action.offerId);
     if (!off || off.status !== 'open') return `<p style="margin-top:4px; color:#555;"><em>Dieses Angebot ist nicht mehr aktiv.</em></p>`;
@@ -630,6 +631,7 @@ ${GameState.stadiumProject ? (() => { const pi = getStadiumProjectInfo(GameState
     });
 
     bindTransferOfferButtons(viewport, () => renderOfficeView(viewport));
+    if (typeof bindIntlOfferButtons === 'function') bindIntlOfferButtons(viewport, () => renderOfficeView(viewport));
     if (activeNegotiation && activeNegotiation.kind === 'sale') bindSaleNegotiation(() => renderOfficeView(viewport));
 
     viewport.querySelectorAll('.inbox-item').forEach(el => {

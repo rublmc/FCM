@@ -40,6 +40,7 @@ const CLUB_COLOR_PALETTE = [
 ];
 
 function getClubColors(clubId) {
+    if (String(clubId).startsWith('nat_') && typeof natColors === 'function') return natColors(String(clubId).slice(4));   // Nationalmannschaft
     const club = GameState.clubs[clubId];
     if (club && Array.isArray(club.colors) && club.colors.length >= 2) return [club.colors[0], club.colors[1]];
     const name = (club ? club.name : getAnyClubName(clubId) || '').toLowerCase();
@@ -77,6 +78,26 @@ function trophyShapeSvg(type, cx, cy, s, uid) {
             <path d="M${-16 * s},${-30 * s} L${16 * s},${-30 * s}" stroke="#e7eaee" stroke-width="2"/>
             <rect x="${-6 * s}" y="${12 * s}" width="${12 * s}" height="${20 * s}" fill="${silver}"/>
             <rect x="${-18 * s}" y="${30 * s}" width="${36 * s}" height="${12 * s}" fill="#3a3f47"/>
+        </g>`;
+    }
+    if (type === 'wm') {
+        // WM-Pokal: goldene Spirale, die eine Weltkugel trägt
+        return `<g transform="translate(${cx},${cy})">
+            <circle cx="0" cy="${-30 * s}" r="${17 * s}" fill="${gold}" stroke="#9c7412" stroke-width="2"/>
+            <path d="M${-15 * s},${-34 * s} Q0,${-26 * s} ${15 * s},${-34 * s} M${-11 * s},${-42 * s} Q0,${-36 * s} ${11 * s},${-42 * s} M${-4 * s},${-46 * s} Q${-9 * s},${-30 * s} ${-4 * s},${-14 * s}" fill="none" stroke="#9c7412" stroke-width="1.5"/>
+            <path d="M${-16 * s},${-20 * s} Q${-22 * s},${2 * s} ${-9 * s},${18 * s} L${9 * s},${18 * s} Q${22 * s},${2 * s} ${16 * s},${-20 * s} Q0,${-8 * s} ${-16 * s},${-20 * s} Z" fill="${gold}" stroke="#9c7412" stroke-width="2"/>
+            <rect x="${-14 * s}" y="${18 * s}" width="${28 * s}" height="${6 * s}" fill="#1e7b3c"/>
+            <rect x="${-14 * s}" y="${24 * s}" width="${28 * s}" height="${4 * s}" fill="${gold}"/>
+            <rect x="${-14 * s}" y="${28 * s}" width="${28 * s}" height="${6 * s}" fill="#1e7b3c"/>
+        </g>`;
+    }
+    if (type === 'em') {
+        // EM-Pokal: hoher, schlanker Silberpokal mit breitem Rand
+        return `<g transform="translate(${cx},${cy})">
+            <path d="M${-22 * s},${-50 * s} L${22 * s},${-50 * s} L${16 * s},${-40 * s} L${11 * s},${10 * s} L${-11 * s},${10 * s} L${-16 * s},${-40 * s} Z" fill="${silver}" stroke="#8a8f96" stroke-width="2"/>
+            <path d="M${-14 * s},${-38 * s} L${14 * s},${-38 * s}" stroke="#ffffff" stroke-width="2"/>
+            <path d="M${-16 * s},${-40 * s} C${-30 * s},${-36 * s} ${-28 * s},${-18 * s} ${-12 * s},${-14 * s} M${16 * s},${-40 * s} C${30 * s},${-36 * s} ${28 * s},${-18 * s} ${12 * s},${-14 * s}" fill="none" stroke="${silver}" stroke-width="${4 * s}"/>
+            <rect x="${-15 * s}" y="${10 * s}" width="${30 * s}" height="${22 * s}" fill="${silver}" stroke="#8a8f96" stroke-width="1.5"/>
         </g>`;
     }
     if (type === 'ecl') {
@@ -197,11 +218,13 @@ function recordCareerMatch(gf, ga, won, draw) {
 }
 
 // Titel eintragen + Feier vormerken. type: 'league' | 'national' | 'cl' | 'el' | 'ecl'
-function recordCareerTitle(type, name) {
+// who (optional): { clubId, club, captain } – z. B. für Titel mit der Nationalmannschaft
+function recordCareerTitle(type, name, who = null) {
     const c = ensureCareerInitialized();
-    const s = getCurrentStation();
-    const uid = GameState.activeClubId;
-    const entry = { type, name, season: GameState.meta.season, clubId: uid, club: getAnyClubName(uid) };
+    const s = who ? null : getCurrentStation();
+    const uid = who ? who.clubId : GameState.activeClubId;
+    const entry = { type, name, season: GameState.meta.season, clubId: uid, club: who ? who.club : getAnyClubName(uid) };
+    if (who && who.captain) entry.captain = who.captain;
     if (c.titles.some(t => t.type === type && t.season === entry.season && t.clubId === uid)) return;
     c.titles.push(entry);
     if (s) s.titles.push(entry);
@@ -225,14 +248,15 @@ function recordCareerSeason(rank, size, promoted, relegated, leagueName) {
 }
 
 // ---------- Titel-Feier (Overlay) ----------
-const TITLE_TYPE_LABEL = { league: 'MEISTER!', national: 'POKALSIEGER!', cl: 'CHAMPIONS-LEAGUE-SIEGER!', el: 'EUROPA-LEAGUE-SIEGER!', ecl: 'CONFERENCE-LEAGUE-SIEGER!' };
+const TITLE_TYPE_LABEL = { league: 'MEISTER!', national: 'POKALSIEGER!', cl: 'CHAMPIONS-LEAGUE-SIEGER!', el: 'EUROPA-LEAGUE-SIEGER!', ecl: 'CONFERENCE-LEAGUE-SIEGER!', em: 'EUROPAMEISTER!', wm: 'WELTMEISTER!' };
 
 function showPendingCelebration() {
     if (!Array.isArray(GameState.pendingCelebrations) || GameState.pendingCelebrations.length === 0) return false;
     if (document.getElementById('trophy-overlay')) return true;
     const t = GameState.pendingCelebrations[0];
     const squad = getClubPlayers();
-    const captain = [...squad].sort((a, b) => (hasTrait(b, 'leader') - hasTrait(a, 'leader')) || (b.clubApps || 0) - (a.clubApps || 0) || b.rating - a.rating)[0];
+    const best = [...squad].sort((a, b) => (hasTrait(b, 'leader') - hasTrait(a, 'leader')) || (b.clubApps || 0) - (a.clubApps || 0) || b.rating - a.rating)[0];
+    const captain = t.captain ? { id: t.captain, name: t.captain } : (String(t.clubId).startsWith('nat_') ? null : best);
     const div = document.createElement('div');
     div.id = 'trophy-overlay';
     div.className = 'trophy-overlay';
@@ -303,7 +327,8 @@ function buildCareerHtml() {
         <div class="bmh-box" style="padding:8px;">
             <h3 style="font-size:0.80rem; color:#184d25; margin-bottom:6px;">🧭 STATIONEN</h3>
             ${stationHtml}
-        </div>`;
+        </div>
+        ${typeof buildNationalCareerHtml === 'function' ? buildNationalCareerHtml() : ''}`;
 }
 
 function buildTitlesHtml() {

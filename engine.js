@@ -38,6 +38,10 @@ function startGameAfterStorage() {
 
 // Alle Initialisierungen (auch für alte Spielstände)
 function initGameWorld() {
+    // Bestehender Spielstand (schon Nachrichten/Spieltage): gilt als bereits begrüßt
+    if (GameState.meta.welcomedClubId === undefined && ((GameState.inbox || []).length > 0 || (GameState.meta.tick || 0) > 0)) {
+        GameState.meta.welcomedClubId = GameState.activeClubId;
+    }
     ensurePlayerStatsInitialized();
     ensureFreeAgentsInitialized();
     ensureSalaryCalibration();
@@ -56,8 +60,11 @@ function initGameWorld() {
     ensureCoachInitialized();
     ensureTrainingInitialized();
     ensureCareerInitialized();
+    ensureIntlInitialized();
     syncGameClock();
-    if (GameState.inbox.filter(m => m.cat === 'board').length === 0) {
+    // Willkommensnachricht nur beim ersten Start bei einem Verein (nicht bei jedem Neuladen der Seite)
+    if (GameState.meta.welcomedClubId !== GameState.activeClubId) {
+        GameState.meta.welcomedClubId = GameState.activeClubId;
         const club = GameState.clubs[GameState.activeClubId];
         addInbox('🤝', 'Willkommen beim Verein!', `Hallo ${GameState.meta.managerName}, der Vorstand von ${club ? club.name : 'deinem neuen Verein'} heißt dich herzlich willkommen! In der Saisonvorbereitung kannst du Testspiele, Trainingslager und Events buchen, Sponsoren verhandeln und deinen Trainerstab (✍️ 🏠 MENÜ → VERTRÄGE → STAB) zusammenstellen. Viel Erfolg!`, 'board');
     }
@@ -82,6 +89,7 @@ function compactPlayer(p) {
     for (const k in p) {
         if (k === 'birthday' && p.birthday === generateBirthday(p.id)) continue;
         if (Object.prototype.hasOwnProperty.call(PLAYER_DEFAULTS, k) && p[k] === PLAYER_DEFAULTS[k]) continue;
+        if (k === 'nat' && p.nat === natClubCountry(p)) continue;      // Staatsbürgerschaft = Vereinsland wird nicht gespeichert
         o[k] = p[k];
     }
     return o;
@@ -451,6 +459,7 @@ function renderView(viewName) {
         case 'menu': renderMenuView(viewport); break;
         case 'training': renderTrainingView(viewport); break;
         case 'trainer': renderTrainerView(viewport); break;
+        case 'intl': renderIntlView(viewport); break;
         default: renderMenuView(viewport);
     }
     // Titel gewonnen? Feier mit Pokalbild zeigen – liegt über einer anschließenden Pressekonferenz (erst feiern, dann Interview)

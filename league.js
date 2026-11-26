@@ -472,6 +472,8 @@ function evaluatePlayerSeasonDevelopment(player, teamSuccessDelta, isUserClub, h
 function finishSeasonAndAdvance() {
     const club = GameState.clubs[GameState.activeClubId];
     if (!club) return;
+    // Restliche Länderspiele & EM/WM vor dem Saisonwechsel (bei eigenem Turnier: Frage, ob man selbst spielen will)
+    if (typeof intlBeforeSeasonFinish === 'function' && !intlBeforeSeasonFinish()) return;
 
     ensurePlayerStatsInitialized();
     flushAllPendingEvents();

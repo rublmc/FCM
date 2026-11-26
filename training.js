@@ -313,6 +313,8 @@ function processTrainingDays(fromISO, toISO) {
                 p.fit = Math.min(100, getFitness(p) + (100 - getFitness(p)) * 0.10);   // Reha
                 return;
             }
+            if (typeof isPlayerOnIntlDuty === 'function' && isPlayerOnIntlDuty(p, d.iso)) return;   // bei der Nationalmannschaft
+            if (typeof intlCheckTournamentHoliday === 'function' && intlCheckTournamentHoliday(p, d.iso)) return;   // Turnierurlaub
             const rec = 0.12 * (1 + 0.12 * Math.max(-1, Math.min(1.2, getTrainedOffset(p, 'cond')))) + fq * 0.004;
             p.fit = Math.min(100, parseFloat((getFitness(p) + (100 - getFitness(p)) * rec).toFixed(1)));
             dayUnits.forEach(uk => applyTrainingSession(p, uk, eff, log));
@@ -374,14 +376,18 @@ function processTrainingVacation(fromISO, toISO, gap) {
     const t = ensureTrainingInitialized();
     const before = { ...t.team };
     const fitBefore = getTeamFreshness();
+    const holiday = [];
     getClubPlayers().forEach(p => {
         p.fit = 100;
+        const back = typeof intlApplyTournamentFatigue === 'function' ? intlApplyTournamentFatigue(p) : null;   // EM/WM-Fahrer
+        if (back) holiday.push(`• ${p.name} – zurück am ${formatGameDate(back)}`);
         if (!p.tr) return;
         TRAIN_ATTR_KEYS.forEach(k => {
             if (typeof p.tr[k] === 'number') p.tr[k] = parseFloat((p.tr[k] * Math.pow(TRAIN_TR_DECAY, gap)).toFixed(4));
         });
     });
     ['tactics', 'pressing', 'standards'].forEach(k => { t.team[k] = Math.max(TRAIN_TEAM_FLOOR, t.team[k] - (t.team[k] - TRAIN_TEAM_FLOOR) * 0.35); });
+    if (holiday.length) addInbox('🏖️', `Turnierurlaub: ${holiday.length} Spieler später zurück`, `Nach dem Sommerturnier haben deine Nationalspieler länger Urlaub und verpassen einen Teil der Vorbereitung. Danach fehlt ihnen etwas Fitness:\n${holiday.join('\n')}`, 'squad', toISODate(addDaysDate(fromISODate(fromISO), 1)));
     t.lastReport = {
         from: toISODate(addDaysDate(fromISODate(fromISO), 1)), to: toISODate(addDaysDate(fromISODate(toISO), -1)), days: [], vacation: true,
         mode: t.mode, units: {}, fitBefore, fitAfter: getTeamFreshness(),

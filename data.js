@@ -2,9 +2,9 @@
 // FC MANAGER 27 - MODUL: DATA & KONSTANTEN
 // ==========================================
 window.FCM_APP_STARTED = true;
-const GAME_VERSION = "1.18.1";
-const ASSET_VERSION = "28.1";   // muss zum ?v= in index.html/start.html passen (Cache-Busting)
-const GAME_BUILD_DATE = "24.11.2026";
+const GAME_VERSION = "1.19.0";
+const ASSET_VERSION = "29.0";   // muss zum ?v= in index.html/start.html passen (Cache-Busting)
+const GAME_BUILD_DATE = "25.11.2026";
 
 
 const FORMATIONS = {
@@ -274,7 +274,7 @@ const WINTER_EVENTS = [
 
 let GameState = {
     meta: {
-        coreVersion: "1.18.1",
+        coreVersion: "1.19.0",
         season: "2026/27",
         phase: "preseason", // 'preseason' | 'season' | 'winter'
         preseasonWeek: 1,   // 1..4
@@ -314,6 +314,7 @@ let GameState = {
             coach: null,           // Trainervertrag (Gehalt, Laufzeit, Saisonziel)
     training: null,        // Trainingsplan, Mannschafts-Werte (Taktik, Pressing, Standards)
     career: null,          // Trainerkarriere: Stationen & Titel
+    intl: null,            // Nationalmannschaften, Länderspiele, EM/WM
     pendingCelebrations: [], // gewonnene Titel, deren Feier noch angezeigt wird
     preseason: null,
     winterBreak: null,
@@ -351,7 +352,8 @@ function resetCareerFields(clubId) {
     GameState.activeClubId = clubId;
     Object.assign(GameState.meta, {
         season: "2026/27", phase: "preseason", preseasonWeek: 1, matchday: 1,
-        currentDate: null, tick: 0, harshWinter: false, weatherSeason: null
+        currentDate: null, tick: 0, harshWinter: false, weatherSeason: null,
+        natVer: 0, welcomedClubId: undefined
     });
     GameState.schedule = {};
     GameState.catchUps = [];
@@ -372,6 +374,7 @@ function resetCareerFields(clubId) {
             GameState.coach = null;
       GameState.training = null;
       GameState.career = null;
+      GameState.intl = null;
       GameState.pendingCelebrations = [];
       GameState.preseason = null;
     GameState.winterBreak = null;

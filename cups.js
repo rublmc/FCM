@@ -1437,6 +1437,7 @@ function buildNextEventBannerHtml(showUpcoming = true) {
             <div class="bmh-box" style="padding:10px; background:#184d25; color:#fff; border-color:#e5b822; text-align:center;">
                 <p style="font-size:0.82rem; color:#e5b822; font-weight:bold;">🏆 SAISON ${GameState.meta.season} BEENDET!</p>
                 <p style="font-size:0.72rem; margin:4px 0 8px 0;">Alle Liga- und Pokalspiele sind absolviert. Jetzt Stärkeentwicklung & Saisonübergang starten!</p>
+                ${typeof buildIntlSeasonEndHintHtml === 'function' ? buildIntlSeasonEndHintHtml() : ''}
                 <button id="btn-finish-season" type="button" class="bmh-btn" style="width:100%; background:#e5b822; color:#111;">🏆 SAISON ABSCHLIESSEN</button>
             </div>
         `;
@@ -1474,4 +1475,6 @@ function bindNextEventBanner() {
     if (play) play.addEventListener('click', () => startLiveMatchday());
     const fin = document.getElementById('btn-finish-season');
     if (fin) fin.addEventListener('click', () => finishSeasonAndAdvance());
+    const tourBtn = document.getElementById('btn-goto-tour');
+    if (tourBtn) tourBtn.addEventListener('click', () => { intlSubTab = 'tour'; switchToView('intl'); });
 }

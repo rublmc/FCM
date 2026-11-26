@@ -699,6 +699,7 @@ function renderCalendarView(viewport) {
     viewport.innerHTML = `
         <h2 class="section-title">📅 KALENDER • ${formatGameDate(GameState.meta.currentDate || getCurrentGameDate(), true).toUpperCase()}</h2>
         ${phaseBannerHtml}
+        ${typeof buildIntlCalendarHtml === 'function' ? buildIntlCalendarHtml() : ''}
         ${devReportHtml}
         ${weekReportHtml}
         ${bookingModalHtml}

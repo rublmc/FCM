@@ -680,7 +680,7 @@ function buildRosterTabHtml(mySquad) {
                             <td><strong>${p.pos}</strong></td>
                             <td class="form-cell">${getFormArrow(p)}</td>
                             <td title="${escAttr(p.name)} (${p.age} J. | Mot: ${mot}%)">
-<strong>${youthIcon}${p.name}</strong> ${traitBadgeHtml(p)}${p.lifeEvent && (GameState.meta.tick || 0) - p.lifeEvent.tick <= 6 ? `<span title="Privat: ${p.lifeEvent.title}">${p.lifeEvent.icon}</span>` : ''}<br>
+${natFlagHtml(p, 9)} <strong>${youthIcon}${p.name}</strong> ${isPlayerCalledUp(p) ? '<span class="intl-badge" title="Für die nächsten Länderspiele nominiert">🌍</span>' : ''}${traitBadgeHtml(p)}${p.lifeEvent && (GameState.meta.tick || 0) - p.lifeEvent.tick <= 6 ? `<span title="Privat: ${p.lifeEvent.title}">${p.lifeEvent.icon}</span>` : ''}<br>
 <span style="font-size:0.60rem; color:#444;">${p.age}J • ${getMotivationIcon(mot)}${mot}%${p.wantsOut ? '🚪' : ((p.unhappyWeeks || 0) >= 3 ? '⚠️' : '')} • <span title="Kondition: ${fitnessLabel(p)}" style="${getFitness(p) < 70 ? 'color:#a82424; font-weight:bold;' : ''}">⚡${Math.round(getFitness(p))}%</span> • ${p.loanFrom ? '🔁bis ' + (p.loanUntil || '') : "'" + String(p.contractUntil).slice(-2)}${suspNote}</span>
                             </td>
                             <td><strong>${p.rating.toFixed(1)}</strong></td>
@@ -803,7 +803,7 @@ function buildTransferMarketTabHtml() {
                         <tr class="mkt-row" data-pid="${p.id}" style="cursor:pointer;" title="Spielerkarte öffnen">
                             <td><strong>${p.pos}</strong></td>
                             <td title="${escAttr(p.name)} (${escAttr(p.clubLabel)})">
-                                ${getFormArrow(p)} <strong>${p.name}</strong><br>
+                                ${getFormArrow(p)} ${natFlagHtml(p, 9)} <strong>${p.name}</strong><br>
                                 <span style="font-size:0.62rem; color:#444;">${p.clubLabel}${p.aiListed ? ' • 📋 Transferliste' : ''}</span>
                             </td>
                             <td>${p.age}</td>
@@ -1121,16 +1121,17 @@ function buildPlayerCardHtml(p) {
                 <div class="pc-pos">${p.pos}</div>
                 <div style="flex:1; min-width:0;">
                     <div class="pc-name">${p.isYouthProduct ? '🌱 ' : ''}${p.name}</div>
-                    <div class="pc-sub">${p.age} Jahre • ${club ? club.name : ''} • Talent ${stars}</div>
+                    <div class="pc-sub">${natFlagHtml(p, 11)} ${natName(getPlayerNat(p))} • ${p.age} Jahre • ${club ? club.name : ''} • Talent ${stars}</div>
                 </div>
                 <div class="pc-rating">${p.rating.toFixed(1)}</div>
                 <button id="btn-close-card" type="button" class="bmh-btn danger small-btn" style="padding:2px 7px; align-self:flex-start;">✕</button>
             </div>
-            <div class="pc-status"><span class="contract-pill ${statusCls}">${status}</span> <span style="font-size:0.66rem;">• ${role} • ${getMotivationIcon(p.motivation)} Motivation ${p.motivation || 78}%</span></div>
+            <div class="pc-status"><span class="contract-pill ${statusCls}">${status}</span>${p.tAway ? ` <span class="contract-pill medium">🏖️ Turnierurlaub bis ${formatGameDate(p.tAway)}</span>` : ''} <span style="font-size:0.66rem;">• ${role} • ${getMotivationIcon(p.motivation)} Motivation ${p.motivation || 78}%</span></div>
             <div class="pc-trait"><strong>${PLAYER_TRAITS[getPlayerTrait(p)].icon || '🙂'} Charakter: ${PLAYER_TRAITS[getPlayerTrait(p)].label}</strong><br><span>${PLAYER_TRAITS[getPlayerTrait(p)].desc}</span></div>
             ${buildMotivationCardHtml(p)}
             ${p.lifeEvent ? `<div class="pc-trait" style="background:${p.lifeEvent.mot >= 0 ? '#d3f9d8' : '#ffe3e3'};"><strong>${p.lifeEvent.icon} Privat:</strong> ${p.name} ${p.lifeEvent.title}${p.lifeEvent.date ? ` (${formatGameDate(p.lifeEvent.date)})` : ''} • Motivation ${p.lifeEvent.mot > 0 ? '+' : ''}${p.lifeEvent.mot}%</div>` : ''}
             <div class="pc-grid">
+                <div class="pc-cell"><span>LÄNDERSPIELE</span><strong>${natFlagHtml(p, 10)} ${p.caps || 0}</strong><em>${p.intlGoals || 0} Tore${isPlayerCalledUp(p) ? ' • 🌍 nominiert' : ''}</em></div>
                 <div class="pc-cell"><span>SPIELE SAISON</span><strong>${p.seasonApps || 0}</strong><em>${p.seasonMinutes || 0} Min.</em></div>
                 <div class="pc-cell"><span>TORE SAISON</span><strong>${p.seasonGoals || 0}</strong><em>+ ${p.cupGoals || 0} im Pokal</em></div>
                 <div class="pc-cell"><span>SPIELE FÜR ${club ? club.name.toUpperCase() : 'VEREIN'}</span><strong>${p.clubApps || 0}</strong><em>seit ${p.clubSince || GameState.meta.season}</em></div>
