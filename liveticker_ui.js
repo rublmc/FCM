@@ -41,6 +41,12 @@ function renderLiveTickerView(viewport) {
     } else if (st.phase === 'FULLTIME') {
         clockDisplay = "ABPFIFF";
         pillClass = "fulltime";
+    } else if (st.penState) {
+        clockDisplay = `🎯 ELFMETER ${st.penState.h}:${st.penState.a}`;
+        pillClass = "paused";
+    } else if (st.etStage) {
+        clockDisplay = st.isPaused && st.minute === 90 ? "VERLÄNGERUNG" : `${st.minute}' n.V.${st.isPaused ? ' PAUSE' : ''}`;
+        if (st.isPaused) pillClass = "paused";
     } else if (st.stoppageElapsed > 0) {
         const baseMin = st.phase === 'FIRST_HALF' ? 45 : 90;
         clockDisplay = `${baseMin}+${st.stoppageElapsed}'`;
@@ -423,7 +429,7 @@ function renderLiveTickerView(viewport) {
                     <div class="live-sub-row ${(!p && isRedLocked) ? 'sent-off' : ''}" style="${isSel ? 'border:2px solid #e5b822; background:#fff3bf;' : ''}">
                         <span style="width:14%; font-weight:bold; color:#184d25;">${slotPos}</span>
                         <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                          ${p ? `<strong>${p.name}</strong> ${hasYellow ? '🟨' : ''} (${calculateSlotEffectiveRating(p, slotPos).toFixed(1)}) ${typeof liveGradesList[p.id] === 'number' ? gradeBadgeHtml(liveGradesList[p.id]) : ''}` : (isRedLocked ? '🟥 UNTERZAHL (Position frei)' : '— Freier Platz —')}
+                          ${p ? `${natFlagHtml(p, 9)} <strong title="${escAttr(p.name)}">${getAbbrevName(p.name)}</strong> ${hasYellow ? '🟨' : ''} (${calculateSlotEffectiveRating(p, slotPos).toFixed(1)}) ${typeof liveGradesList[p.id] === 'number' ? gradeBadgeHtml(liveGradesList[p.id]) : ''}` : (isRedLocked ? '🟥 UNTERZAHL (Position frei)' : '— Freier Platz —')}
                         </span>
                         <button class="mini-action-btn btn-pick-live-pitch" data-slot="${idx}" style="width:auto; padding:3px 7px;">
                             ${isSel ? '✓ GEWÄHLT' : 'WÄHLEN'}
@@ -440,7 +446,7 @@ function renderLiveTickerView(viewport) {
             : availBench.map(item => `
                 <div class="live-sub-row">
                     <span style="width:14%; font-weight:bold;">${item.player.pos}</span>
-                    <span style="flex:1;"><strong>${item.player.name}</strong> (Stä. ${item.player.rating.toFixed(1)})</span>
+                    <span style="flex:1;">${natFlagHtml(item.player, 9)} <strong title="${escAttr(item.player.name)}">${getAbbrevName(item.player.name)}</strong> (Stä. ${item.player.rating.toFixed(1)})</span>
                     <button class="mini-action-btn youth btn-exec-live-sub" data-bidx="${item.benchIdx}"
                             style="width:auto; padding:3px 7px;"
                             ${!canSubOntoSelected ? 'disabled' : ''}>

@@ -29,6 +29,19 @@ function withClubIndex(fn) {
     }
 }
 
+// Vorname abgekürzt: "Joshua Kimmich" -> "J. Kimmich", "Marc-André ter Stegen" -> "M. ter Stegen".
+// Einteilige Namen (z. B. "Pedri") und Spieler mit zweiteiligem Nachnamen bleiben lesbar.
+function getAbbrevName(fullName) {
+    if (!fullName) return "-";
+    const parts = String(fullName).trim().split(/\s+/);
+    if (parts.length === 1) return parts[0];
+    const first = parts[0];
+    // Koreanische/Japanische Reihenfolge mit Bindestrich (z. B. "Son Heung-min") nicht verstümmeln
+    if (parts.length === 2 && parts[1].includes('-') && parts[0].length <= 4) return fullName;
+    const initial = first.charAt(0).toUpperCase() + '.';
+    return `${initial} ${parts.slice(1).join(' ')}`;
+}
+
 function getShortName(fullName) {
     if (!fullName) return "-";
     const parts = fullName.trim().split(" ");
@@ -487,7 +500,7 @@ function renderTacticsView(viewport) {
                  data-index="${idx}"
                  data-playerid="${player.id}">
                   <span class="chip-pos" title="Positionen: ${getPlayerPositions(player).join(', ')}">${player.pos}</span>
-                  <span class="chip-name">${natFlagHtml(player, 8)} ${getShortName(player.name)}</span>
+                  <span class="chip-name">${natFlagHtml(player, 8)} ${getAbbrevName(player.name)}</span>
                   <span class="chip-form">${getFormArrow(player)}</span>
                   <span class="chip-rating">${player.rating.toFixed(1)}</span>
             </div>
@@ -513,7 +526,7 @@ function renderTacticsView(viewport) {
                          data-playerid="${player.id}"
                          title="${escAttr(unavailable ? `${player.name}: ${getUnavailableLabel(player)}` : player.name)}">
                         <span class="chip-pos" style="${unavailable ? 'background:#a82424; color:#fff; width:auto; padding:0 2px;' : ''}">${badgeTxt}</span>
-                          <span class="chip-name">${natFlagHtml(player, 8)} ${getShortName(player.name)}</span>
+                          <span class="chip-name">${natFlagHtml(player, 8)} ${getAbbrevName(player.name)}</span>
                           <span class="chip-form">${getFormArrow(player)}</span>
                           <span class="chip-rating">${player.rating.toFixed(1)}</span>
                     </div>

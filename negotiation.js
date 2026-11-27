@@ -206,11 +206,26 @@ function negoSubmit(score, offerLabel, hintBuilder) {
             mood = 'happy';
             accepted = true;
             quoteKey = 'concede';
+        } else if (Math.random() < negoConcedeChance(n, 0.28)) {
+            // v1.21: Ab und zu gibt die Gegenseite bei einem knappen Angebot einfach nach
+            mood = 'happy';
+            accepted = true;
+            quoteKey = 'concede';
+            n.reservation = score;
+            n.concessions = (n.concessions || 0) + 1;
         } else {
             mood = 'positive';
         }
     } else if (ratio >= 0.84) {
         mood = 'skeptical';
+        // v1.21: Ab und zu kommt die Gegenseite ein großes Stück entgegen (höchstens einmal je Verhandlung)
+        if (!n.metHalfway && Math.random() < negoConcedeChance(n, 0.16)) {
+            n.metHalfway = true;
+            n.reservation = (n.reservation + score) / 2;
+            n.concessions = (n.concessions || 0) + 1;
+            mood = 'positive';
+            ratio = score / n.reservation;
+        }
     } else {
         mood = 'angry';
     }
@@ -229,12 +244,28 @@ function negoSubmit(score, offerLabel, hintBuilder) {
         }
         quoteKey = mood;
     }
-    n.log.push({ round: n.round, mood, offer: offerLabel, quote: pickQuote(n.voice, quoteKey, n), hint });
+    const concededNow = (n.concessions || 0) > (n.loggedConcessions || 0);
+    n.loggedConcessions = n.concessions || 0;
+    n.log.push({ round: n.round, mood, offer: offerLabel, quote: pickQuote(n.voice, quoteKey, n), hint, conceded: concededNow });
     n.lastMood = mood;
     if (typeof SoundFX !== 'undefined') SoundFX.playNegotiation(accepted ? 'happy' : mood);
     n.status = accepted ? 'accepted' : (mood === 'quit' ? 'aborted' : 'open');
     if (n.status === 'aborted' && n.key) blockNego(n.key, 3);
     return n;
+}
+
+// Wie gern gibt die Gegenseite nach? Charakter, Schwierigkeit und letzte Runde spielen mit.
+function negoConcedeChance(n, base) {
+    let c = base;
+    const per = { diva: 0.45, hothead: 0.7, loyal: 1.5, pro: 1.1, lazy: 1.2 }[n.persona];
+    if (per) c *= per;
+    if (n.round >= n.maxRounds) c *= 1.35;                  // letzte Chance: lieber einigen als scheitern
+    if (n.voice === 'sponsor' || n.voice === 'staff') c *= 1.1;
+    if (typeof getDifficulty === 'function') {
+        const d = getDifficulty();
+        if (d.nego <= 0) c *= 1.25; else if (d.nego >= 0.05) c *= 0.75;
+    }
+    return Math.min(0.6, c);
 }
 
 function blockNego(key, ticks = 3) {
@@ -278,6 +309,7 @@ function buildNegotiationPanelHtml(opts) {
                     <span class="nego-mood" style="background:${m.color};">${m.icon} ${m.label}</span>
                 </div>
                 <div class="nego-quote">„${e.quote}“</div>
+                ${e.conceded ? `<div class="nego-hint" style="background:#d3f9d8; color:#184d25;">🤝 ${e.mood === 'happy' ? 'Die Gegenseite gibt nach und akzeptiert dein Angebot!' : 'Die Gegenseite kommt dir ein gutes Stück entgegen.'}</div>` : ''}
                 ${e.hint ? `<div class="nego-hint">💡 ${e.hint}</div>` : ''}
             </div>
         `;

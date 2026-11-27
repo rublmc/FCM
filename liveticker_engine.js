@@ -405,7 +405,7 @@ function skipLiveToNextBreak() {
     liveMatchState.pauseReason = "";
     let safety = 0;
     SoundFX.eventsMuted = true; // beim Vorspulen keine Geräusch-Flut
-    while (liveMatchState && !liveMatchState.isPaused && liveMatchState.phase !== 'HALFTIME' && liveMatchState.phase !== 'FULLTIME' && safety < 110) {
+    while (liveMatchState && !liveMatchState.isPaused && liveMatchState.phase !== 'HALFTIME' && liveMatchState.phase !== 'FULLTIME' && safety < 170) {
         tickLiveMatchday(true);
         safety++;
     }
@@ -1231,27 +1231,40 @@ function tickLiveMatchday(silentRender = false) {
             return;
         }
     } else if (liveMatchState.phase === 'SECOND_HALF') {
-        if (liveMatchState.minute < 90) {
+        // v1.21: Elfmeterschießen läuft Schuss für Schuss im Ticker
+        if (liveMatchState.penState) {
+            tickLivePenalty(silentRender);
+            return;
+        }
+        const endMin = liveMatchState.etStage ? 120 : 90;
+        if (liveMatchState.minute < endMin) {
             liveMatchState.minute++;
             minLabel = `${liveMatchState.minute}'`;
+            if (liveMatchState.etStage) {
+                isStoppageMinute = true;                          // andere Spiele sind bereits beendet
+                if (liveMatchState.minute === 106) addLiveTickerEntry("105'", "system", "halftime", `🔄 SEITENWECHSEL in der Verlängerung – Stand: ${liveMatchState.userMatch.homeName} ${liveMatchState.userMatch.homeGoals}:${liveMatchState.userMatch.awayGoals} ${liveMatchState.userMatch.awayName}`);
+            }
+        } else if (liveMatchState.etStage) {
+            // Ende der Verlängerung
+            if (liveKoStillTied()) {
+                startLivePenalties();
+                if (!silentRender) { renderHeader(); renderView('liveticker'); }
+            } else {
+                finishLiveKo(false);
+                endLiveMatchFulltime("120'", silentRender);
+            }
+            return;
         } else if (liveMatchState.stoppageElapsed < liveMatchState.stoppage2) {
             liveMatchState.stoppageElapsed++;
             isStoppageMinute = true;
             minLabel = `90+${liveMatchState.stoppageElapsed}'`;
         } else {
-            liveMatchState.phase = 'FULLTIME';
-            liveMatchState.isPaused = true;
-            SoundFX.playWhistle('fulltime');
-            liveMatchState.pauseReason = "🏁 ABPFIFF";
-            stopLiveTickerTimer();
-            const um = liveMatchState.userMatch;
-            const ftScore = um ? `${um.homeName} ${um.homeGoals}:${um.awayGoals} ${um.awayName}` : "";
-            addLiveTickerEntry("90'", "system", "halftime", `🏁 ABPFIFF! Endstand: ${ftScore}`);
-            if (liveMatchState.cupCtx) applyLiveKoDecider();
-            if (!silentRender) {
-                renderHeader();
-                renderView('liveticker');
+            // K.-o.-Spiel unentschieden? -> Verlängerung live im Ticker
+            if (liveMatchState.cupCtx && liveKoNeedsExtraTime()) {
+                startLiveExtraTime(silentRender);
+                return;
             }
+            endLiveMatchFulltime("90'", silentRender);
             return;
         }
     }
@@ -2069,3 +2082,169 @@ function finalizeLiveMatchdayUi(st, um, currentMd) {
     }
 }
 
+
+// ==========================================
+// v1.21: VERLÄNGERUNG & ELFMETERSCHIESSEN LIVE IM TICKER
+// Steht ein K.-o.-Spiel (bzw. das Gesamtergebnis) nach 90 Minuten unentschieden, geht es nach einer kurzen
+// Pause in die Verlängerung (91.–120. Minute, Seitenwechsel nach 105). Danach folgt – falls nötig – das
+// Elfmeterschießen Schuss für Schuss: erst je 5 Schützen im Wechsel, dann Sudden Death.
+// Die Phase bleibt intern 'SECOND_HALF' (etStage / penState), damit Pause, Wechsel, Tempo und Ton wie gewohnt funktionieren.
+// ==========================================
+function liveKoAggregate() {
+    const st = liveMatchState;
+    const comp = GameState.cups.comps[st.cupCtx.compId];
+    const um = st.userMatch;
+    const m = comp.rounds[st.cupCtx.roundIdx].matches[um.ref.idx];
+    return getAggregate(comp, st.cupCtx.roundIdx, { ...m, homeGoals: um.homeGoals, awayGoals: um.awayGoals });
+}
+function liveKoNeedsExtraTime() {
+    const st = liveMatchState;
+    if (!st || !st.cupCtx || st.cupCtx.decided || !st.userMatch || !GameState.cups) return false;
+    const comp = GameState.cups.comps[st.cupCtx.compId];
+    const round = comp && comp.rounds[st.cupCtx.roundIdx];
+    if (!round || !isDecisiveRound(round)) return false;
+    const agg = liveKoAggregate();
+    return agg.hg === agg.ag;
+}
+function liveKoStillTied() {
+    const agg = liveKoAggregate();
+    return agg.hg === agg.ag;
+}
+
+function endLiveMatchFulltime(minLbl, silentRender) {
+    const st = liveMatchState;
+    st.phase = 'FULLTIME';
+    st.isPaused = true;
+    SoundFX.playWhistle('fulltime');
+    st.pauseReason = "🏁 ABPFIFF";
+    stopLiveTickerTimer();
+    const um = st.userMatch;
+    const tail = um && um.pens ? ` (i.E. ${um.pens})` : (um && um.et ? ' n.V.' : '');
+    const ftScore = um ? `${um.homeName} ${um.homeGoals}:${um.awayGoals} ${um.awayName}${tail}` : "";
+    addLiveTickerEntry(minLbl, "system", "halftime", `🏁 ABPFIFF! Endstand: ${ftScore}`);
+    if (st.cupCtx) applyLiveKoDecider();                       // tut nichts, wenn Verlängerung/Elfmeter schon entschieden haben
+    if (!silentRender) {
+        renderHeader();
+        renderView('liveticker');
+    }
+}
+
+function startLiveExtraTime(silentRender) {
+    const st = liveMatchState;
+    const um = st.userMatch;
+    st.etStage = 1;
+    st.minute = 90;
+    st.stoppageElapsed = 0;
+    st.isPaused = true;
+    st.pauseReason = "⏱ VERLÄNGERUNG – kurze Pause, dann geht es weiter";
+    stopLiveTickerTimer();
+    SoundFX.playWhistle('halftime');
+    const agg = liveKoAggregate();
+    if (agg.leg1) addLiveTickerEntry("90'", "system", "halftime", `📊 Gesamtstand nach 90 Minuten: ${um.homeName} ${agg.hg}:${agg.ag} ${um.awayName} (Hinspiel ${agg.leg1.homeGoals}:${agg.leg1.awayGoals})`);
+    addLiveTickerEntry("90'", "system", "halftime", `⏱️ VERLÄNGERUNG! Nach 90 Minuten steht es ${um.homeName} ${um.homeGoals}:${um.awayGoals} ${um.awayName} – es geht in die Extrazeit (2 × 15 Minuten). Jetzt noch Wechsel oder Taktik anpassen, dann ▶ WEITER.`);
+    if (!silentRender) {
+        renderHeader();
+        renderView('liveticker');
+    }
+}
+
+function finishLiveKo(withPens) {
+    const st = liveMatchState;
+    const um = st.userMatch;
+    st.cupCtx.decided = true;
+    um.et = true;
+    if (withPens) {
+        const ps = st.penState;
+        um.pens = `${ps.h}:${ps.a}`;
+        um.winnerId = ps.h > ps.a ? um.homeId : um.awayId;
+    } else {
+        const agg = liveKoAggregate();
+        um.winnerId = agg.hg > agg.ag ? um.homeId : um.awayId;
+    }
+    const win = um.winnerId === GameState.activeClubId;
+    addLiveTickerEntry("🏁", "system", "halftime", win ? `🎉 WEITER! ${getAnyClubName(um.winnerId)} setzt sich ${withPens ? 'im Elfmeterschießen' : 'in der Verlängerung'} durch!` : `💔 AUS! ${getAnyClubName(um.winnerId)} kommt ${withPens ? 'im Elfmeterschießen' : 'nach Verlängerung'} weiter.`);
+}
+
+// Schützenliste: eigenes Team nach Elfmeterkönig & Schusskraft, Gegner nach Angriffsstärke
+function buildPenaltyTakers(clubId) {
+    if (clubId === GameState.activeClubId) {
+        const sq = getClubPlayers();
+        const on = GameState.tactics.lineup.map(id => sq.find(p => p.id === id)).filter(Boolean);
+        const score = (p) => (hasSkill(p, 'elfmeter') ? 5 : 0) + (hasSkill(p, 'freistoss') ? 1 : 0) + (getPlayerAttr(p, 'shoot') || p.rating) + (p.pos === 'TW' ? -20 : 0);
+        return on.sort((a, b) => score(b) - score(a)).map(p => ({ id: p.id, name: p.name, bonus: hasSkill(p, 'elfmeter') ? 0.06 : 0 }));
+    }
+    const xi = getLiveSideXI(clubId);
+    const outfield = xi.outfield.length ? xi.outfield : xi.all;
+    const order = [...outfield].sort((a, b) => (ATTACK_WEIGHTS[b.pos] || 1) - (ATTACK_WEIGHTS[a.pos] || 1));
+    const keeper = xi.all.find(p => p.pos === 'TW');
+    if (keeper) order.push(keeper);
+    return order.map(p => ({ id: p.id || null, name: p.name, bonus: 0 }));
+}
+
+function startLivePenalties() {
+    const st = liveMatchState;
+    const um = st.userMatch;
+    const hs = calculateLiveClubStrength(um.homeId, true);
+    const as = calculateLiveClubStrength(um.awayId, false);
+    const hb = getPenaltySkillBonus(um.homeId), ab = getPenaltySkillBonus(um.awayId);
+    st.penState = {
+        h: 0, a: 0, nh: 0, na: 0, turn: Math.random() < 0.5 ? 'h' : 'a', first: null,
+        ph: 0.76 + (hs - as) * 0.01 + hb.shoot - ab.keep,
+        pa: 0.76 + (as - hs) * 0.01 + ab.shoot - hb.keep,
+        takersH: buildPenaltyTakers(um.homeId), takersA: buildPenaltyTakers(um.awayId), done: false
+    };
+    st.penState.first = st.penState.turn;
+    st.minute = 120;
+    st.isPaused = true;
+    st.pauseReason = "🎯 ELFMETERSCHIESSEN – mit ▶ WEITER geht es los";
+    stopLiveTickerTimer();
+    SoundFX.playWhistle('halftime');
+    addLiveTickerEntry("120'", "system", "halftime", `🎯 ELFMETERSCHIESSEN! Auch nach 120 Minuten keine Entscheidung (${um.homeName} ${um.homeGoals}:${um.awayGoals} ${um.awayName}). ${st.penState.turn === 'h' ? um.homeName : um.awayName} beginnt.`);
+}
+
+function penaltyIsDecided(ps) {
+    if (ps.nh <= 5 || ps.na <= 5) {
+        const leftH = Math.max(0, 5 - ps.nh), leftA = Math.max(0, 5 - ps.na);
+        if (ps.h + leftH < ps.a) return true;
+        if (ps.a + leftA < ps.h) return true;
+        if (ps.nh < 5 || ps.na < 5) return false;
+    }
+    return ps.nh === ps.na && ps.h !== ps.a;           // Sudden Death: erst nach gleich vielen Schüssen
+}
+
+function tickLivePenalty(silentRender) {
+    const st = liveMatchState;
+    const ps = st.penState;
+    const um = st.userMatch;
+    if (!ps || ps.done) return;
+    const side = ps.turn;
+    const isHome = side === 'h';
+    const clubId = isHome ? um.homeId : um.awayId;
+    const takers = isHome ? ps.takersH : ps.takersA;
+    const n = isHome ? ps.nh : ps.na;
+    const taker = takers.length ? takers[n % takers.length] : { name: 'Schütze', bonus: 0 };
+    const prob = Math.max(0.45, Math.min(0.93, (isHome ? ps.ph : ps.pa) + (taker.bonus || 0)));
+    const scored = Math.random() < prob;
+    if (isHome) { ps.nh++; if (scored) ps.h++; } else { ps.na++; if (scored) ps.a++; }
+    const own = clubId === GameState.activeClubId;
+    const nr = Math.max(ps.nh, ps.na);
+    const lbl = `🎯${nr}`;
+    const score = `(${ps.h}:${ps.a})`;
+    const sideKey = isHome ? 'home' : 'away';
+    if (scored) {
+        const how = ['verwandelt sicher', 'schiebt eiskalt ein', 'hämmert ihn unter die Latte', 'verlädt den Torwart', 'trifft flach ins Eck'][Math.floor(Math.random() * 5)];
+        addLiveTickerEntry(lbl, sideKey, own ? 'goal' : 'opp-goal', `⚽ ${getAnyClubName(clubId)}: <strong>${taker.name}</strong> ${how}! ${score}`);
+    } else {
+        const how = ['– der Torwart pariert!', 'setzt den Ball an den Pfosten!', 'jagt ihn über die Latte!', 'scheitert – gehalten!', 'schießt knapp vorbei!'][Math.floor(Math.random() * 5)];
+        addLiveTickerEntry(lbl, sideKey, 'info', `❌ ${getAnyClubName(clubId)}: <strong>${taker.name}</strong> ${how} ${score}`);
+    }
+    ps.turn = isHome ? 'a' : 'h';
+    if (penaltyIsDecided(ps)) {
+        ps.done = true;
+        finishLiveKo(true);
+        st.penState = ps;
+        endLiveMatchFulltime("🎯", silentRender);
+        return;
+    }
+    if (!silentRender) renderView('liveticker');
+}

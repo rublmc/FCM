@@ -1426,7 +1426,7 @@ function buildIntlCalendarHtml() {
         <div class="bmh-box intl-cal-box">
             <strong>🌍 LÄNDERSPIELPAUSEN${t.quali ? ` • ${t.quali.comp}-QUALI` : ''}</strong>
             <span>${parts.join(' • ')}${t.tour && !t.tour.done ? ` • 🏆 ${t.tour.short} ab ${formatGameDate(natTourDate(t.tour, 'g1'))}` : ''}</span>
-            ${own.length ? `<span>Abgestellt: ${own.map(p => `${natFlagHtml(p, 9)} ${getShortName(p.name)}`).join(', ')}</span>` : (next ? '<span>Die Kader werden etwa zwei Wochen vorher berufen.</span>' : '')}
+            ${own.length ? `<span>Abgestellt: ${own.map(p => `${natFlagHtml(p, 9)} ${getAbbrevName(p.name)}`).join(', ')}</span>` : (next ? '<span>Die Kader werden etwa zwei Wochen vorher berufen.</span>' : '')}
         </div>`;
 }
 

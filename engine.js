@@ -281,6 +281,7 @@ function switchToView(viewName) {
     selectedSwapSource = null;
     activeNegotiation = null;
     playerCardId = null;
+    if (typeof youthCardId !== 'undefined') youthCardId = null;
     viewedPlayerId = null;
     openMatchKey = null;
     calendarOpenReportKey = null;

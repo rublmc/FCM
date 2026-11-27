@@ -315,7 +315,7 @@ function renderContractsView(viewport) {
                             return `
                             <tr>
                                 <td><strong>${p.pos}</strong></td>
-                                <td title="${escAttr(p.name)} (${p.age} J.)">${natFlagHtml(p, 10)} <strong>${p.name}</strong><br><span style="font-size:0.62rem; color:#444;">${p.age} Jahre • ${getMotivationIcon(p.motivation)}${p.motivation || 78}%</span></td>
+                                <td title="${escAttr(p.name)} (${p.age} J.)">${natFlagHtml(p, 10)} <strong>${getAbbrevName(p.name)}</strong><br><span style="font-size:0.62rem; color:#444;">${p.age} Jahre • ${getMotivationIcon(p.motivation)}${p.motivation || 78}%</span></td>
                                 <td><strong>${p.rating.toFixed(1)}</strong></td>
                                 <td>${formatMoneyShort(p.salary)}</td>
                                 <td><span class="contract-pill ${pillClass}">'${String(p.contractUntil).slice(-2)}</span></td>
@@ -617,6 +617,10 @@ function buildRosterTabHtml(mySquad) {
             cmp = a.salary - b.salary;
         } else if (rosterSortBy === 'contract') {
             cmp = a.contractUntil - b.contractUntil;
+        } else if (rosterSortBy === 'nat') {
+            // nach Ländername (A–Z), innerhalb eines Landes nach Stärke
+            cmp = natName(getPlayerNat(a)).localeCompare(natName(getPlayerNat(b)), 'de');
+            if (cmp === 0) return b.rating - a.rating;
         }
         return rosterSortDir === 'asc' ? cmp : -cmp;
     });
@@ -639,6 +643,7 @@ function buildRosterTabHtml(mySquad) {
                 <button class="sort-btn ${rosterSortBy === 'rating' ? 'active' : ''}" data-sort="rating">STÄRKE${arrow('rating')}</button>
                 <button class="sort-btn ${rosterSortBy === 'salary' ? 'active' : ''}" data-sort="salary">GEHALT${arrow('salary')}</button>
                 <button class="sort-btn ${rosterSortBy === 'contract' ? 'active' : ''}" data-sort="contract">VERTRAG${arrow('contract')}</button>
+                <button class="sort-btn ${rosterSortBy === 'nat' ? 'active' : ''}" data-sort="nat">LAND${arrow('nat')}</button>
             </div>
 
             <div style="display:flex; gap:6px; margin-bottom:6px; font-size:0.64rem; flex-wrap:wrap;">
@@ -690,7 +695,7 @@ function buildRosterTabHtml(mySquad) {
                             <td><strong>${p.pos}</strong>${getSecondPositions(p).length ? `<br><span style="font-size:0.54rem; color:#444;" title="Nebenpositionen">${getSecondPositions(p).join('/')}</span>` : ''}</td>
                             <td class="form-cell">${getFormArrow(p)}</td>
                             <td title="${escAttr(p.name)} (${p.age} J. | Mot: ${mot}%)">
-${natFlagHtml(p, 11)} <strong>${youthIcon}${p.name}</strong> ${isPlayerCalledUp(p) ? '<span class="intl-badge" title="Für die nächsten Länderspiele nominiert">🌍</span>' : ''}${traitBadgeHtml(p)}${skillIconsHtml(p)}${p.lifeEvent && (GameState.meta.tick || 0) - p.lifeEvent.tick <= 6 ? `<span title="Privat: ${p.lifeEvent.title}">${p.lifeEvent.icon}</span>` : ''}<br>
+${natFlagHtml(p, 11)} <strong title="${escAttr(p.name)}">${youthIcon}${getAbbrevName(p.name)}</strong> ${isPlayerCalledUp(p) ? '<span class="intl-badge" title="Für die nächsten Länderspiele nominiert">🌍</span>' : ''}${traitBadgeHtml(p)}${skillIconsHtml(p)}${p.lifeEvent && (GameState.meta.tick || 0) - p.lifeEvent.tick <= 6 ? `<span title="Privat: ${p.lifeEvent.title}">${p.lifeEvent.icon}</span>` : ''}<br>
 <span style="font-size:0.60rem; color:#444;">${p.age}J • ${getMotivationIcon(mot)}${mot}%${p.wantsOut ? '🚪' : ((p.unhappyWeeks || 0) >= 3 ? '⚠️' : '')} • <span title="Kondition: ${fitnessLabel(p)}" style="${getFitness(p) < 70 ? 'color:#a82424; font-weight:bold;' : ''}">⚡${Math.round(getFitness(p))}%</span> • ${p.loanFrom ? '🔁bis ' + (p.loanUntil || '') : "'" + String(p.contractUntil).slice(-2)}${suspNote}</span>
                             </td>
                             <td><strong>${p.rating.toFixed(1)}</strong></td>
@@ -713,7 +718,7 @@ function bindRosterTabEvents(viewport) {
                 rosterSortDir = rosterSortDir === 'asc' ? 'desc' : 'asc';
             } else {
                 rosterSortBy = key;
-                rosterSortDir = (key === 'pos' || key === 'contract') ? 'asc' : 'desc';
+                rosterSortDir = (key === 'pos' || key === 'contract' || key === 'nat') ? 'asc' : 'desc';
             }
             renderSquadAndMarketView(viewport);
         });
@@ -813,7 +818,7 @@ function buildTransferMarketTabHtml() {
                         <tr class="mkt-row" data-pid="${p.id}" style="cursor:pointer;" title="Spielerkarte öffnen">
                             <td><strong>${p.pos}</strong>${getSecondPositions(p).length ? `<br><span style="font-size:0.54rem; color:#444;">${getSecondPositions(p).join('/')}</span>` : ''}</td>
                             <td title="${escAttr(p.name)} (${escAttr(p.clubLabel)})">
-                                ${getFormArrow(p)} ${natFlagHtml(p, 11)} <strong>${p.name}</strong> ${skillIconsHtml(p)}<br>
+                                ${getFormArrow(p)} ${natFlagHtml(p, 11)} <strong title="${escAttr(p.name)}">${getAbbrevName(p.name)}</strong> ${skillIconsHtml(p)}<br>
                                 <span style="font-size:0.62rem; color:#444;">${p.clubLabel}${p.aiListed ? ' • 📋 Transferliste' : ''}</span>
                             </td>
                             <td>${p.age}</td>
@@ -878,6 +883,7 @@ function buildYouthCampTabHtml() {
                 </button>
             </div>
 
+            ${activeNegotiation && activeNegotiation.kind === 'youth' ? buildYouthNegotiationHtml() : (youthCardId ? buildYouthCardHtml(youths.find(y => y.id === youthCardId)) : '')}
             ${youths.length === 0 ? '<p style="font-size:0.76rem;">Aktuell sind alle Jugendspieler hochgezogen. Starte eine neue Scouting-Runde!</p>' : `
             <table class="bmh-table">
                 <thead>
@@ -892,21 +898,21 @@ function buildYouthCampTabHtml() {
                 </thead>
                 <tbody>
                     ${youths.map(y => `
-                        <tr>
+                        <tr class="youth-row ${youthCardId === y.id ? 'intl-sel' : ''}" data-yid="${y.id}" style="cursor:pointer;" title="Spielerprofil öffnen">
                             <td><strong>${y.pos}</strong></td>
                             <td title="${escAttr(y.name)}">
-                                <strong>${y.name}</strong><br>
+                                ${natFlagHtml(youthAsPlayer(y), 10)} <strong>${getAbbrevName(y.name)}</strong> ${skillIconsHtml(youthAsPlayer(y))}<br>
                                 <span class="youth-badge">${y.potential}</span>
                             </td>
                             <td>${y.age}</td>
                             <td><strong>${y.rating.toFixed(1)}</strong></td>
                             <td>${formatMoneyShort(y.fee)}</td>
-                            <td><button class="mini-action-btn youth btn-promote-youth" data-yid="${y.id}">PROFI</button></td>
+                            <td><button type="button" class="mini-action-btn youth btn-promote-youth" data-yid="${y.id}">PROFIL</button></td>
                         </tr>
                     `).join('')}
                 </tbody>
             </table>`}
-            <p style="font-size:0.66rem; color:#444; margin-top:6px;">Hinweis: Jugendspieler erhalten einen Profivertrag mit niedrigem Einstiegsgehalt und hohem Entwicklungspotenzial (5★).</p>
+            <p style="font-size:0.66rem; color:#444; margin-top:6px;">👆 Tippe auf ein Talent, um sein Spielerprofil zu sehen und ihm einen Profivertrag anzubieten. Jugendspieler haben ein niedriges Einstiegsgehalt und hohes Entwicklungspotenzial (5★).</p>
         </div>
     `;
 }
@@ -929,51 +935,162 @@ function bindYouthCampEvents(viewport) {
         });
     }
 
-    document.querySelectorAll('.btn-promote-youth').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const yid = e.currentTarget.dataset.yid;
+    const openCard = (yid) => {
+        youthCardId = youthCardId === yid ? null : yid;
+        activeNegotiation = null;
+        renderSquadAndMarketView(viewport);
+        document.getElementById('main-viewport').scrollTop = 0;
+    };
+    viewport.querySelectorAll('.youth-row').forEach(row => row.addEventListener('click', () => openCard(row.dataset.yid)));
+    viewport.querySelectorAll('.btn-promote-youth').forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); openCard(e.currentTarget.dataset.yid); }));
+    const closeBtn = document.getElementById('btn-youth-card-close');
+    if (closeBtn) closeBtn.addEventListener('click', () => { youthCardId = null; renderSquadAndMarketView(viewport); });
+    const offerBtn = document.getElementById('btn-youth-offer');
+    if (offerBtn) offerBtn.addEventListener('click', () => {
+        const y = (GameState.youthAcademy.players || []).find(x => x.id === youthCardId);
+        if (!y) return;
+        if (getClubPlayers().length >= MAX_SQUAD_USER) { alert(`Dein Kader ist voll (${MAX_SQUAD_USER} Spieler). Verkaufe zuerst einen Spieler!`); return; }
+        if (isNegoBlocked('youth:' + y.id)) { alert(`${y.name} ist nach den gescheiterten Gesprächen vorerst nicht gesprächsbereit.`); return; }
+        startYouthNegotiation(y);
+        renderSquadAndMarketView(viewport);
+    });
+    if (activeNegotiation && activeNegotiation.kind === 'youth') bindYouthNegotiation(() => renderSquadAndMarketView(viewport));
+}
+
+// ==========================================
+// v1.21: NACHWUCHS – SPIELERPROFIL & PROFIVERTRAG
+// ==========================================
+let youthCardId = null;
+
+// Das Talent als "künftiger Profi" (gleiche ID wie nach der Unterschrift -> gleiche Positionen/Fähigkeiten/Nationalität)
+function youthAsPlayer(y) {
+    if (!y) return null;
+    const p = { ...y, id: `pro_${y.id}`, clubId: GameState.activeClubId, talent: 5, isYouthProduct: true, motivation: 90 };
+    if (!y.nat) y.nat = getPlayerNat(p);
+    p.nat = y.nat;
+    return p;
+}
+
+function buildYouthCardHtml(y) {
+    if (!y) return '';
+    const p = youthAsPlayer(y);
+    const club = GameState.clubs[GameState.activeClubId];
+    const blocked = isNegoBlocked('youth:' + y.id);
+    return `
+        <div class="player-card" style="margin-bottom:8px;">
+            <div class="pc-head">
+                <div class="pc-pos">${y.pos}${getSecondPositions(p).length ? `<br><span style="font-size:0.56rem;">${getSecondPositions(p).join('/')}</span>` : ''}</div>
+                <div style="flex:1; min-width:0;">
+                    <div class="pc-name">🌱 ${y.name} ${skillIconsHtml(p)}</div>
+                    <div class="pc-sub">${natFlagHtml(p, 14)} <strong>${natName(getPlayerNat(p))}</strong> • ${y.age} Jahre • Nachwuchs von ${club ? club.name : ''}</div>
+                </div>
+                <button id="btn-youth-card-close" type="button" class="mini-action-btn" style="width:auto; padding:3px 8px;">✕</button>
+            </div>
+            <div class="pc-grid">
+                <div class="pc-cell"><span>STÄRKE</span><strong>${y.rating.toFixed(1)}</strong></div>
+                <div class="pc-cell"><span>POTENZIAL</span><strong>${y.potential}</strong></div>
+                <div class="pc-cell"><span>TALENT</span><strong>★★★★★</strong></div>
+                <div class="pc-cell"><span>AUSBILDUNGSGEBÜHR</span><strong>${formatMoneyShort(y.fee)}</strong></div>
+                <div class="pc-cell"><span>GEHALTSWUNSCH</span><strong>${formatMoneyShort(y.salary)}/J.</strong></div>
+                <div class="pc-cell"><span>CHARAKTER</span><strong>${(PLAYER_TRAITS[getPlayerTrait(p)] || PLAYER_TRAITS.normal).icon || '🙂'} ${(PLAYER_TRAITS[getPlayerTrait(p)] || PLAYER_TRAITS.normal).label}</strong></div>
+            </div>
+            ${buildPositionsHtml(p, false)}
+            ${buildSkillsHtml(p, false)}
+            <p style="font-size:0.64rem; color:#444; margin:4px 0;">Ein Profivertrag kostet einmalig die Ausbildungsgebühr. Das Talent verhandelt selbst über Gehalt und Laufzeit – manche wollen mehr, manche geben nach.</p>
+            <button id="btn-youth-offer" type="button" class="bmh-btn primary" style="width:100%; padding:9px;" ${blocked ? 'disabled' : ''}>${blocked ? '🔒 VORERST NICHT GESPRÄCHSBEREIT' : '✍️ PROFIVERTRAG ANBIETEN'}</button>
+        </div>`;
+}
+
+const YOUTH_YEAR_FACTOR = { 2: 0.97, 3: 1.0, 4: 1.02, 5: 1.03 };   // Talente mögen Sicherheit
+function startYouthNegotiation(y) {
+    let r = negoRandomReservation(0.88, 1.06) + getDifficulty().nego - getPressNegoBonus();
+    if (y.potential === 'Jahrhundert-Talent') r += 0.07;
+    const p = youthAsPlayer(y);
+    if (hasTrait(p, 'diva')) r += 0.06;
+    if (hasTrait(p, 'loyal')) r -= 0.06;
+    negoStart({ kind: 'youth', voice: 'player', key: 'youth:' + y.id, targetId: p.id, name: y.name, reservation: Math.max(0.8, r), sel: { years: 3, salary: 1.0 }, extra: { yid: y.id } });
+}
+
+function buildYouthNegotiationHtml() {
+    const n = activeNegotiation;
+    const y = (GameState.youthAcademy.players || []).find(x => x.id === n.extra.yid);
+    const club = GameState.clubs[GameState.activeClubId];
+    if (!y || !club) return '';
+    const seasonEnd = getCurrentSeasonEndYear();
+    const salOpts = SALARY_STEPS.filter(s => s.value <= 1.3).map(s => ({ value: s.value, label: `${formatMoneyShort(Math.round(y.salary * s.value / 10000) * 10000)}/J. (${s.label})` }));
+    const yearOpts = [2, 3, 4, 5].map(v => ({ value: v, label: `${v} Jahre (bis ${seasonEnd + v})` }));
+    return buildNegotiationPanelHtml({
+        title: `🌱 PROFIVERTRAG: ${y.name}`,
+        infoHtml: `<p>Pos: <strong>${y.pos}</strong> | Stärke: <strong>${y.rating.toFixed(1)}</strong> | Alter: <strong>${y.age}</strong> | ${y.potential}</p>
+                   <p>Ausbildungsgebühr: <strong>${formatMoneyShort(y.fee)}</strong> (fällig bei Unterschrift) • Budget: ${formatMoneyShort(club.budget)} • Kader: ${getClubPlayers().length}/${MAX_SQUAD_USER}</p>`,
+        optionsHtml: `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
+                ${negoSelectHtml('nego-ysalary', 'GEHALT', salOpts, n.sel.salary ?? 1.0)}
+                ${negoSelectHtml('nego-yyears', 'LAUFZEIT', yearOpts, n.sel.years ?? 3)}
+            </div>`,
+        submitLabel: 'VERTRAG ANBIETEN',
+        successText: n.extra.resultTxt || `${y.name} unterschreibt!`,
+        abortText: `${y.name} hat abgelehnt. Ein neuer Versuch ist frühestens in 3 Wochen/Spielen möglich.`
+    });
+}
+
+function bindYouthNegotiation(rerender) {
+    bindNegotiationPanel({
+        onClose: rerender,
+        onSubmit: () => {
+            const n = activeNegotiation;
+            const y = (GameState.youthAcademy.players || []).find(x => x.id === n.extra.yid);
             const club = GameState.clubs[GameState.activeClubId];
-            const yIndex = GameState.youthAcademy.players.findIndex(y => y.id === yid);
-            if (!club || yIndex === -1) return;
-
-            const talent = GameState.youthAcademy.players[yIndex];
-if (getClubPlayers().length >= MAX_SQUAD_USER) {
-                alert(`Dein Kader ist voll (${MAX_SQUAD_USER} Spieler). Verkaufe zuerst einen Spieler!`);
-                return;
-            }
-            if (club.budget < talent.fee) {
-                alert(`Nicht genügend Budget für die Ausbildungsgebühr (${formatMoneyShort(talent.fee)})!`);
-                return;
-            }
-
-            bookMoney('youth', -talent.fee);
-            GameState.players.push({
-                id: `pro_${talent.id}`,
-                clubId: GameState.activeClubId,
-                pos: talent.pos,
-                name: talent.name,
-                age: talent.age,
-                rating: talent.rating,
-                salary: talent.salary,
-                contractUntil: getCurrentSeasonEndYear() + 3,
-                isYouthProduct: true,
-                clubSince: GameState.meta.season,
-                seasonApps: 0,
-                seasonMinutes: 0,
-                seasonGoals: 0,
-                seasonCleanSheets: 0,
-                motivation: 90,
-                talent: 5,
-                campDevBonus: 0
+            if (!y || !club) return;
+            if (getClubPlayers().length >= MAX_SQUAD_USER) { alert(`Dein Kader ist voll (${MAX_SQUAD_USER} Spieler).`); return; }
+            if (club.budget < y.fee) { alert(`Nicht genügend Budget für die Ausbildungsgebühr (${formatMoneyShort(y.fee)})! (kein Versuch verbraucht)`); return; }
+            const salary = parseFloat(document.getElementById('nego-ysalary').value) || 1.0;
+            const years = parseInt(document.getElementById('nego-yyears').value, 10) || 3;
+            n.sel = { salary, years };
+            const sal = Math.round(y.salary * salary / 10000) * 10000;
+            const res = negoSubmit(salary * (YOUTH_YEAR_FACTOR[years] || 1), `${formatMoneyShort(sal)}/J., ${years} J.`, (r, mood) => {
+                if (mood === 'angry') return '';
+                const ok = findSufficientStep(SALARY_STEPS, v => v * (YOUTH_YEAR_FACTOR[years] || 1), r);
+                return ok ? `Berater-Tipp: Bei ${years} Jahren Laufzeit würde er ab ${formatMoneyShort(Math.round(y.salary * ok.value / 10000) * 10000)}/J. unterschreiben.` : 'Berater-Tipp: Biete eine längere Laufzeit an.';
             });
-
-            GameState.youthAcademy.players.splice(yIndex, 1);
+            if (res.status === 'accepted') {
+                const p = promoteYouthTalent(y.id, years, sal);
+                res.extra.resultTxt = p ? `${y.name} unterschreibt bis ${p.contractUntil} für ${formatMoneyShort(sal)}/J.!` : 'Einigung erzielt.';
+                youthCardId = null;
+            }
             saveGame();
             renderHeader();
-            setStatus(`🌱 ${talent.name} (${talent.pos}, ${talent.rating.toFixed(1)}) unterschreibt Profivertrag!`);
-            renderSquadAndMarketView(viewport);
-        });
+            rerender();
+        }
     });
+}
+
+function promoteYouthTalent(yid, years = 3, salary = null) {
+    const club = GameState.clubs[GameState.activeClubId];
+    const yIndex = GameState.youthAcademy.players.findIndex(y => y.id === yid);
+    if (!club || yIndex === -1) return null;
+    const talent = GameState.youthAcademy.players[yIndex];
+    const asP = youthAsPlayer(talent);
+    bookMoney('youth', -talent.fee);
+    const p = {
+        id: `pro_${talent.id}`,
+        clubId: GameState.activeClubId,
+        pos: talent.pos,
+        name: talent.name,
+        age: talent.age,
+        rating: talent.rating,
+        salary: salary || talent.salary,
+        contractUntil: getCurrentSeasonEndYear() + years,
+        isYouthProduct: true,
+        clubSince: GameState.meta.season,
+        seasonApps: 0, seasonMinutes: 0, seasonGoals: 0, seasonCleanSheets: 0,
+        motivation: 90, talent: 5, campDevBonus: 0,
+        nat: asP.nat
+    };
+    GameState.players.push(p);
+    GameState.youthAcademy.players.splice(yIndex, 1);
+    setStatus(`🌱 ${talent.name} (${talent.pos}, ${talent.rating.toFixed(1)}) unterschreibt Profivertrag!`);
+    addInbox('🌱', `Profivertrag: ${talent.name}`, `${talent.name} (${talent.pos}, ${talent.age} J., Stärke ${talent.rating.toFixed(1)}) hat seinen ersten Profivertrag unterschrieben: ${formatMoneyShort(p.salary)}/J. bis ${p.contractUntil}. Ausbildungsgebühr: ${formatMoneyShort(talent.fee)}.`, 'squad');
+    return p;
 }
 
 
