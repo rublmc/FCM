@@ -256,9 +256,10 @@ function movePlayerToClub(p, clubId) {
 function bookMoney(cat, amount, clubId = GameState.activeClubId) {
     const club = GameState.clubs[clubId];
     if (!club || !amount) return;
+    // Finanzbuch VOR der Budgetänderung anlegen, sonst enthält der Eröffnungssaldo die erste Buchung schon
+    const f = clubId === GameState.activeClubId ? ensureFinanceLedger() : null;
     club.budget = Math.round((club.budget || 0) + amount);
-    if (clubId !== GameState.activeClubId) return;
-    const f = ensureFinanceLedger();
+    if (!f) return;
     const key = FINANCE_CATEGORIES[cat] ? cat : 'other';
     f.items[key] = (f.items[key] || 0) + Math.round(amount);
 }
@@ -573,7 +574,7 @@ function processStaffContractsAtSeasonEnd(seasonEnd) {
     Object.keys(GameState.staff || {}).forEach(role => {
         const s = GameState.staff[role];
         if (s && (s.untilYear || 0) <= seasonEnd) {
-            addInbox(STAFF_ROLES[role].icon, `${STAFF_ROLES[role].title} verabschiedet`, `Der Vertrag von ${s.name} (${'★'.repeat(s.quality)}) ist ausgelaufen. Die Position ist ab sofort unbesetzt – stelle in der Vorbereitung einen Nachfolger ein.`, 'staff');
+            addInbox(STAFF_ROLES[role].icon, `${STAFF_ROLES[role].title} verabschiedet`, `Der Vertrag von ${s.name} (${'★'.repeat(s.quality)}) ist ausgelaufen. Die Position ist ab sofort unbesetzt – stelle unter ✍️ VERTRÄGE → STAB einen Nachfolger ein (jederzeit möglich).`, 'staff');
             GameState.staff[role] = null;
         }
     });

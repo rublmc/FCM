@@ -96,12 +96,13 @@ function saveGameState() {
     const id = getActiveSlotId();
     if (setupNewGame || !id || !GameState.activeClubId) return Promise.resolve();
     try {
-        const p = storeSet(slotKey(id), JSON.stringify(GameState));
-        updateSlotMeta(id, GameState);
-        return p;
+        return saveSlotAtomic(id, JSON.stringify(GameState), GameState).then(ok => {
+            if (!ok) alert("⚠️ Der Spielstand konnte nicht gespeichert werden (Speicher voll oder privater Modus).");
+            return ok;
+        });
     } catch (e) {
         alert("⚠️ Browser-Speicher voll! Dein Browser unterstützt kein IndexedDB – bitte weniger Länderpakete laden.");
-        return Promise.resolve();
+        return Promise.resolve(false);
     }
 }
 
@@ -182,7 +183,7 @@ function renderSetup() {
             // Neues Spiel: frischer Spielstand + Datenbank im Original-Zustand (gespeichert wird erst bei der Vereinswahl)
             const prev = GameState;
             GameState = JSON.parse(SETUP_EMPTY_STATE);
-            GameState.meta.managerName = prev.meta.managerName || '';
+            GameState.meta.managerName = String(prev.meta.managerName || '').replace(/[<>"'`&]/g, '');
             GameState.meta.installedUpdates = prev.meta.installedUpdates || [];
             if (!restoreDatabaseFromSnapshot()) {
                 GameState.leagues = prev.leagues;
@@ -228,7 +229,8 @@ function renderSetup() {
         });
 
         document.getElementById('btn-step1-next').addEventListener('click', () => {
-            const name = inputEl.value.trim();
+            // Zeichen, die HTML auslösen könnten, gar nicht erst übernehmen (Name erscheint in vielen Texten)
+            const name = inputEl.value.replace(/[<>"'`&]/g, '').trim();
             if (!name) {
                 document.getElementById('setup-name-hint').style.display = 'block';
                 inputEl.focus();
@@ -258,7 +260,7 @@ function renderSetup() {
         viewport.innerHTML = `
             <h2 class="section-title">SCHRITT 3 / 4: LAND WÄHLEN</h2>
             <div class="bmh-box">
-                <p style="margin-bottom: 10px;">Hallo <strong>${GameState.meta.managerName}</strong>! In welchem Land möchtest du deine Karriere starten?</p>
+                <p style="margin-bottom: 10px;">Hallo <strong>${escHtml(GameState.meta.managerName)}</strong>! In welchem Land möchtest du deine Karriere starten?</p>
                 ${countries.map(code => {
                     const leagueCount = Object.values(GameState.leagues).filter(l => (l.country || "DE") === code).length;
                     const clubCount = Object.values(GameState.clubs).filter(c => {
@@ -333,11 +335,18 @@ function renderSetup() {
                 resetCareerFields(clubId);
                 // Neues Spiel = neuer Spielstand (alte Spielstände bleiben erhalten)
                 const newId = createSlotId();
-                storeSet(slotKey(newId), JSON.stringify(GameState));
-                updateSlotMeta(newId, GameState);
-                setActiveSlotId(newId);
-                setupNewGame = false;
-                storeFlush().then(() => { window.location.href = 'index.html'; });
+                let pSave;
+                try { pSave = saveSlotAtomic(newId, JSON.stringify(GameState), GameState, { activate: true }); }
+                catch (err) { pSave = Promise.resolve(false); }
+                pSave.then(ok => {
+                    if (!ok) {
+                        if (FCMStore.mode === 'idb') delete FCMStore.cache[slotKey(newId)];
+                        alert('⚠️ Der neue Spielstand konnte nicht gespeichert werden (Speicher voll oder privater Modus). Bitte weniger Länderpakete laden oder Speicher freigeben.');
+                        return;
+                    }
+                    setupNewGame = false;
+                    storeFlush().then(() => { window.location.href = 'index.html'; });
+                });
             });
         });
 
@@ -440,6 +449,12 @@ function applyUpdateOnStart(updateData) {
         alert("Ungültiges Update-Paket!");
         return false;
     }
+    // Erst das GANZE Paket prüfen, dann übernehmen – sonst landen halbe Daten in der Datenbank
+    const errs = validateDataPackage(updateData);
+    if (errs.length) {
+        alert(`⚠️ Paket nicht übernommen – ${errs.length} Fehler gefunden:\n\n${errs.slice(0, 8).join('\n')}${errs.length > 8 ? `\n… und ${errs.length - 8} weitere` : ''}`);
+        return false;
+    }
     applyPackageToDatabaseSnapshot(updateData);
     if (updateData.leagues) Object.assign(GameState.leagues, updateData.leagues);
     if (updateData.clubs) Object.assign(GameState.clubs, updateData.clubs);
@@ -486,11 +501,11 @@ function renderSlotsPage(viewport) {
         ${slots.length === 0 ? '<div class="bmh-box"><p style="font-size:0.78rem;">Noch keine Spielstände vorhanden.</p></div>' : slots.map(s => `
             <div class="slot-card ${s.id === activeId ? 'active' : ''}">
                 <div class="slot-head">
-                    <strong>${s.club}</strong>
+                    <strong>${escHtml(s.club)}</strong>
                     ${s.id === activeId ? '<span class="sponsor-tag">ZULETZT GESPIELT</span>' : ''}
                 </div>
                 <div class="slot-info">
-                    👤 ${s.manager} • ${s.league || ''}<br>
+                    👤 ${escHtml(s.manager)} • ${escHtml(s.league || '')}<br>
                     📅 ${describeSlotProgress(s)}${s.budget ? ` • 💶 ${formatMoneyShort(s.budget)}` : ''}<br>
                     💾 Gespeichert: ${s.savedAt ? new Date(s.savedAt).toLocaleString('de-DE') : '–'} • ${sizeKB(s.id)} KB
                 </div>
@@ -517,7 +532,7 @@ function renderSlotsPage(viewport) {
         storeFlush().then(() => { window.location.href = 'index.html'; });
     }));
     viewport.querySelectorAll('.btn-slot-backup').forEach(btn => btn.addEventListener('click', (e) => {
-        if (exportSlotBackup(e.currentTarget.dataset.id)) setSetupStatus('💾 Backup-Datei erstellt.');
+        exportSlotBackup(e.currentTarget.dataset.id).then(ok => setSetupStatus(ok ? '💾 Backup-Datei erstellt.' : 'ℹ️ Backup abgebrochen – es wurde keine Datei erstellt.'));
     }));
     viewport.querySelectorAll('.btn-slot-delete').forEach(btn => btn.addEventListener('click', (e) => {
         const id = e.currentTarget.dataset.id;
@@ -545,13 +560,15 @@ function renderSlotsPage(viewport) {
         if (!file) return;
         const reader = new FileReader();
         reader.onload = (ev) => {
-            const id = importSlotBackup(ev.target.result);
-            if (!id) return;
-            setActiveSlotId(id);
-            storeFlush().then(() => {
-                loadGameState();
-                setSetupStatus('📂 Backup geladen – der Spielstand steht oben in der Liste.');
-                renderSlotsPage(viewport);
+            importSlotBackup(ev.target.result).then(id => {
+                e.target.value = '';
+                if (!id) { setSetupStatus('⚠️ Backup nicht importiert – der aktive Spielstand ist unverändert.'); return; }
+                setActiveSlotId(id);
+                storeFlush().then(() => {
+                    loadGameState();
+                    setSetupStatus('📂 Backup geladen – der Spielstand steht oben in der Liste.');
+                    renderSlotsPage(viewport);
+                });
             });
         };
         reader.readAsText(file);

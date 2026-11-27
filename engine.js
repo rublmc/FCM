@@ -120,23 +120,33 @@ function hasPendingSave() {
 }
 
 // Sofort speichern (Autosave nach Spieltagen, Seitenwechsel, App geht in den Hintergrund)
+// Spielstand und Slot-Index werden gemeinsam (atomar) geschrieben.
+// Rückgabe: Promise<boolean> – true erst, wenn der Browser den Schreibvorgang bestätigt hat.
 function saveGameNow() {
     if (saveTimer) {
         clearTimeout(saveTimer);
         saveTimer = null;
     }
     const id = getActiveSlotId();
-    if (!id) return;
+    if (!id) return Promise.resolve(false);
+    let p;
     try {
-        storeSet(slotKey(id), serializeGameState());
-        updateSlotMeta(id, GameState);
+        p = saveSlotAtomic(id, serializeGameState(), GameState);
     } catch (e) {
-        setStatus("⚠️ Speichern fehlgeschlagen – Speicher voll!");
-        if (!saveWarnedFull) {
-            saveWarnedFull = true;
-            alert("⚠️ Der Browser-Speicher ist voll – der Spielstand konnte nicht gespeichert werden!\n\nTipp: Unter ⚙️ ADMIN die Datenbank zurücksetzen und weniger Länderpakete laden.");
-        }
+        p = Promise.resolve(false);
     }
+    return p.then(ok => {
+        if (!ok) {
+            setStatus("⚠️ Speichern fehlgeschlagen – bitte Datei-Backup erstellen!");
+            if (!saveWarnedFull) {
+                saveWarnedFull = true;
+                alert("⚠️ Der Spielstand konnte nicht gespeichert werden (Speicher voll oder privater Modus)!\n\nTipp: Sofort ein Datei-Backup erstellen. Unter ⚙️ ADMIN kann die Datenbank zurückgesetzt und mit weniger Länderpaketen neu geladen werden.");
+            }
+        } else {
+            saveWarnedFull = false;
+        }
+        return ok;
+    });
 }
 
 function getStorageUsageKB() {
@@ -153,9 +163,12 @@ function autosaveAfterRound(label, isGame = false) {
     if (isGame) GameState.meta.roundsSinceBackup = (GameState.meta.roundsSinceBackup || 0) + 1;
     GameState.meta.lastAutosave = new Date().toISOString();
     GameState.meta.lastAutosaveLabel = label;
-    saveGameNow();
-    const t = new Date();
-    setStatus(`💾 Autosave (${label}) • ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')} Uhr`);
+    return saveGameNow().then(ok => {
+        if (!ok) return false;   // Fehlermeldung kommt aus saveGameNow()
+        const t = new Date();
+        setStatus(`💾 Autosave (${label}) • ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')} Uhr`);
+        return true;
+    });
 }
 
 function needsBackupReminder() {
@@ -163,13 +176,21 @@ function needsBackupReminder() {
 }
 
 // Datei-Backup des aktuellen Spielstands (aus dem Spiel heraus)
+// Erinnerungszähler wird erst zurückgesetzt, wenn das Backup wirklich erstellt/geteilt wurde.
 function exportCurrentBackup() {
     const id = getActiveSlotId();
-    if (!id) return;
-    GameState.meta.roundsSinceBackup = 0;
-    GameState.meta.lastFileBackup = new Date().toISOString();
-    saveGameNow();
-    if (exportSlotBackup(id)) setStatus('💾 Backup-Datei erstellt – bitte in „Dateien“ / iCloud aufbewahren.');
+    if (!id) return Promise.resolve(false);
+    return saveGameNow().then(saved => {
+        if (!saved) return false;
+        return exportSlotBackup(id).then(ok => {
+            if (!ok) { setStatus('ℹ️ Backup abgebrochen – es wurde keine Datei erstellt.'); return false; }
+            GameState.meta.roundsSinceBackup = 0;
+            GameState.meta.lastFileBackup = new Date().toISOString();
+            saveGame();
+            setStatus('💾 Backup-Datei erstellt – bitte in „Dateien“ / iCloud aufbewahren.');
+            return true;
+        });
+    });
 }
 
 function buildBackupReminderHtml() {
@@ -184,13 +205,15 @@ function buildBackupReminderHtml() {
 
 function bindBackupReminder(rerender) {
     const b = document.getElementById('btn-backup-now');
-    if (b) b.addEventListener('click', () => { exportCurrentBackup(); if (rerender) rerender(); });
+    if (b) b.addEventListener('click', () => { exportCurrentBackup().then(() => { if (rerender) rerender(); }); });
 }
 
 // Speichern & dann zu einer anderen Seite wechseln (wartet auf IndexedDB)
 function saveAndNavigate(url) {
-    saveGameNow();
-    storeFlush().then(() => { window.location.href = url; });
+    saveGameNow().then(ok => storeFlush().then(flushed => {
+        if ((!ok || !flushed) && !confirm('⚠️ Der Spielstand konnte nicht gespeichert werden.\n\nTrotzdem die Seite wechseln? Ungespeicherte Fortschritte gehen dann verloren.')) return;
+        window.location.href = url;
+    }));
 }
 
 function loadGame() {
@@ -202,6 +225,7 @@ function loadGame() {
         GameState = { ...GameState, ...parsed };
         GameState.meta = { ...GameState.meta, ...(parsed.meta || {}) };
         GameState.meta.coreVersion = GAME_VERSION;
+        if (GameState.meta.managerName) GameState.meta.managerName = String(GameState.meta.managerName).replace(/[<>"'`&]/g, '');
         if (!GameState.meta.phase) {
             GameState.meta.phase = (GameState.meta.matchday && GameState.meta.matchday > 1) ? 'season' : 'preseason';
         }

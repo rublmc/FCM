@@ -164,12 +164,21 @@ function getUnavailableLabel(player) {
 }
 
 // Genug Spieler aufgestellt? (11 bzw. alle verfügbaren, falls weniger als 11 fit sind)
+// Fußballregel: Mit weniger als 7 Spielern darf eine Mannschaft nicht antreten.
+const MIN_PLAYERS_ON_PITCH = 7;
 function getLineupStatus() {
     const squad = getClubPlayers();
-    const avail = squad.filter(p => !isPlayerUnavailable(p)).length;
-    const onPitch = GameState.tactics.lineup.filter(Boolean).length;
-    const required = Math.min(11, avail);
-    return { onPitch, required, avail, ok: onPitch >= required };
+    const avail = squad.filter(p => !isPlayerUnavailable(p) && !isPlayerInjured(p)).length;
+    const onPitch = (GameState.tactics.lineup || []).filter(Boolean).length;
+    const required = Math.max(MIN_PLAYERS_ON_PITCH, Math.min(11, avail));
+    const tooFew = avail < MIN_PLAYERS_ON_PITCH;
+    return {
+        onPitch, required, avail, tooFew,
+        ok: !tooFew && onPitch >= required,
+        reason: tooFew
+            ? `Nur ${avail} einsatzfähige Spieler – mindestens ${MIN_PLAYERS_ON_PITCH} sind nötig. Verpflichte vereinslose Spieler (jederzeit möglich) oder hole Talente aus der Jugend.`
+            : (onPitch < required ? `Nur ${onPitch}/${required} Spieler in der Startelf.` : '')
+    };
 }
 
 function ensureValidSquadAssignment() {
@@ -224,6 +233,14 @@ function autoPickBestLineup(notify = true) {
         }
     });
 
+    slots.forEach((slotPos, idx) => {
+        if (newLineup[idx]) return;
+        const second = squad.find(p => !usedIds.has(p.id) && playsPosition(p, slotPos));
+        if (second) {
+            newLineup[idx] = second.id;
+            usedIds.add(second.id);
+        }
+    });
     slots.forEach((slotPos, idx) => {
         if (newLineup[idx]) return;
         const allowed = POS_GROUPS[slotPos] || [];
@@ -357,8 +374,10 @@ function performPlayerSwap(src, tgt) {
 
 function calculateSlotEffectiveRating(player, slotPos) {
     if (!player) return 0;
-    const r = player.rating - fitnessPenalty(player) + getTrainingAttrBonus(player);   // müde Spieler sind schwächer, Trainingsstand zählt mit
+    const r = player.rating - fitnessPenalty(player) + getTrainingAttrBonus(player) + getSkillSlotBonus(player, slotPos);   // müde Spieler sind schwächer, Trainingsstand & Fähigkeiten zählen mit
     if (player.pos === slotPos) return r;
+    // Nebenposition (höchstens 2): nur leicht schwächer
+    if (playsPosition(player, slotPos)) return Math.max(0.0, r - SECONDARY_POS_PENALTY);
     const related = POS_GROUPS[slotPos] || [];
     if (related.includes(player.pos)) {
         return Math.max(0.0, r * 0.90);
@@ -426,7 +445,7 @@ function renderTacticsView(viewport) {
         const player = squad.find(p => p.id === pid);
         const posCoord = coords[idx] || { x: 50, y: 50 };
         const effRating = player ? calculateSlotEffectiveRating(player, slotPos) : 0;
-        const isMismatch = player && player.pos !== slotPos;
+        const isMismatch = player && !playsPosition(player, slotPos);
         const isSelected = selectedSwapSource && selectedSwapSource.zone === 'pitch' && selectedSwapSource.index === idx;
 
         return `
@@ -467,8 +486,8 @@ function renderTacticsView(viewport) {
                  data-zone="bench"
                  data-index="${idx}"
                  data-playerid="${player.id}">
-                  <span class="chip-pos">${player.pos}</span>
-                  <span class="chip-name">${getShortName(player.name)}</span>
+                  <span class="chip-pos" title="Positionen: ${getPlayerPositions(player).join(', ')}">${player.pos}</span>
+                  <span class="chip-name">${natFlagHtml(player, 8)} ${getShortName(player.name)}</span>
                   <span class="chip-form">${getFormArrow(player)}</span>
                   <span class="chip-rating">${player.rating.toFixed(1)}</span>
             </div>
@@ -494,7 +513,7 @@ function renderTacticsView(viewport) {
                          data-playerid="${player.id}"
                          title="${escAttr(unavailable ? `${player.name}: ${getUnavailableLabel(player)}` : player.name)}">
                         <span class="chip-pos" style="${unavailable ? 'background:#a82424; color:#fff; width:auto; padding:0 2px;' : ''}">${badgeTxt}</span>
-                          <span class="chip-name">${getShortName(player.name)}</span>
+                          <span class="chip-name">${natFlagHtml(player, 8)} ${getShortName(player.name)}</span>
                           <span class="chip-form">${getFormArrow(player)}</span>
                           <span class="chip-rating">${player.rating.toFixed(1)}</span>
                     </div>
@@ -507,7 +526,7 @@ function renderTacticsView(viewport) {
     const lineupWarningHtml = !lineupStatus.ok ? `
         <div class="locked-banner">
             <strong>⚠️ STARTELF UNVOLLSTÄNDIG (${lineupStatus.onPitch}/${lineupStatus.required})</strong>
-            <p style="font-size:0.7rem; margin-top:2px;">Das nächste Pflichtspiel kann erst angepfiffen werden, wenn ${lineupStatus.required} Spieler auf dem Platz stehen. Ziehe Ersatzspieler von Bank oder Tribüne auf die freien Positionen.</p>
+            <p style="font-size:0.7rem; margin-top:2px;">${lineupStatus.tooFew ? lineupStatus.reason : `Das nächste Pflichtspiel kann erst angepfiffen werden, wenn ${lineupStatus.required} Spieler auf dem Platz stehen. Ziehe Ersatzspieler von Bank oder Tribüne auf die freien Positionen.`}</p>
         </div>
     ` : '';
     const unavailableHtml = unavailableList.length > 0 ? `

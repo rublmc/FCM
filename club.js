@@ -876,6 +876,7 @@ function renderStadiumView(viewport) {
     const upgrades = STADIUM_UPGRADES.map(up => ({ up, offer: getUpgradeOffer(club, up) }));
     viewport.innerHTML = `
         <h2 class="section-title">🏟️ ${st.name.toUpperCase()}</h2>
+        <button id="btn-view-stadium" type="button" class="bmh-btn primary" style="width:100%; margin-bottom:8px; padding:10px;">🏟️ STADION ANSEHEN</button>
         <div class="kpi-grid">
             <div class="kpi-card">
                 <span class="kpi-label">GESAMTKAPAZITÄT</span>
@@ -952,6 +953,7 @@ function renderStadiumView(viewport) {
         saveGame();
         renderStadiumView(viewport);
     };
+    document.getElementById('btn-view-stadium').addEventListener('click', () => showStadiumView(club));
     document.getElementById('btn-price-down').addEventListener('click', () => setTicketPrice((st.ticketPrice || 24) - 2));
     document.getElementById('btn-price-up').addEventListener('click', () => setTicketPrice((st.ticketPrice || 24) + 2));
     document.querySelectorAll('.btn-quick-price').forEach(btn => {
@@ -1020,7 +1022,7 @@ function renderAdminView(viewport) {
     `;
     bindSettings(() => renderAdminView(viewport));
     document.getElementById('btn-reset-db').addEventListener('click', resetGame);
-    document.getElementById('btn-admin-backup').addEventListener('click', () => { exportCurrentBackup(); renderAdminView(viewport); });
+    document.getElementById('btn-admin-backup').addEventListener('click', () => { exportCurrentBackup().then(() => renderAdminView(viewport)); });
     document.getElementById('btn-back-to-start').addEventListener('click', () => saveAndNavigate('start.html'));
 }
 

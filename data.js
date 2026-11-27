@@ -2,9 +2,9 @@
 // FC MANAGER 27 - MODUL: DATA & KONSTANTEN
 // ==========================================
 window.FCM_APP_STARTED = true;
-const GAME_VERSION = "1.19.0";
-const ASSET_VERSION = "29.0";   // muss zum ?v= in index.html/start.html passen (Cache-Busting)
-const GAME_BUILD_DATE = "25.11.2026";
+const GAME_VERSION = "1.20.0";
+const ASSET_VERSION = "30.0";   // muss zum ?v= in index.html/start.html passen (Cache-Busting)
+const GAME_BUILD_DATE = "27.11.2026";
 
 
 const FORMATIONS = {
@@ -274,7 +274,7 @@ const WINTER_EVENTS = [
 
 let GameState = {
     meta: {
-        coreVersion: "1.19.0",
+        coreVersion: "1.20.0",
         season: "2026/27",
         phase: "preseason", // 'preseason' | 'season' | 'winter'
         preseasonWeek: 1,   // 1..4
@@ -403,6 +403,11 @@ function escAttr(s) {
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Freitext (Namen aus Eingaben, Länderpaketen, Backups) sicher als HTML-Text ausgeben
+function escHtml(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 // Temporärer UI-State für Kader, Sortierung & Transfermarkt
 let squadSubTab = 'roster';
 let rosterSortBy = 'rating';
@@ -491,6 +496,48 @@ function saveDatabaseSnapshot(db) {
     }
 }
 
+// Länderpaket VOR der Übernahme vollständig prüfen. Rückgabe: Liste der Fehler (leer = gültig)
+function validateDataPackage(pkg) {
+    const errors = [];
+    if (!pkg || typeof pkg !== 'object' || Array.isArray(pkg)) return ['Das Paket hat kein gültiges Format.'];
+    const isObj = (o) => o && typeof o === 'object' && !Array.isArray(o);
+    const unsafe = (v) => typeof v === 'string' && /[<>]/.test(v);
+    if (pkg.leagues !== undefined && !isObj(pkg.leagues)) errors.push('„leagues“ muss ein Objekt sein.');
+    if (pkg.clubs !== undefined && !isObj(pkg.clubs)) errors.push('„clubs“ muss ein Objekt sein.');
+    if (pkg.players !== undefined && !Array.isArray(pkg.players)) errors.push('„players“ muss eine Liste sein.');
+    if (errors.length) return errors;
+    Object.entries(pkg.leagues || {}).forEach(([id, l]) => {
+        if (!isObj(l)) errors.push(`Liga ${id}: ungültiger Eintrag.`);
+        else if (!l.name || unsafe(l.name)) errors.push(`Liga ${id}: Name fehlt oder enthält < >.`);
+    });
+    const knownClubs = new Set(Object.keys(pkg.clubs || {}));
+    let dbClubs = null;
+    Object.entries(pkg.clubs || {}).forEach(([id, c]) => {
+        if (!isObj(c)) { errors.push(`Verein ${id}: ungültiger Eintrag.`); return; }
+        if (!c.name || unsafe(c.name)) errors.push(`Verein ${id}: Name fehlt oder enthält < >.`);
+        if (c.budget !== undefined && !Number.isFinite(Number(c.budget))) errors.push(`Verein ${id}: Budget ist keine Zahl.`);
+    });
+    const ids = new Set();
+    (pkg.players || []).forEach((p, i) => {
+        const tag = `Spieler ${i + 1}${p && p.name ? ' (' + String(p.name).slice(0, 30) + ')' : ''}`;
+        if (!isObj(p)) { errors.push(`${tag}: ungültiger Eintrag.`); return; }
+        if (!p.id) errors.push(`${tag}: ID fehlt.`);
+        else if (ids.has(p.id)) errors.push(`${tag}: doppelte ID ${p.id}.`);
+        else ids.add(p.id);
+        if (!p.name || typeof p.name !== 'string' || unsafe(p.name)) errors.push(`${tag}: Name fehlt oder enthält < >.`);
+        if (typeof p.rating !== 'number' || !Number.isFinite(p.rating)) errors.push(`${tag}: Stärke ist keine Zahl.`);
+        if (p.age !== undefined && (!Number.isFinite(Number(p.age)) || p.age < 14 || p.age > 50)) errors.push(`${tag}: Alter unplausibel.`);
+        if (p.salary !== undefined && (!Number.isFinite(Number(p.salary)) || p.salary < 0)) errors.push(`${tag}: Gehalt ungültig.`);
+        if (p.contractUntil !== undefined && !Number.isFinite(Number(p.contractUntil))) errors.push(`${tag}: Vertragsende ungültig.`);
+        if (!p.pos || typeof p.pos !== 'string') errors.push(`${tag}: Position fehlt.`);
+        if (p.clubId && p.clubId !== 'free' && !knownClubs.has(p.clubId)) {
+            if (dbClubs === null) { const db = loadDatabaseSnapshot(); dbClubs = new Set(Object.keys((db && db.clubs) || {})); }
+            if (!dbClubs.has(p.clubId) && !(typeof GameState !== 'undefined' && GameState.clubs && GameState.clubs[p.clubId])) errors.push(`${tag}: unbekannter Verein ${p.clubId}.`);
+        }
+    });
+    return errors;
+}
+
 // Ein Paket in ein Datenbank-Objekt einmischen (ohne zu speichern)
 function mergePackIntoDb(db, pkg) {
     if (pkg.leagues) Object.assign(db.leagues, deepCopy(pkg.leagues));
@@ -554,6 +601,8 @@ async function syncServerPacks(onProgress = () => {}) {
             const res = await fetch(SERVER_PACK_DIR + p.file, { cache: 'no-cache' });
             if (!res.ok) { missing.push(p.name); continue; }
             const pkg = await res.json();
+            const errs = validateDataPackage(pkg);
+            if (errs.length) { console.warn(`Länderpaket ${p.name} fehlerhaft:`, errs.slice(0, 10)); missing.push(p.name + ' (fehlerhaft)'); continue; }
             mergePackIntoDb(db, pkg);
             db.packRevs[p.id] = p.rev;
             loaded++;

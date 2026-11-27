@@ -32,6 +32,11 @@ function computeIdealXI(squad) {
     });
     slots.forEach((slotPos, i) => {
         if (xi[i]) return;
+        const p = sorted.find(x => !used.has(x.id) && playsPosition(x, slotPos));
+        if (p) { xi[i] = p.id; used.add(p.id); }
+    });
+    slots.forEach((slotPos, i) => {
+        if (xi[i]) return;
         const allowed = POS_GROUPS[slotPos] || [];
         const p = sorted.find(x => !used.has(x.id) && allowed.includes(x.pos));
         if (p) { xi[i] = p.id; used.add(p.id); }

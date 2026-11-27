@@ -96,18 +96,34 @@ function playerAcceptsLoanMove(target) {
 }
 
 // ---------- Verhandlung (Leihe IN) ----------
+// Reihenfolge wie beim Transfer: zuerst der Spieler (Gehalt/Leihprämie), danach der Verein (Leihgebühr).
 function startLoanNegotiation(target) {
     const base = loanBaseFee(target);
-    const rivals = rollLoanRivals(target, base);
-    if (rivals.length > 0) {
+    const commit = getPlayerCommit(target.id, 'loan');
+    const rivals = commit ? (commit.rivals || []) : rollLoanRivals(target, base);
+    if (!commit && rivals.length > 0) {
         addInbox('⚔️', `Konkurrenz um ${target.name}`, `Bei den Gesprächen über eine Leihe von ${target.name} haben auch ${rivals.map(r => r.name).join(' und ')} Interesse angemeldet. Am Ende entscheiden der Spieler und sein Verein.`, 'transfer');
     }
+    if (commit) {
+        startLoanClubStep(target, base, rivals, { raise: commit.raise || 0, bonus: commit.bonus || 0 });
+        return;
+    }
+    negoStart({
+        kind: 'loanPlayer', voice: 'player', key: 'loanp:' + target.id, targetId: target.id, name: target.name,
+        reservation: computeLoanPlayerReservation(target, false),
+        sel: { raise: 0, bonus: 0 },
+        extra: { baseFee: base, sellerId: target.clubId, playerFirst: true, fee: null, share: null, option: null, rivals }
+    });
+}
+
+// Schritt 2/2: Verein (Leihgebühr, Gehaltsübernahme, Kaufoption)
+function startLoanClubStep(target, base, rivals, playerTerms) {
     negoStart({
         kind: 'loan', voice: 'seller', key: 'loan:' + target.id, targetId: target.id,
         name: GameState.clubs[target.clubId] ? GameState.clubs[target.clubId].name : 'Verein',
         reservation: computeLoanReservation(target),
         sel: { fee: 1.0, share: 1.0, option: 0 },
-        extra: { baseFee: base, sellerId: target.clubId, rivals }
+        extra: { baseFee: base, sellerId: target.clubId, rivals, playerTerms }
     });
 }
 
@@ -174,7 +190,8 @@ function buildLoanNegotiationHtml() {
         title: `🔁 LEIHE: ${target.name} (${seller ? seller.name : ''})`,
         infoHtml: `<p>Pos: <strong>${target.pos}</strong> | Stärke: <strong>${target.rating.toFixed(1)}</strong> | Alter: <strong>${target.age}</strong> | Vertrag bis <strong>${target.contractUntil}</strong></p>
                    <p>Marktwert: <strong>${formatMoneyShort(calculateMarketValue(target))}</strong> • Gehalt: <strong>${formatMoneyShort(target.salary || 0)}/J.</strong> • Dein Budget: <strong>${formatMoneyShort(club.budget)}</strong></p>
-<p style="font-size:0.64rem; color:#d3f9d8;">Schritt 1/2: Einigung mit ${seller ? seller.name : 'dem Verein'} über Leihgebühr, Gehaltsübernahme und Kaufoption. Danach verhandelst du mit dem Spieler. Die Leihgebühr wird erst fällig, wenn auch der Spieler zustimmt. Er kommt bis Saisonende ${seasonEnd} und kehrt danach zurück – außer du ziehst die Kaufoption. Kader: ${getClubPlayers().length}/${MAX_SQUAD_USER}.</p>
+${n.extra.playerTerms ? `<p>✅ ${target.name} hat der Leihe zugestimmt${n.extra.playerTerms.raise ? ` (+${Math.round(n.extra.playerTerms.raise * 100)} % Gehalt)` : ''}${n.extra.playerTerms.bonus ? `, ${formatMoneyShort(n.extra.playerTerms.bonus)} Leihprämie` : ''}.</p>` : ''}
+<p style="font-size:0.64rem; color:#d3f9d8;">Schritt 2/2: Einigung mit ${seller ? seller.name : 'dem Verein'} über Leihgebühr, Gehaltsübernahme und Kaufoption. Der Kaufpreis wird bei der Einigung fest vereinbart. Er kommt bis Saisonende ${seasonEnd} und kehrt danach zurück – außer du ziehst die Kaufoption. Scheitert die Verhandlung, gilt die Zusage des Spielers noch ca. 2 Spieltage/Wochen. Kader: ${getClubPlayers().length}/${MAX_SQUAD_USER}.</p>
                    ${buildLoanRivalsInfoHtml(n.extra.rivals)}
                    ${delayed ? `<p style="font-size:0.66rem; color:#ffe066;">⚠️ Transferfenster geschlossen – die Leihe beginnt am ${formatGameDate(w.nextOpenISO, true)} (Vorvertrag).</p>` : ''}`,
         optionsHtml: `
@@ -184,8 +201,10 @@ function buildLoanNegotiationHtml() {
             </div>
             <div style="margin-top:6px;">${negoSelectHtml('nego-loan-option', 'KAUFOPTION', optOpts, n.sel.option ?? 0)}</div>`,
         submitLabel: 'LEIHANGEBOT ABGEBEN',
-successText: 'Leihgebühr vereinbart – jetzt mit dem Spieler verhandeln!',
-        abortText: `${seller ? seller.name : 'Der Verein'} hat die Gespräche abgebrochen. Ein neuer Versuch ist frühestens in 3 Wochen/Spielen möglich.`
+successText: n.extra.resultTxt || 'Leihe vereinbart!',
+        abortText: n.extra.commitKept
+            ? `${seller ? seller.name : 'Der Verein'} hat die Gespräche abgebrochen. Die Zusage von ${target.name} gilt ${n.extra.commitKept} – ab dem nächsten Spieltag/der nächsten Woche kannst du es erneut beim Verein versuchen.`
+            : `${seller ? seller.name : 'Der Verein'} hat die Gespräche abgebrochen. Ein neuer Versuch ist frühestens in 3 Wochen/Spielen möglich.`
     });
 }
 
@@ -204,9 +223,9 @@ function bindLoanNegotiation(rerender) {
             const sel = readLoanSelection();
             n.sel = sel;
             const fee = loanFeeForStep(n.extra.baseFee, sel.fee);
-            const salaryShare = Math.round((target.salary || 0) * sel.share);
-            if (club.budget < fee) {
-                alert(`Nicht genügend Budget für ${formatMoneyShort(fee)} Leihgebühr! (kein Versuch verbraucht)`);
+            const terms = n.extra.playerTerms || { raise: 0, bonus: 0 };
+            if (club.budget < fee + (terms.bonus || 0)) {
+                alert(`Nicht genügend Budget! Benötigt: ${formatMoneyShort(fee + (terms.bonus || 0))} (Leihgebühr${terms.bonus ? ' + Leihprämie' : ''}). (kein Versuch verbraucht)`);
                 return;
             }
             const score = loanScore(sel.fee, sel.share, sel.option);
@@ -220,14 +239,31 @@ function bindLoanNegotiation(rerender) {
             });
             if (res.status !== 'accepted') escalateRivals(n.extra.rivals, n.extra.baseFee, 0.45);
             if (res.status === 'accepted') {
-                // Schritt 2: Verhandlung mit dem Spieler (wie beim normalen Transfer)
-                negoStart({
-                    kind: 'loanPlayer', voice: 'player', key: 'loanp:' + target.id, targetId: target.id, name: target.name,
-                    reservation: computeLoanPlayerReservation(target, sel.option > 0),
-                    sel: { raise: 0, bonus: 0 },
-                    extra: { baseFee: n.extra.baseFee, sellerId: n.extra.sellerId, fee, share: sel.share, option: sel.option, rivals: n.extra.rivals }
-                });
-                setStatus(`🔁 Leihgebühr ${formatMoneyShort(fee)} vereinbart – jetzt mit ${target.name} verhandeln.`);
+                clearPlayerCommit(target.id);
+                const rivals = n.extra.rivals || [];
+                if (!n.extra.playerTerms) {
+                    // Sicherheitsnetz (alter Verhandlungsstand): Spielerverhandlung nachholen
+                    negoStart({
+                        kind: 'loanPlayer', voice: 'player', key: 'loanp:' + target.id, targetId: target.id, name: target.name,
+                        reservation: computeLoanPlayerReservation(target, sel.option > 0),
+                        sel: { raise: 0, bonus: 0 },
+                        extra: { baseFee: n.extra.baseFee, sellerId: n.extra.sellerId, fee, share: sel.share, option: sel.option, rivals }
+                    });
+                } else if (rivals.length > 0) {
+                    startLoanBid(target, { baseFee: n.extra.baseFee, sellerId: n.extra.sellerId, fee, share: sel.share, option: sel.option, raise: terms.raise || 0, bonus: terms.bonus || 0, rivals });
+                } else {
+                    const state = finalizeLoanIn(target, fee, sel.share, sel.option, terms.raise || 0, terms.bonus || 0);
+                    res.extra.resultTxt = state === 'done'
+                        ? `Leihe perfekt! ${target.name} spielt bis Saisonende für ${club.name}.`
+                        : `Vorvertrag unterschrieben! ${target.name} kommt am ${formatGameDate(getTransferWindow().nextOpenISO, true)}.`;
+                }
+                setStatus(`🔁 Leihgebühr ${formatMoneyShort(fee)} mit ${getAnyClubName(n.extra.sellerId)} vereinbart.`);
+            } else if (res.status === 'aborted') {
+                const c = getPlayerCommit(target.id, 'loan');
+                if (c) {
+                    blockNego('loan:' + target.id, 1);
+                    res.extra.commitKept = playerCommitLeftText(c);
+                }
             }
             saveGame();
             renderHeader();
@@ -239,18 +275,20 @@ function bindLoanNegotiation(rerender) {
 // ---------- Abschluss (Leihe IN) ----------
 function finalizeLoanIn(p, fee, share, option, raise = 0, bonus = 0) {
     const w = getTransferWindow();
+    // Kaufpreis wird bei der Einigung in Euro festgeschrieben (ändert sich bis zum Leihstart nicht mehr)
+    const optionPrice = option ? loanOptionPrice(p, option) : null;
     if (w.open) {
-        executeLoanIn(p, { fee, share, option, raise, bonus, fromId: p.clubId });
+        executeLoanIn(p, { fee, share, option, optionPrice, raise, bonus, fromId: p.clubId });
         return 'done';
     }
     ensureTransferState();
     GameState.pendingTransfers.push({
         id: `pt_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e5)}`,
         dir: 'loanIn', playerId: p.id, name: p.name, fromId: p.clubId, toId: GameState.activeClubId,
-        fee, share, option, raise, bonus, executeFrom: w.nextOpenISO, createdISO: getTransferDateISO()
+        fee, share, option, optionPrice, raise, bonus, executeFrom: w.nextOpenISO, createdISO: getTransferDateISO()
     });
     p.pendingMove = true;
-    addInbox('📝', `Leih-Vorvertrag: ${p.name}`, `Ihr habt euch mit ${getAnyClubName(p.clubId)} und ${p.name} auf die Leihe geeinigt (Gebühr ${formatMoneyShort(fee)}, ${Math.round(share * 100)}% Gehalt${raise ? `, +${Math.round(raise * 100)}% Zulage` : ''}${bonus ? `, ${formatMoneyShort(bonus)} Leihprämie` : ''}${option ? ', Kaufoption' : ''}). Weil das Transferfenster geschlossen ist, kommt er am ${formatGameDate(w.nextOpenISO, true)}.`, 'transfer');
+    addInbox('📝', `Leih-Vorvertrag: ${p.name}`, `Ihr habt euch mit ${getAnyClubName(p.clubId)} und ${p.name} auf die Leihe geeinigt (Gebühr ${formatMoneyShort(fee)}, ${Math.round(share * 100)}% Gehalt${raise ? `, +${Math.round(raise * 100)}% Zulage` : ''}${bonus ? `, ${formatMoneyShort(bonus)} Leihprämie` : ''}${optionPrice ? `, Kaufoption ${formatMoneyShort(optionPrice)}` : ''}). Weil das Transferfenster geschlossen ist, kommt er am ${formatGameDate(w.nextOpenISO, true)}.`, 'transfer');
     return 'pending';
 }
 
@@ -269,7 +307,8 @@ function executeLoanIn(p, d) {
     p.loanShare = d.share;
     p.loanFee = d.fee;
     p.loanSince = GameState.meta.season;
-    p.loanOption = d.option ? loanOptionPrice(p, d.option) : null;
+    // vereinbarten Eurobetrag übernehmen; nur alte Vorverträge ohne Betrag rechnen ihn (einmalig) aus
+    p.loanOption = typeof d.optionPrice === 'number' ? d.optionPrice : (d.option ? loanOptionPrice(p, d.option) : null);
     p.loanOptionWarned = false;
     p.motivation = 84;
     p.motF = undefined;
@@ -502,12 +541,15 @@ function buildLoanPlayerNegotiationHtml() {
     const ref = target.salary || 0;
     const raiseOpts = LOAN_RAISE_STEPS.map(s => ({ value: s.value, label: `${s.value === 0 ? formatMoneyShort(ref) + '/J. (aktuell)' : formatMoneyShort(Math.round(ref * (1 + s.value) / 10000) * 10000) + '/J. (' + s.label + ')'}` }));
     const bonusOpts = LOAN_BONUS_STEPS.map(b => ({ value: b, label: b === 0 ? 'Keine Leihprämie' : `${formatMoneyShort(b)} Leihprämie` }));
-    const canAfford = club.budget >= x.fee;
+    const canAfford = club.budget >= (x.fee || 0);
     return buildNegotiationPanelHtml({
         title: `✍️ LEIHE: ${target.name}`,
         infoHtml: `<p>Pos: <strong>${target.pos}</strong> | Stärke: <strong>${target.rating.toFixed(1)}</strong> | Alter: <strong>${target.age}</strong> | Stammverein: <strong>${seller ? seller.name : '–'}</strong></p>
-                   <p>✅ Leihgebühr mit ${seller ? seller.name : 'dem Verein'} vereinbart: <strong style="color:${canAfford ? '#6ee787' : '#ff8787'};">${formatMoneyShort(x.fee)}</strong> • du zahlst <strong>${Math.round(x.share * 100)}%</strong> des Gehalts${x.option ? ` • Kaufoption ${formatMoneyShort(loanOptionPrice(target, x.option))}` : ''} • Budget: ${formatMoneyShort(club.budget)}</p>
-                   <p style="font-size:0.64rem; color:#d3f9d8;">Schritt 2/2: Jetzt verhandelst du mit dem Spieler. Er wechselt bis Saisonende zu dir – eine Zulage auf sein Gehalt (nur für die Leihe) und eine Leihprämie machen das Angebot attraktiver.</p>
+                   ${x.playerFirst
+                         ? `<p>Leihgebühr-Richtwert von ${seller ? seller.name : 'dem Verein'}: <strong>${formatMoneyShort(x.baseFee)}</strong> • Budget: ${formatMoneyShort(club.budget)}</p>
+                     <p style="font-size:0.64rem; color:#d3f9d8;">Schritt 1/2: Zuerst verhandelst du mit dem Spieler. Er wechselt bis Saisonende zu dir – eine Zulage auf sein Gehalt (nur für die Leihe) und eine Leihprämie machen das Angebot attraktiver. Sagt er zu, verhandelst du danach mit ${seller ? seller.name : 'dem Verein'} über Leihgebühr, Gehaltsübernahme und Kaufoption.</p>`
+                         : `<p>✅ Leihgebühr mit ${seller ? seller.name : 'dem Verein'} vereinbart: <strong style="color:${canAfford ? '#6ee787' : '#ff8787'};">${formatMoneyShort(x.fee)}</strong> • du zahlst <strong>${Math.round(x.share * 100)}%</strong> des Gehalts${x.option ? ` • Kaufoption ${formatMoneyShort(loanOptionPrice(target, x.option))}` : ''} • Budget: ${formatMoneyShort(club.budget)}</p>
+                     <p style="font-size:0.64rem; color:#d3f9d8;">Schritt 2/2: Jetzt verhandelst du mit dem Spieler. Er wechselt bis Saisonende zu dir – eine Zulage auf sein Gehalt (nur für die Leihe) und eine Leihprämie machen das Angebot attraktiver.</p>`}
                    ${w.open ? '' : `<p style="font-size:0.66rem; color:#ffe066;">⚠️ Transferfenster geschlossen – die Leihe beginnt am ${formatGameDate(w.nextOpenISO, true)} (Vorvertrag).</p>`}
                    ${buildLoanRivalsInfoHtml(x.rivals)}`,
         optionsHtml: `
@@ -516,7 +558,7 @@ function buildLoanPlayerNegotiationHtml() {
                 ${negoSelectHtml('nego-loanp-bonus', 'LEIHPRÄMIE (SOFORT FÄLLIG)', bonusOpts, n.sel.bonus ?? 0)}
             </div>`,
         submitLabel: 'ANGEBOT AN DEN SPIELER',
-        successText: x.resultTxt || `${target.name} stimmt der Leihe zu!`,
+        successText: x.resultTxt || (x.playerFirst ? `${target.name} stimmt der Leihe zu – jetzt mit ${seller ? seller.name : 'dem Verein'} verhandeln!` : `${target.name} stimmt der Leihe zu!`),
         abortText: `${target.name} hat abgesagt – die Leihe ist geplatzt (keine Leihgebühr gezahlt). Ein neuer Versuch ist frühestens in 3 Wochen/Spielen möglich.`
     });
 }
@@ -537,8 +579,8 @@ function bindLoanPlayerNegotiation(rerender) {
             const raise = parseFloat(document.getElementById('nego-loanp-raise').value) || 0;
             const bonus = parseInt(document.getElementById('nego-loanp-bonus').value, 10) || 0;
             n.sel = { raise, bonus };
-            if (club.budget < x.fee + bonus) {
-                alert(`Nicht genügend Budget! Benötigt: ${formatMoneyShort(x.fee + bonus)} (Leihgebühr + Leihprämie). (kein Versuch verbraucht)`);
+            if (club.budget < (x.fee || 0) + bonus) {
+                alert(`Nicht genügend Budget! Benötigt: ${formatMoneyShort((x.fee || 0) + bonus)} (${x.playerFirst ? 'Leihprämie' : 'Leihgebühr + Leihprämie'}). (kein Versuch verbraucht)`);
                 return;
             }
             const ref = target.salary || 0;
@@ -551,7 +593,12 @@ function bindLoanPlayerNegotiation(rerender) {
                     : 'Berater-Tipp: Selbst die höchste Zulage reicht nicht – biete zusätzlich eine Leihprämie an.';
             });
             if (res.status !== 'accepted') escalateRivals(x.rivals, x.baseFee, 0.40);
-            if (res.status === 'accepted') {
+            if (res.status === 'accepted' && x.playerFirst) {
+                const terms = { raise, bonus };
+                setPlayerCommit(target.id, 'loan', { ...terms, rivals: x.rivals || [] });
+                startLoanClubStep(target, x.baseFee, x.rivals || [], terms);
+                setStatus(`🔁 ${target.name} stimmt der Leihe zu – jetzt mit ${getAnyClubName(x.sellerId)} verhandeln.`);
+            } else if (res.status === 'accepted') {
                 if (x.rivals && x.rivals.length > 0) {
                     startLoanBid(target, { baseFee: x.baseFee, sellerId: x.sellerId, fee: x.fee, share: x.share, option: x.option, raise, bonus, rivals: x.rivals });
                 } else {
@@ -725,8 +772,9 @@ function applyRivalLoan(target, rival, ownerId) {
 function executeRivalLoan(p, rival, ownerId) {
     const buyer = GameState.clubs[rival.clubId];
     const owner = GameState.clubs[ownerId];
-    if (!buyer || !owner || p.clubId !== ownerId) return;
-    const fee = Math.min(rival.fee || 0, Math.max(0, buyer.budget || 0));
+    if (!buyer || !owner || p.clubId !== ownerId) return false;
+    const fee = rival.fee || 0;
+    if ((buyer.budget || 0) < fee) { p.pendingMove = false; return false; }   // keine stille Gebührenkürzung
     buyer.budget = (buyer.budget || 0) - fee;
     owner.budget = (owner.budget || 0) + fee;
     const baseSal = p.salary;
@@ -741,4 +789,5 @@ function executeRivalLoan(p, rival, ownerId) {
     p.loanOption = null;
     p.aiListed = false;
     p.pendingMove = false;
+    return true;
 }

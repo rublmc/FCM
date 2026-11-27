@@ -1904,3 +1904,20 @@ html[data-theme="win31"] .trophy-card, html[data-theme="win31"] .trophy-tile { b
 .intl-cal-box { padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; font-size: 0.66rem; background: #e7f5ff; border-color: #1c5fb8; }
 .intl-cal-box strong { font-size: 0.72rem; color: #0b3d91; }
 html[data-theme="win31"] .intl-cal-box, html[data-theme="win31"] .intl-hero { background: #ffffff; }
+
+/* ==========================================
+   v1.19.1 – Zoomen erlaubt (Barrierefreiheit), ohne iPhone-Nebenwirkungen:
+   - kein Doppeltipp-Zoom auf Bedienelementen
+   - Eingabefelder mit 16px, damit Safari beim Antippen nicht automatisch heranzoomt
+   ========================================== */
+button, a, select, input, label, .mini-action-btn, .sub-tab-btn, .bmh-btn { touch-action: manipulation; }
+@media (hover: none) and (pointer: coarse) {
+    input, select, textarea, .bmh-input, .bmh-select { font-size: 16px !important; }
+}
+
+/* ==========================================
+   v1.20: STADIONANSICHT, POSITIONEN & FÄHIGKEITEN
+   ========================================== */
+.trophy-card.stadium-card { max-width: 560px; }
+.stadium-svg { width: 100%; height: auto; display: block; border: 1px solid #0b1c10; background: #0d1a10; }
+.pc-pos span { color: #e2e5e3; font-weight: normal; }

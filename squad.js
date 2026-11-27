@@ -243,6 +243,16 @@ function playerHintBuilder(player, sel) {
     };
 }
 
+// Zentrale Sperre für Vertragsverlängerungen (gilt für Liste, Spielerkarte und Abschluss)
+// Rückgabe: Grund als Text oder '' (Verlängerung erlaubt)
+function contractExtensionBlockReason(player) {
+    if (!player) return 'Spieler nicht gefunden.';
+    if (player.clubId !== GameState.activeClubId) return `${player.name} steht nicht bei deinem Verein unter Vertrag.`;
+    if (player.loanFrom) return `${player.name} ist nur ausgeliehen – den Vertrag kann nur ${getAnyClubName(player.loanFrom)} verlängern. Für eine feste Verpflichtung die Kaufoption ziehen.`;
+    if (player.pendingMove) return `${player.name} hat bereits einen Wechsel vereinbart.`;
+    return '';
+}
+
 function renderContractsView(viewport) {
     const club = GameState.clubs[GameState.activeClubId];
     const squad = getClubPlayers();
@@ -301,14 +311,15 @@ function renderContractsView(viewport) {
                             if (yrsLeft <= 0) pillClass = "expiring";
                             else if (yrsLeft === 1) pillClass = "medium";
                             const blocked = isNegoBlocked('player:' + p.id);
+                            const noExt = Boolean(contractExtensionBlockReason(p));
                             return `
                             <tr>
                                 <td><strong>${p.pos}</strong></td>
-                                <td title="${escAttr(p.name)} (${p.age} J.)"><strong>${p.name}</strong><br><span style="font-size:0.62rem; color:#444;">${p.age} Jahre • ${getMotivationIcon(p.motivation)}${p.motivation || 78}%</span></td>
+                                <td title="${escAttr(p.name)} (${p.age} J.)">${natFlagHtml(p, 10)} <strong>${p.name}</strong><br><span style="font-size:0.62rem; color:#444;">${p.age} Jahre • ${getMotivationIcon(p.motivation)}${p.motivation || 78}%</span></td>
                                 <td><strong>${p.rating.toFixed(1)}</strong></td>
                                 <td>${formatMoneyShort(p.salary)}</td>
                                 <td><span class="contract-pill ${pillClass}">'${String(p.contractUntil).slice(-2)}</span></td>
-                                <td><button type="button" class="mini-action-btn btn-open-contract" data-pid="${p.id}" ${blocked ? 'disabled style="opacity:0.5;" title="Gesprächssperre"' : ''}>${blocked ? '🔒' : 'VERL.'}</button></td>
+                                <td>${noExt ? `<span style="font-size:0.62rem;" title="${escAttr(contractExtensionBlockReason(p))}">${p.loanFrom ? '🔁 LEIHE' : '–'}</span>` : `<button type="button" class="mini-action-btn btn-open-contract" data-pid="${p.id}" ${blocked ? 'disabled style="opacity:0.5;" title="Gesprächssperre"' : ''}>${blocked ? '🔒' : 'VERL.'}</button>`}</td>
                             </tr>`;
                         }).join('')}
                     </tbody>
@@ -352,6 +363,8 @@ function renderContractsView(viewport) {
             const pid = e.currentTarget.dataset.pid;
             const player = squad.find(p => p.id === pid);
             if (!player) return;
+            const why = contractExtensionBlockReason(player);
+            if (why) { alert(why); return; }
             if (isNegoBlocked('player:' + pid)) {
                 alert(`${player.name} ist nach den gescheiterten Gesprächen vorerst nicht gesprächsbereit.`);
                 return;
@@ -368,6 +381,8 @@ function renderContractsView(viewport) {
             onSubmit: () => {
                 const player = squad.find(p => p.id === activeNegotiation.targetId);
                 if (!club || !player) return;
+                const why = contractExtensionBlockReason(player);
+                if (why) { alert(why); activeNegotiation = null; renderContractsView(viewport); return; }
                 const sel = readPlayerNegoSelection();
                 activeNegotiation.sel = sel;
                 if (club.budget < sel.bonus) {
@@ -410,7 +425,6 @@ const staffScore = (step, years) => step + 0.02 * (years - 1);
 
 function buildStaffTabHtml() {
     ensureStaffOffersInitialized(false);
-    const isPreseason = GameState.meta.phase === 'preseason';
     const seasonEnd = getCurrentSeasonEndYear();
     let negotiationHtml = "";
     if (activeNegotiation && activeNegotiation.kind === 'staff') {
@@ -446,14 +460,14 @@ function buildStaffTabHtml() {
                         <span><strong>${cur.name}</strong> ${'★'.repeat(cur.quality)} • ${formatMoneyShort(cur.salary)}/J. • bis ${cur.untilYear}</span>
                         <button type="button" class="mini-action-btn sell btn-fire-staff" data-role="${roleKey}" style="width:auto; padding:3px 6px;">ENTLASSEN</button>
                     </div>
-                ` : (isPreseason ? offers.map(o => {
+                ` : (offers.length ? offers.map(o => {
                     const blocked = isNegoBlocked('staff:' + o.id);
                     return `
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-top:4px; font-size:0.70rem; background:#fff; border:1px solid #b5bab7; padding:4px 6px;">
                         <span><strong>${o.name}</strong> (${o.age}) ${'★'.repeat(o.quality)}${'☆'.repeat(5 - o.quality)} • ${formatMoneyShort(o.salary)}/J.</span>
                         <button type="button" class="mini-action-btn btn-open-staff" data-sid="${o.id}" style="width:auto; padding:3px 6px;" ${blocked ? 'disabled' : ''}>${blocked ? '🔒' : 'VERHANDELN'}</button>
                     </div>`;
-                }).join('') : `<p style="font-size:0.66rem; color:#a82424; margin-top:4px;">🔒 Neueinstellungen nur in der Saisonvorbereitung möglich.</p>`)}
+                }).join('') : `<p style="font-size:0.66rem; color:#555; margin-top:4px;">Aktuell keine Bewerber – neue Kandidaten melden sich in Kürze.</p>`)}
             </div>
         `;
     };
@@ -467,10 +481,7 @@ function buildStaffTabHtml() {
         ${empKeys.map(roleCard).join('')}`;
 
     return `
-        ${isPreseason ? `
-            <div class="open-window-banner"><strong>✅ VORBEREITUNG: TRAINERSTAB KANN EINGESTELLT WERDEN</strong>
-            <p style="font-size:0.68rem; margin-top:2px;">Stelle jetzt Co-Trainer, Konditionstrainer & Co. ein. Ab dem 1. Spieltag sind keine Neueinstellungen mehr möglich (Entlassungen schon).</p></div>
-        ` : ''}
+        <p style="font-size:0.64rem; color:#444; margin-bottom:6px;">Trainerstab und Mitarbeiter kannst du jederzeit einstellen und entlassen – auch während der Saison. Das Gehalt wird pro Liga-Spieltag abgerechnet.</p>
         ${negotiationHtml}
         <div class="bmh-box" style="padding:8px;">${roleCards}</div>
     `;
@@ -480,7 +491,6 @@ function bindStaffTabEvents(viewport) {
     const club = GameState.clubs[GameState.activeClubId];
     viewport.querySelectorAll('.btn-open-staff').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            if (GameState.meta.phase !== 'preseason') return;
             const sid = e.currentTarget.dataset.sid;
             const cand = GameState.staffOffers.find(o => o.id === sid);
             if (!cand) return;
@@ -677,10 +687,10 @@ function buildRosterTabHtml(mySquad) {
                         return `
                         <tr class="roster-row" data-pid="${p.id}" style="${rowStyle} cursor:pointer;" title="Spielerkarte öffnen">
                             <td>${statusBadge}</td>
-                            <td><strong>${p.pos}</strong></td>
+                            <td><strong>${p.pos}</strong>${getSecondPositions(p).length ? `<br><span style="font-size:0.54rem; color:#444;" title="Nebenpositionen">${getSecondPositions(p).join('/')}</span>` : ''}</td>
                             <td class="form-cell">${getFormArrow(p)}</td>
                             <td title="${escAttr(p.name)} (${p.age} J. | Mot: ${mot}%)">
-${natFlagHtml(p, 9)} <strong>${youthIcon}${p.name}</strong> ${isPlayerCalledUp(p) ? '<span class="intl-badge" title="Für die nächsten Länderspiele nominiert">🌍</span>' : ''}${traitBadgeHtml(p)}${p.lifeEvent && (GameState.meta.tick || 0) - p.lifeEvent.tick <= 6 ? `<span title="Privat: ${p.lifeEvent.title}">${p.lifeEvent.icon}</span>` : ''}<br>
+${natFlagHtml(p, 11)} <strong>${youthIcon}${p.name}</strong> ${isPlayerCalledUp(p) ? '<span class="intl-badge" title="Für die nächsten Länderspiele nominiert">🌍</span>' : ''}${traitBadgeHtml(p)}${skillIconsHtml(p)}${p.lifeEvent && (GameState.meta.tick || 0) - p.lifeEvent.tick <= 6 ? `<span title="Privat: ${p.lifeEvent.title}">${p.lifeEvent.icon}</span>` : ''}<br>
 <span style="font-size:0.60rem; color:#444;">${p.age}J • ${getMotivationIcon(mot)}${mot}%${p.wantsOut ? '🚪' : ((p.unhappyWeeks || 0) >= 3 ? '⚠️' : '')} • <span title="Kondition: ${fitnessLabel(p)}" style="${getFitness(p) < 70 ? 'color:#a82424; font-weight:bold;' : ''}">⚡${Math.round(getFitness(p))}%</span> • ${p.loanFrom ? '🔁bis ' + (p.loanUntil || '') : "'" + String(p.contractUntil).slice(-2)}${suspNote}</span>
                             </td>
                             <td><strong>${p.rating.toFixed(1)}</strong></td>
@@ -801,9 +811,9 @@ function buildTransferMarketTabHtml() {
                 <tbody>
                     ${filtered.map(p => `
                         <tr class="mkt-row" data-pid="${p.id}" style="cursor:pointer;" title="Spielerkarte öffnen">
-                            <td><strong>${p.pos}</strong></td>
+                            <td><strong>${p.pos}</strong>${getSecondPositions(p).length ? `<br><span style="font-size:0.54rem; color:#444;">${getSecondPositions(p).join('/')}</span>` : ''}</td>
                             <td title="${escAttr(p.name)} (${escAttr(p.clubLabel)})">
-                                ${getFormArrow(p)} ${natFlagHtml(p, 9)} <strong>${p.name}</strong><br>
+                                ${getFormArrow(p)} ${natFlagHtml(p, 11)} <strong>${p.name}</strong> ${skillIconsHtml(p)}<br>
                                 <span style="font-size:0.62rem; color:#444;">${p.clubLabel}${p.aiListed ? ' • 📋 Transferliste' : ''}</span>
                             </td>
                             <td>${p.age}</td>
@@ -1118,16 +1128,18 @@ function buildPlayerCardHtml(p) {
     return `
         <div class="player-card">
             <div class="pc-head">
-                <div class="pc-pos">${p.pos}</div>
+                <div class="pc-pos">${p.pos}${getSecondPositions(p).length ? `<br><span style="font-size:0.56rem;">${getSecondPositions(p).join('/')}</span>` : ''}</div>
                 <div style="flex:1; min-width:0;">
-                    <div class="pc-name">${p.isYouthProduct ? '🌱 ' : ''}${p.name}</div>
-                    <div class="pc-sub">${natFlagHtml(p, 11)} ${natName(getPlayerNat(p))} • ${p.age} Jahre • ${club ? club.name : ''} • Talent ${stars}</div>
+                    <div class="pc-name">${p.isYouthProduct ? '🌱 ' : ''}${p.name} ${skillIconsHtml(p)}</div>
+                    <div class="pc-sub">${natFlagHtml(p, 14)} <strong>${natName(getPlayerNat(p))}</strong> • ${p.age} Jahre • ${club ? club.name : ''} • Talent ${stars}</div>
                 </div>
                 <div class="pc-rating">${p.rating.toFixed(1)}</div>
                 <button id="btn-close-card" type="button" class="bmh-btn danger small-btn" style="padding:2px 7px; align-self:flex-start;">✕</button>
             </div>
             <div class="pc-status"><span class="contract-pill ${statusCls}">${status}</span>${p.tAway ? ` <span class="contract-pill medium">🏖️ Turnierurlaub bis ${formatGameDate(p.tAway)}</span>` : ''} <span style="font-size:0.66rem;">• ${role} • ${getMotivationIcon(p.motivation)} Motivation ${p.motivation || 78}%</span></div>
             <div class="pc-trait"><strong>${PLAYER_TRAITS[getPlayerTrait(p)].icon || '🙂'} Charakter: ${PLAYER_TRAITS[getPlayerTrait(p)].label}</strong><br><span>${PLAYER_TRAITS[getPlayerTrait(p)].desc}</span></div>
+            ${buildPositionsHtml(p, true)}
+            ${buildSkillsHtml(p, true)}
             ${buildMotivationCardHtml(p)}
             ${p.lifeEvent ? `<div class="pc-trait" style="background:${p.lifeEvent.mot >= 0 ? '#d3f9d8' : '#ffe3e3'};"><strong>${p.lifeEvent.icon} Privat:</strong> ${p.name} ${p.lifeEvent.title}${p.lifeEvent.date ? ` (${formatGameDate(p.lifeEvent.date)})` : ''} • Motivation ${p.lifeEvent.mot > 0 ? '+' : ''}${p.lifeEvent.mot}%</div>` : ''}
             <div class="pc-grid">
@@ -1240,6 +1252,8 @@ function bindPlayerCard(viewport, p, rerender) {
 function openContractNegotiationFor(pid) {
     const player = GameState.players.find(p => p.id === pid);
     if (!player) return;
+    const why = contractExtensionBlockReason(player);
+    if (why) { alert(why); return; }
     contractsSubTab = 'players';
     contractFilter = 'ALL';
     switchToView('contracts');
@@ -1315,10 +1329,42 @@ function computeSellerReservation(target) {
     return Math.max(0.6, r);
 }
 
+// ==========================================
+// SPIELER-ZUSAGE: Reihenfolge wie im echten Fußball – zuerst der Spieler (Gehalt), dann der Verein (Ablöse).
+// Lehnt der Verein ab, bleibt die Zusage des Spielers ca. 2 Spieltage/Wochen bestehen.
+// ==========================================
+const PLAYER_COMMIT_TICKS = 2;
+
+function getPlayerCommit(pid, kind) {
+    const all = GameState.playerCommits;
+    const c = all && all[pid];
+    if (!c) return null;
+    if ((GameState.meta.tick || 0) >= c.untilTick) { delete all[pid]; return null; }
+    if (kind && c.kind !== kind) return null;
+    // Spieler inzwischen bei einem anderen Verein? Dann ist die Zusage hinfällig
+    const pl = GameState.players.find(x => x.id === pid);
+    if (!pl || (c.sellerId && pl.clubId !== c.sellerId)) { delete all[pid]; return null; }
+    return c;
+}
+function setPlayerCommit(pid, kind, terms) {
+    if (!GameState.playerCommits || typeof GameState.playerCommits !== 'object') GameState.playerCommits = {};
+    const pl = GameState.players.find(x => x.id === pid);
+    GameState.playerCommits[pid] = { kind, ...terms, sellerId: pl ? pl.clubId : null, untilTick: (GameState.meta.tick || 0) + PLAYER_COMMIT_TICKS };
+}
+function clearPlayerCommit(pid) {
+    if (GameState.playerCommits) delete GameState.playerCommits[pid];
+}
+function playerCommitLeftText(c) {
+    const left = Math.max(1, (c.untilTick || 0) - (GameState.meta.tick || 0));
+    return left === 1 ? 'noch 1 Spieltag/Woche' : `noch ${left} Spieltage/Wochen`;
+}
+
 function startTransferNegotiation(target) {
     const asking = calculateTransferFee(target);
-    const rivals = rollTransferRivals(target, asking);
-    if (rivals.length > 0) {
+    const commit = asking > 0 ? getPlayerCommit(target.id, 'transfer') : null;
+    // Liegt schon eine Spielerzusage vor, bleibt die Konkurrenz von damals bestehen
+    const rivals = commit ? (commit.rivals || []) : rollTransferRivals(target, asking);
+    if (!commit && rivals.length > 0) {
         addInbox('⚔️', `Konkurrenz um ${target.name}`, `Bei den Gesprächen um ${target.name} haben auch ${rivals.map(r => r.name).join(' und ')} Interesse angemeldet. Am Ende entscheiden der Spieler und sein Verein.`, 'transfer');
     }
     if (asking <= 0) {
@@ -1326,12 +1372,27 @@ function startTransferNegotiation(target) {
         negoStart({ kind: 'transfer', voice: 'player', key: 'player:' + target.id, targetId: target.id, name: target.name, reservation: computePlayerReservation(target, 'transfer'), extra: { agreedFee: 0, rivals, asking: 0 } });
         return;
     }
+    if (commit) {
+        // Spieler hat bereits zugesagt -> direkt zur Ablöse-Verhandlung mit dem Verein
+        startTransferFeeStep(target, asking, rivals, { salary: commit.salary, years: commit.years, bonus: commit.bonus });
+        return;
+    }
+    // Schritt 1/2: Verhandlung mit dem Spieler
+    negoStart({
+        kind: 'transfer', voice: 'player', key: 'player:' + target.id, targetId: target.id, name: target.name,
+        reservation: computePlayerReservation(target, 'transfer'),
+        extra: { agreedFee: null, playerFirst: true, rivals, asking, sellerId: target.clubId }
+    });
+}
+
+// Schritt 2/2: Verhandlung mit dem Verein über die Ablöse (Spielerbedingungen stehen fest)
+function startTransferFeeStep(target, asking, rivals, playerTerms) {
     negoStart({
         kind: 'transferFee', voice: 'seller', key: 'club:' + target.id, targetId: target.id,
         name: GameState.clubs[target.clubId]?.name || 'Verein',
         reservation: computeSellerReservation(target),
         sel: { fee: 1.0 },
-        extra: { askingFee: asking, sellerId: target.clubId, rivals }
+        extra: { askingFee: asking, sellerId: target.clubId, rivals, playerTerms }
     });
 }
 
@@ -1347,12 +1408,15 @@ function buildTransferFeeNegotiationHtml() {
         title: `💼 ABLÖSE: ${target.name} (${seller ? seller.name : ''})`,
         infoHtml: `<p>Pos: <strong>${target.pos}</strong> | Stärke: <strong>${target.rating.toFixed(1)}</strong> | Alter: <strong>${target.age}</strong> | Vertrag bis <strong>${target.contractUntil}</strong></p>
                    <p>Marktwert: <strong>${formatMoneyShort(calculateMarketValue(target))}</strong> • Ablöseforderung: <strong>${formatMoneyShort(asking)}</strong> • Dein Budget: <strong>${formatMoneyShort(club.budget)}</strong></p>
-                     <p style="font-size:0.64rem; color:#d3f9d8;">Schritt 1/2: Einigung mit ${seller ? seller.name : 'dem Verein'} über die Ablöse. Danach verhandelst du mit dem Spieler über seinen Vertrag. Die Ablöse wird erst fällig, wenn auch der Spieler unterschreibt.</p>
+                     ${n.extra.playerTerms ? `<p>✅ ${target.name} hat zugesagt: <strong>${formatMoneyShort(n.extra.playerTerms.salary)}/J.</strong>, ${n.extra.playerTerms.years} J.${n.extra.playerTerms.bonus ? `, ${formatMoneyShort(n.extra.playerTerms.bonus)} Handgeld` : ''}</p>` : ''}
+                     <p style="font-size:0.64rem; color:#d3f9d8;">Schritt 2/2: Einigung mit ${seller ? seller.name : 'dem Verein'} über die Ablöse. Dazu kommen 8 % Beraterhonorar auf die Ablöse. Scheitert die Verhandlung, gilt die Zusage des Spielers ${(() => { const c = getPlayerCommit(target.id, 'transfer'); return c ? playerCommitLeftText(c) : 'noch ca. 2 Spieltage'; })()} – in dieser Zeit kannst du es erneut beim Verein versuchen.</p>
                      ${buildRivalsInfoHtml(n.extra.rivals)}`,
         optionsHtml: negoSelectHtml('nego-fee', 'DEIN ABLÖSE-ANGEBOT', opts, n.sel.fee ?? 1.0),
         submitLabel: 'ABLÖSE ANBIETEN',
-        successText: 'Ablöse vereinbart – jetzt mit dem Spieler verhandeln!',
-        abortText: `${seller ? seller.name : 'Der Verein'} hat die Gespräche abgebrochen. Ein neuer Versuch ist frühestens in 3 Wochen/Spielen möglich.`
+        successText: n.extra.resultTxt || 'Ablöse vereinbart!',
+        abortText: n.extra.commitKept
+            ? `${seller ? seller.name : 'Der Verein'} hat die Gespräche abgebrochen. Die Zusage von ${target.name} gilt ${n.extra.commitKept} – ab dem nächsten Spieltag/der nächsten Woche kannst du erneut mit dem Verein verhandeln.`
+            : `${seller ? seller.name : 'Der Verein'} hat die Gespräche abgebrochen. Ein neuer Versuch ist frühestens in 3 Wochen/Spielen möglich.`
     });
 }
 
@@ -1370,8 +1434,10 @@ function bindTransferFeeNegotiation(rerender) {
             const step = parseFloat(document.getElementById('nego-fee').value) || 1.0;
             n.sel = { fee: step };
             const fee = feeForStep(n.extra.askingFee, step);
-            if (club.budget < fee) {
-                alert(`Nicht genügend Budget für ${formatMoneyShort(fee)} Ablöse! (kein Versuch verbraucht)`);
+            const terms = n.extra.playerTerms || { salary: 0, years: 3, bonus: 0 };
+            const need = getSigningTotalCost(fee, terms.bonus);
+            if (club.budget < need) {
+                alert(`Nicht genügend Budget! Benötigt: ${formatMoneyShort(need)} (Ablöse ${formatMoneyShort(fee)} + Beraterhonorar ${formatMoneyShort(getAgentFee(fee))}${terms.bonus ? ' + Handgeld ' + formatMoneyShort(terms.bonus) : ''}). (kein Versuch verbraucht)`);
                 return;
             }
             const res = negoSubmit(step, formatMoneyShort(fee), (r, mood) => {
@@ -1382,13 +1448,30 @@ function bindTransferFeeNegotiation(rerender) {
             });
             if (res.status !== 'accepted') escalateRivals(n.extra.rivals, n.extra.askingFee, 0.45);
             if (res.status === 'accepted') {
-                const feeLog = res.log.slice();
-                negoStart({
-                    kind: 'transfer', voice: 'player', key: 'player:' + target.id, targetId: target.id, name: target.name,
-                    reservation: computePlayerReservation(target, 'transfer'),
-                    extra: { agreedFee: fee, feeLog, rivals: n.extra.rivals, asking: n.extra.askingFee }
-                });
-                setStatus(`💼 Ablöse ${formatMoneyShort(fee)} vereinbart – jetzt mit ${target.name} verhandeln.`);
+                clearPlayerCommit(target.id);
+                const rivals = n.extra.rivals || [];
+                if (!n.extra.playerTerms) {
+                    // Sicherheitsnetz (alter Verhandlungsstand): Spielerverhandlung nachholen
+                    negoStart({
+                        kind: 'transfer', voice: 'player', key: 'player:' + target.id, targetId: target.id, name: target.name,
+                        reservation: computePlayerReservation(target, 'transfer'),
+                        extra: { agreedFee: fee, rivals, asking: n.extra.askingFee }
+                    });
+                } else if (rivals.length > 0) {
+                    startTransferBid(target, { asking: n.extra.askingFee, fee, salary: terms.salary, years: terms.years, bonus: terms.bonus, rivals });
+                } else {
+                    const state = finalizeUserSigning(target, fee, terms.salary, terms.years, terms.bonus);
+                    res.extra.resultTxt = state === 'done'
+                        ? `Transfer perfekt! ${target.name} wechselt zu ${club.name}.`
+                        : `Vorvertrag unterschrieben! ${target.name} wechselt am ${formatGameDate(getTransferWindow().nextOpenISO, true)}.`;
+                }
+                setStatus(`💼 Ablöse ${formatMoneyShort(fee)} mit ${getAnyClubName(n.extra.sellerId)} vereinbart.`);
+            } else if (res.status === 'aborted') {
+                const c = getPlayerCommit(target.id, 'transfer');
+                if (c) {
+                    blockNego('club:' + target.id, 1);      // Zusage des Spielers läuft noch: erneuter Versuch ab nächster Woche
+                    res.extra.commitKept = playerCommitLeftText(c);
+                }
             }
             saveGame();
             rerender();
@@ -1413,20 +1496,24 @@ function buildTransferNegotiationPanelHtml() {
     const target = GameState.players.find(p => p.id === n.targetId);
     if (!target || !club) return '';
     const fee = n.extra.agreedFee || 0;
+    const playerFirst = Boolean(n.extra.playerFirst);
     const sellerName = target.clubId === 'free' ? 'Vereinslos (Ablösefrei)' : (GameState.clubs[target.clubId]?.name || 'Unbekannt');
-    const canAfford = club.budget >= fee;
+    const canAfford = club.budget >= getSigningTotalCost(fee, 0);
     const w = getTransferWindow();
     const delayed = target.clubId !== 'free' && !w.open;
     return buildNegotiationPanelHtml({
         title: `✍️ TRANSFER: ${target.name}`,
         infoHtml: `<p>Pos: <strong>${target.pos}</strong> | Stärke: <strong>${target.rating.toFixed(1)}</strong> | Alter: <strong>${target.age}</strong> | Verein: <strong>${sellerName}</strong></p>
-                   <p>${fee === 0 ? '✅ Ablösefrei' : `✅ Ablöse mit ${sellerName} vereinbart: <strong style="color:${canAfford ? '#6ee787' : '#ff8787'};">${formatMoneyShort(fee)}</strong>`} • Budget: ${formatMoneyShort(club.budget)}</p>
-                   <p style="font-size:0.64rem; color:#d3f9d8;">${fee === 0 ? 'Schritt 1/1' : 'Schritt 2/2'}: Jetzt verhandelst du mit dem Spieler über seinen Vertrag.${fee > 0 ? ' Dazu kommen 8% Beraterhonorar auf die Ablöse.' : ''}</p>
+                   ${playerFirst
+                       ? `<p>Ablöseforderung von ${sellerName}: <strong>${formatMoneyShort(n.extra.asking || 0)}</strong> (+8 % Beraterhonorar) • Budget: ${formatMoneyShort(club.budget)}</p>
+                   <p style="font-size:0.64rem; color:#d3f9d8;">Schritt 1/2: Zuerst verhandelst du mit dem Spieler über seinen Vertrag. Sagt er zu, verhandelst du danach mit ${sellerName} über die Ablöse. Seine Zusage gilt ca. 2 Spieltage/Wochen.</p>`
+                       : `<p>${fee === 0 ? '✅ Ablösefrei' : `✅ Ablöse mit ${sellerName} vereinbart: <strong style="color:${canAfford ? '#6ee787' : '#ff8787'};">${formatMoneyShort(fee)}</strong>`} • Budget: ${formatMoneyShort(club.budget)}</p>
+                   <p style="font-size:0.64rem; color:#d3f9d8;">${fee === 0 ? 'Schritt 1/1' : 'Schritt 2/2'}: Jetzt verhandelst du mit dem Spieler über seinen Vertrag.${fee > 0 ? ' Dazu kommen 8% Beraterhonorar auf die Ablöse.' : ''}</p>`}
                    ${delayed ? `<p style="font-size:0.66rem; color:#ffe066;">⚠️ Transferfenster geschlossen – der Wechsel erfolgt erst am ${formatGameDate(w.nextOpenISO, true)} (Vorvertrag).</p>` : ''}
                    ${buildRivalsInfoHtml(n.extra.rivals)}
                    <p>Aktuelles Gehalt: ${formatMoneyShort(target.salary || 0)}/J. • Marktüblich: <strong>${formatMoneyShort(getPlayerReferenceSalary(target))}/J.</strong> •Kader: ${getClubPlayers().length}/${MAX_SQUAD_USER}</p>`,
         optionsHtml: buildPlayerNegoOptions(target, 'transfer'),
-        successText: n.extra.resultTxt || `Transfer perfekt! ${target.name} wechselt zu ${club.name}.`,
+        successText: n.extra.resultTxt || (playerFirst ? `${target.name} sagt zu – jetzt mit ${sellerName} über die Ablöse verhandeln!` : `Transfer perfekt! ${target.name} wechselt zu ${club.name}.`),
         abortText: `${target.name} hat abgesagt – der Transfer ist geplatzt (keine Ablöse gezahlt). Ein neuer Versuch ist frühestens in 3 Wochen/Spielen möglich.`
     });
 }
@@ -1468,8 +1555,9 @@ if (getClubPlayers().length >= MAX_SQUAD_USER) {
             const sel = readPlayerNegoSelection();
             activeNegotiation.sel = sel;
             const fee = activeNegotiation.extra.agreedFee || 0;
-            if (club.budget < fee + sel.bonus) {
-                alert(`Nicht genügend Budget! Benötigt: ${formatMoneyShort(fee + sel.bonus)} (Ablöse + Handgeld). (kein Versuch verbraucht)`);
+            const need = getSigningTotalCost(fee, sel.bonus);
+            if (club.budget < need) {
+                alert(`Nicht genügend Budget! Benötigt: ${formatMoneyShort(need)} (Ablöse${fee > 0 ? ' + Beraterhonorar' : ''} + Handgeld). (kein Versuch verbraucht)`);
                 return;
             }
             const salary = salaryForStep(target, sel.salary);
@@ -1477,7 +1565,13 @@ if (getClubPlayers().length >= MAX_SQUAD_USER) {
             const rivals = activeNegotiation.extra.rivals || [];
             const res = negoSubmit(playerOfferScore(target, sel.salary, sel.years, sel.bonus), offerLabel, playerHintBuilder(target, sel));
             if (res.status !== 'accepted') escalateRivals(rivals, activeNegotiation.extra.asking || fee, 0.40);
-            if (res.status === 'accepted') {
+            if (res.status === 'accepted' && activeNegotiation.extra.playerFirst) {
+                // Spieler sagt zu -> Zusage merken, weiter zur Ablöse-Verhandlung mit dem Verein
+                const terms = { salary, years: sel.years, bonus: sel.bonus };
+                setPlayerCommit(target.id, 'transfer', { ...terms, rivals });
+                startTransferFeeStep(target, activeNegotiation.extra.asking || calculateTransferFee(target), rivals, terms);
+                setStatus(`✍️ ${target.name} sagt zu – jetzt mit ${getAnyClubName(target.clubId)} über die Ablöse verhandeln.`);
+            } else if (res.status === 'accepted') {
                 if (rivals.length > 0) {
                     // Konkurrenz im Spiel: Bieterkampf – Spieler und Verein entscheiden
                     startTransferBid(target, { asking: activeNegotiation.extra.asking || fee, fee, salary, years: sel.years, bonus: sel.bonus, rivals });

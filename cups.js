@@ -723,10 +723,11 @@ function samplePoisson(lambda) {
     return k - 1;
 }
 
-function simulatePenalties(homeStr, awayStr) {
+function simulatePenalties(homeStr, awayStr, hb = { shoot: 0, keep: 0 }, ab = { shoot: 0, keep: 0 }) {
     let h = 0, a = 0;
-    const ph = 0.76 + (homeStr - awayStr) * 0.01;
-    const pa = 0.76 + (awayStr - homeStr) * 0.01;
+    // Elfmeterkönige erhöhen die eigene Trefferquote, ein Elfmetertöter senkt die des Gegners
+    const ph = 0.76 + (homeStr - awayStr) * 0.01 + hb.shoot - ab.keep;
+    const pa = 0.76 + (awayStr - homeStr) * 0.01 + ab.shoot - hb.keep;
     for (let i = 0; i < 5; i++) {
         if (Math.random() < ph) h++;
         if (Math.random() < pa) a++;
@@ -769,7 +770,7 @@ function decideKoMatch(comp, roundIdx, m, scorerFn = null) {
         for (let i = 0; i < ga; i++) addGoal('away');
         agg = getAggregate(comp, roundIdx, m);
         if (agg.hg === agg.ag) {
-            const pen = simulatePenalties(hs, as);
+            const pen = simulatePenalties(hs, as, getPenaltySkillBonus(m.homeId), getPenaltySkillBonus(m.awayId));
             m.pens = `${pen.h}:${pen.a}`;
             m.winnerId = pen.h > pen.a ? m.homeId : m.awayId;
             lines.push({ min: "120'", text: `🎯 ELFMETERSCHIESSEN: ${getAnyClubName(m.homeId)} ${pen.h}:${pen.a} ${getAnyClubName(m.awayId)} – ${getAnyClubName(m.winnerId)} gewinnt!` });

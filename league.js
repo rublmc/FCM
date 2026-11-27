@@ -204,6 +204,7 @@ function calculateClubMatchStrength(clubId, isHome) {
                 str += getStaffQuality('co') * 0.04;
         str += getLeaderStrengthBonus();
         str += getTrainingTeamBonus();
+        str += getSkillTeamBonus();
         str += getDifficulty().str;
         if (isHome) str += 0.35 + getFanHomeBonus();
         return Math.max(1.0, str);
@@ -629,6 +630,7 @@ function finishSeasonAndAdvance() {
         GameState.sponsors.kit = null;
     }
     processStaffContractsAtSeasonEnd(seasonEnd);
+    aiDevelopPlayers(1);                       // KI-Vereine: Positionen & Fähigkeiten
     maintainAiSquadsAtSeasonEnd(seasonEnd);
     settleAiSeasonFinances();
     ensureSquadsPlayable();

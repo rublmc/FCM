@@ -62,11 +62,20 @@ function buildPendingTransfersHtml() {
 // ==========================================
 // ZUGANG: ABSCHLUSS (sofort oder als Vorvertrag)
 // ==========================================
+// Beraterhonorar (8 % der Ablöse, mind. 25k) – EINE Berechnung für Anzeige, Prüfung und Buchung
+function getAgentFee(fee) {
+    return fee > 0 ? Math.max(25000, Math.round((fee * 0.08) / 25000) * 25000) : 0;
+}
+// Gesamtkosten eines Transfers für deinen Verein: Ablöse + Beraterhonorar + Handgeld
+function getSigningTotalCost(fee, bonus = 0) {
+    return (fee || 0) + getAgentFee(fee || 0) + (bonus || 0);
+}
+
 function executeUserSigning(p, fee, salary, years, bonus) {
     const club = GameState.clubs[GameState.activeClubId];
     const fromClubId = p.clubId;
     const oldClubName = fromClubId === 'free' ? 'vereinslos' : (GameState.clubs[fromClubId]?.name || '');
-    const agentFee = fee > 0 ? Math.max(25000, Math.round((fee * 0.08) / 25000) * 25000) : 0;
+    const agentFee = getAgentFee(fee);
     bookMoney('transfersOut', -(fee + bonus));
     if (agentFee > 0) bookMoney('agents', -agentFee);
     if (fromClubId && fromClubId !== 'free' && GameState.clubs[fromClubId]) {
@@ -150,8 +159,8 @@ function executePendingTransfers() {
             const club = GameState.clubs[uid];
             if (p.clubId !== pt.fromId) {
                 addInbox('❌', `Transfer geplatzt: ${p.name}`, `${p.name} steht bei ${getAnyClubName(pt.fromId)} nicht mehr unter Vertrag – der vereinbarte Wechsel ist hinfällig.`, 'transfer');
-            } else if (club.budget < pt.fee + pt.bonus) {
-                addInbox('❌', `Transfer geplatzt: ${p.name}`, `Zum Fensterstart fehlte das Geld: Benötigt ${formatMoneyShort(pt.fee + pt.bonus)}, Budget ${formatMoneyShort(club.budget)}. ${getAnyClubName(pt.fromId)} hat den Deal abgesagt.`, 'transfer');
+            } else if (club.budget < getSigningTotalCost(pt.fee, pt.bonus)) {
+                addInbox('❌', `Transfer geplatzt: ${p.name}`, `Zum Fensterstart fehlte das Geld: Benötigt ${formatMoneyShort(getSigningTotalCost(pt.fee, pt.bonus))} (inkl. Beraterhonorar), Budget ${formatMoneyShort(club.budget)}. ${getAnyClubName(pt.fromId)} hat den Deal abgesagt.`, 'transfer');
 } else if (getClubPlayers().length >= MAX_SQUAD_USER) {
                 addInbox('❌', `Transfer geplatzt: ${p.name}`, `Dein Kader war zum Fensterstart voll (${MAX_SQUAD_USER} Spieler) – der Wechsel konnte nicht vollzogen werden.`, 'transfer');
             } else {
@@ -162,7 +171,7 @@ function executePendingTransfers() {
               if (p.clubId !== pt.fromId) addInbox('❌', `Leihe geplatzt: ${p.name}`, `${p.name} steht bei ${getAnyClubName(pt.fromId)} nicht mehr unter Vertrag – die vereinbarte Leihe ist hinfällig.`, 'transfer');
                 else if (club.budget < pt.fee + (pt.bonus || 0)) addInbox('❌', `Leihe geplatzt: ${p.name}`, `Zum Fensterstart fehlte das Geld für Leihgebühr und Leihprämie (${formatMoneyShort(pt.fee + (pt.bonus || 0))}).`, 'transfer');
               else if (getClubPlayers().length >= MAX_SQUAD_USER) addInbox('❌', `Leihe geplatzt: ${p.name}`, `Dein Kader war zum Fensterstart voll (${MAX_SQUAD_USER} Spieler).`, 'transfer');
-                else executeLoanIn(p, { fee: pt.fee, share: pt.share, option: pt.option, raise: pt.raise || 0, bonus: pt.bonus || 0, fromId: pt.fromId });
+                else executeLoanIn(p, { fee: pt.fee, share: pt.share, option: pt.option, optionPrice: pt.optionPrice, raise: pt.raise || 0, bonus: pt.bonus || 0, fromId: pt.fromId });
             } else if (pt.dir === 'aiLoan') {
                 if (p.clubId === pt.fromId && GameState.clubs[pt.toId] && getClubPlayers(pt.toId).length < MAX_SQUAD_SIZE) {
                     executeRivalLoan(p, { clubId: pt.toId, fee: pt.fee, share: pt.share, salary: pt.salary }, pt.fromId);
@@ -300,9 +309,9 @@ function buildClubSquadHtml(clubId) {
           const yrs = (p.contractUntil || seasonEnd) - seasonEnd;
         return `
             <tr class="club-player-row" data-pid="${p.id}" style="cursor:pointer;" title="Spielerkarte öffnen">
-                <td><strong>${p.pos}</strong></td>
+                <td><strong>${p.pos}</strong>${getSecondPositions(p).length ? `<br><span style="font-size:0.54rem; color:#444;">${getSecondPositions(p).join('/')}</span>` : ''}</td>
 <td class="form-cell">${getFormArrow(p)}</td>
-                  <td title="${escAttr(p.name)}">${natFlagHtml(p, 9)} <strong>${p.name}</strong> ${p.aiListed ? '<span title="Steht auf der Transferliste">📋</span>' : ''}<br><span style="font-size:0.60rem; color:#444;">${p.age} J. • Vertrag '${String(p.contractUntil).slice(-2)}${yrs <= 0 ? ' ⚠️' : ''} • Ablöse ${fee === 0 ? 'frei' : formatMoneyShort(fee)}</span></td>
+                  <td title="${escAttr(p.name)}">${natFlagHtml(p, 11)} <strong>${p.name}</strong> ${skillIconsHtml(p)} ${p.aiListed ? '<span title="Steht auf der Transferliste">📋</span>' : ''}<br><span style="font-size:0.60rem; color:#444;">${p.age} J. • Vertrag '${String(p.contractUntil).slice(-2)}${yrs <= 0 ? ' ⚠️' : ''} • Ablöse ${fee === 0 ? 'frei' : formatMoneyShort(fee)}</span></td>
                 <td><strong>${p.rating.toFixed(1)}</strong></td>
                 <td style="font-size:0.66rem;">${formatMoneyShort(calculateMarketValue(p))}</td>
                 <td>${action}</td>
@@ -394,16 +403,18 @@ function buildOtherPlayerCardHtml(p) {
     return `
         <div class="player-card">
             <div class="pc-head">
-                <div class="pc-pos">${p.pos}</div>
+                <div class="pc-pos">${p.pos}${getSecondPositions(p).length ? `<br><span style="font-size:0.56rem;">${getSecondPositions(p).join('/')}</span>` : ''}</div>
                 <div style="flex:1; min-width:0;">
-                    <div class="pc-name">${p.name} ${getFormArrow(p)}</div>
-                    <div class="pc-sub">${p.age} Jahre • ${club ? club.name : 'vereinslos'} • Talent ${stars}</div>
+                    <div class="pc-name">${p.name} ${getFormArrow(p)} ${skillIconsHtml(p)}</div>
+                    <div class="pc-sub">${natFlagHtml(p, 14)} <strong>${natName(getPlayerNat(p))}</strong> • ${p.age} Jahre • ${club ? club.name : 'vereinslos'} • Talent ${stars}</div>
                 </div>
                 <div class="pc-rating">${p.rating.toFixed(1)}</div>
                 <button id="btn-oc-close" type="button" class="bmh-btn danger small-btn" style="padding:2px 7px; align-self:flex-start;">✕</button>
             </div>
             ${p.aiListed ? `<div class="pc-status"><span class="contract-pill medium">📋 Steht zum Verkauf</span></div>` : ''}
             <div class="pc-trait"><strong>${trait.icon || '🙂'} Charakter: ${trait.label}</strong><br><span>${trait.desc}</span></div>
+            ${buildPositionsHtml(p, false)}
+            ${buildSkillsHtml(p, false)}
             <div class="pc-grid">
                 <div class="pc-cell"><span>SPIELE SAISON</span><strong>${p.seasonApps || 0}</strong><em>${p.seasonMinutes || 0} Min.</em></div>
                 <div class="pc-cell"><span>TORE SAISON</span><strong>${p.seasonGoals || 0}</strong><em>+ ${p.cupGoals || 0} im Pokal</em></div>
@@ -607,8 +618,8 @@ function bindTransferBid(rerender) {
     if (raise) raise.addEventListener('click', () => {
         const raiseFee = x.asking > 0 ? roundFee(x.asking * 0.10) : 0;
         const raiseSal = Math.round((x.marketSalary * 0.10) / 10000) * 10000;
-        if (club.budget < x.fee + raiseFee + x.bonus) {
-            alert(`Nicht genügend Budget zum Nachbessern! Benötigt: ${formatMoneyShort(x.fee + raiseFee + x.bonus)}.`);
+        if (club.budget < getSigningTotalCost(x.fee + raiseFee, x.bonus)) {
+            alert(`Nicht genügend Budget zum Nachbessern! Benötigt: ${formatMoneyShort(getSigningTotalCost(x.fee + raiseFee, x.bonus))} (inkl. Beraterhonorar).`);
             return;
         }
         x.fee += raiseFee;
@@ -621,8 +632,8 @@ function bindTransferBid(rerender) {
     const wait = document.getElementById('btn-bid-wait');
     if (wait) wait.addEventListener('click', () => {
         if (!target || !club) return;
-        if (club.budget < x.fee + x.bonus) {
-            alert(`Dein Budget reicht nicht mehr (${formatMoneyShort(x.fee + x.bonus)} nötig).`);
+        if (club.budget < getSigningTotalCost(x.fee, x.bonus)) {
+            alert(`Dein Budget reicht nicht mehr (${formatMoneyShort(getSigningTotalCost(x.fee, x.bonus))} nötig, inkl. Beraterhonorar).`);
             return;
         }
         resolveTransferBid(target);
@@ -655,7 +666,7 @@ function resolveTransferBid(target) {
         const rivalState = applyRivalSigning(target, win.b);
         x.result = { won: false, winner: win.b, winnerFrom: fromName, reasons, rivalState };
         blockNego('club:' + target.id, 3);
-        addInbox('💔', `Überboten: ${target.name}`, `${target.name} ${rivalState === 'done' ? 'wechselt' : 'wechselt zum Fensterstart'} zu ${win.b.name}. Dein Angebot: Ablöse ${x.fee > 0 ? formatMoneyShort(x.fee) : '–'}, Gehalt ${formatMoneyShort(x.salary)}/J.${reasons.length ? ' Den Ausschlag gaben ' + reasons.join(' und ') + '.' : ''}`, 'transfer');
+        addInbox('💔', `Überboten: ${target.name}`, `${target.name} ${rivalState === 'done' ? 'wechselt' : (rivalState === 'failed' ? 'hatte sich für' : 'wechselt zum Fensterstart')} ${rivalState === 'failed' ? `${win.b.name} entschieden – der Verein konnte die Ablöse aber nicht aufbringen, er bleibt vorerst bei ${fromName}` : `zu ${win.b.name}`}. Dein Angebot: Ablöse ${x.fee > 0 ? formatMoneyShort(x.fee) : '–'}, Gehalt ${formatMoneyShort(x.salary)}/J.${reasons.length ? ' Den Ausschlag gaben ' + reasons.join(' und ') + '.' : ''}`, 'transfer');
     }
 }
 
@@ -664,8 +675,7 @@ function applyRivalSigning(target, rival) {
     const fromId = target.clubId;
     const w = getTransferWindow();
     if (fromId === 'free' || w.open) {
-        executeAiDeal(target, rival, fromId);
-        return 'done';
+        return executeAiDeal(target, rival, fromId) ? 'done' : 'failed';
     }
     ensureTransferState();
     GameState.pendingTransfers.push({
@@ -678,13 +688,16 @@ function applyRivalSigning(target, rival) {
     return 'pending';
 }
 
+// Rückgabe: true = Wechsel vollzogen, false = abgesagt (Käufer kann die vereinbarte Ablöse nicht zahlen)
 function executeAiDeal(p, rival, fromId) {
     const buyer = GameState.clubs[rival.clubId];
+    if (!buyer) return false;
     const seasonEnd = getCurrentSeasonEndYear();
-    let fee = rival.fee || 0;
-    if (buyer) fee = Math.min(fee, Math.max(0, buyer.budget || 0));
-    if (fromId !== 'free' && GameState.clubs[fromId] && buyer) {
-        buyer.budget -= fee;
+    const fee = rival.fee || 0;
+    const paysFee = fromId !== 'free' && Boolean(GameState.clubs[fromId]);
+    if (paysFee && fee > 0 && (buyer.budget || 0) < fee) return false;   // keine stille Ablöse-Kürzung mehr
+    if (paysFee) {
+        buyer.budget = (buyer.budget || 0) - fee;
         GameState.clubs[fromId].budget = (GameState.clubs[fromId].budget || 0) + fee;
     }
     movePlayerToClub(p, rival.clubId);
@@ -692,15 +705,21 @@ function executeAiDeal(p, rival, fromId) {
     p.salary = rival.salary;
     p.lastMoveSeason = GameState.meta.season + 'bid';
     recordTransferNews(p, fromId, rival.clubId, fee);
+    return true;
 }
 
 function executeAiSigning(pt, p) {
     if (p.clubId !== pt.fromId) return;
     const buyer = GameState.clubs[pt.toId];
     if (!buyer || getClubPlayers(pt.toId).length >= MAX_SQUAD_SIZE) return;
-    executeAiDeal(p, { clubId: pt.toId, fee: pt.fee, salary: pt.salary, years: pt.years }, pt.fromId);
+    const ok = executeAiDeal(p, { clubId: pt.toId, fee: pt.fee, salary: pt.salary, years: pt.years }, pt.fromId);
     const myLeague = GameState.clubs[GameState.activeClubId] && GameState.clubs[GameState.activeClubId].leagueId;
-    if (buyer.leagueId === myLeague || (GameState.clubs[pt.fromId] && GameState.clubs[pt.fromId].leagueId === myLeague)) {
+    const relevant = buyer.leagueId === myLeague || (GameState.clubs[pt.fromId] && GameState.clubs[pt.fromId].leagueId === myLeague);
+    if (!ok) {
+        if (relevant) addInbox('📰', `Wechsel geplatzt: ${p.name}`, `${buyer.name} konnte die vereinbarte Ablöse für ${p.name} (${formatMoneyShort(pt.fee)}) zum Fensterstart nicht aufbringen – ${p.name} bleibt bei ${getAnyClubName(pt.fromId)}.`, 'transfer');
+        return;
+    }
+    if (relevant) {
         addInbox('📰', `Wechsel vollzogen: ${p.name}`, `${p.name} (${p.pos}, ${p.rating.toFixed(1)}) ist jetzt offiziell bei ${buyer.name} (Ablöse ${pt.fee > 0 ? formatMoneyShort(pt.fee) : 'ablösefrei'}).`, 'transfer');
     }
 }

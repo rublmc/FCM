@@ -237,7 +237,9 @@ function buildTrainingSchedule(fromISO, toISO, preview = false) {
     const days = [];
     let fresh = getTeamFreshness();
     const recent = [];
-    for (let i = 1; i < Math.min(total, 22); i++) {
+    // Die Begrenzung auf 21 Tage gilt nur für die Vorschau – die Simulation verarbeitet ALLE Tage
+    const lastDay = preview ? Math.min(total, 22) : total;
+    for (let i = 1; i < lastDay; i++) {
         const iso = toISODate(addDaysDate(start, i));
         let plan;
         if (t.mode === 'co') {
@@ -294,7 +296,10 @@ function processTrainingDays(fromISO, toISO) {
     if (!fromISO || !toISO || toISO <= fromISO || !GameState.activeClubId) return;
     const t = ensureTrainingInitialized();
     const gap = Math.round((fromISODate(toISO) - fromISODate(fromISO)) / 86400000);
-    if (gap > TRAIN_VACATION_DAYS) { processTrainingVacation(fromISO, toISO, gap); return; }
+    // Sommerpause anhand der Saisonphase erkennen (Sprung in die Vorbereitung), nicht allein an der Länge der Lücke
+    const psISO = toISODate(getPreseasonStartDate());
+    const isSummerBreak = GameState.meta.phase === 'preseason' && ((fromISO < psISO && toISO >= psISO) || gap > TRAIN_VACATION_DAYS);
+    if (isSummerBreak) { processTrainingVacation(fromISO, toISO, gap); return; }
     const days = buildTrainingSchedule(fromISO, toISO, false);
     if (days.length === 0) return;
     const squad = getClubPlayers();
@@ -304,20 +309,23 @@ function processTrainingDays(fromISO, toISO) {
     const teamBefore = { ...t.team };
     const log = { gain: {}, touched: new Set() };
     const units = {};
+    const partic = {};                      // Trainingstage je Spieler (für das Lernen von Fähigkeiten)
     let lastUnits = [];
     days.forEach(d => {
         const dayUnits = [d.am, d.pm];
+        const absentToday = new Set();      // Nationalmannschaft / Turnierurlaub: weder Training noch Trainingsverletzung
         // Einheiten des Tages
         squad.forEach(p => {
             if (isPlayerInjured(p)) {
                 p.fit = Math.min(100, getFitness(p) + (100 - getFitness(p)) * 0.10);   // Reha
                 return;
             }
-            if (typeof isPlayerOnIntlDuty === 'function' && isPlayerOnIntlDuty(p, d.iso)) return;   // bei der Nationalmannschaft
-            if (typeof intlCheckTournamentHoliday === 'function' && intlCheckTournamentHoliday(p, d.iso)) return;   // Turnierurlaub
+            if (typeof isPlayerOnIntlDuty === 'function' && isPlayerOnIntlDuty(p, d.iso)) { absentToday.add(p.id); return; }   // bei der Nationalmannschaft
+            if (typeof intlCheckTournamentHoliday === 'function' && intlCheckTournamentHoliday(p, d.iso)) { absentToday.add(p.id); return; }   // Turnierurlaub
             const rec = 0.12 * (1 + 0.12 * Math.max(-1, Math.min(1.2, getTrainedOffset(p, 'cond')))) + fq * 0.004;
             p.fit = Math.min(100, parseFloat((getFitness(p) + (100 - getFitness(p)) * rec).toFixed(1)));
             dayUnits.forEach(uk => applyTrainingSession(p, uk, eff, log));
+            partic[p.id] = (partic[p.id] || 0) + 1;
             // Abwechslung hält die Laune oben, Monotonie und harte Tage nerven
             const hardDay = dayUnits.reduce((s, uk) => s + Math.max(0, TRAINING_UNITS[uk]?.drain || 0), 0) >= 5;
             const monotone = dayUnits[0] === dayUnits[1] || dayUnits.some(uk => lastUnits.includes(uk) && uk !== 'frei' && uk !== 'frische');
@@ -349,7 +357,7 @@ function processTrainingDays(fromISO, toISO) {
         // Trainingsverletzung (selten, häufiger bei harten Einheiten)
         const intensity = dayUnits.reduce((s, uk) => s + (TRAINING_UNITS[uk]?.inj || 0), 0);
         if (intensity > 0 && Math.random() < 0.010 * intensity * (1 - 0.08 * fq)) {
-            const pool = squad.filter(p => !isPlayerUnavailable(p));
+            const pool = squad.filter(p => !isPlayerUnavailable(p) && !isPlayerInjured(p) && !absentToday.has(p.id));
             if (pool.length) {
                 const p = pickWeighted(pool, x => (hasTrait(x, 'fragile') ? 2 : 1) * (1 + fitnessPenalty(x) * 4));
                 const n = Math.max(1, 1 + Math.floor(Math.random() * 2) - Math.floor(getStaffQuality('physio') / 3));
@@ -364,9 +372,11 @@ function processTrainingDays(fromISO, toISO) {
         lastUnits = dayUnits;
     });
     const fitAfter = getTeamFreshness();
+    const newSkills = typeof learnSkillsFromTraining === 'function' ? learnSkillsFromTraining(units, partic, days.length, eff) : [];
     t.lastReport = {
         from: days[0].iso, to: days[days.length - 1].iso, days: days.map(d => ({ iso: d.iso, am: d.am, pm: d.pm })),
         mode: t.mode, units, fitBefore, fitAfter,
+        skills: newSkills.map(x => `${PLAYER_SKILLS[x.k].icon} ${x.p.name}: ${PLAYER_SKILLS[x.k].label}`),
         team: { tactics: [Math.round(teamBefore.tactics), Math.round(t.team.tactics)], pressing: [Math.round(teamBefore.pressing), Math.round(t.team.pressing)], standards: [Math.round(teamBefore.standards), Math.round(t.team.standards)] }
     };
 }
@@ -495,7 +505,7 @@ function buildTrainingPlanHtml() {
             <h3 style="font-size:0.80rem; color:#184d25; margin-bottom:4px;">📋 LETZTE TRAININGSTAGE (${formatGameDate(rep.from)} – ${formatGameDate(rep.to)})</h3>
             <p style="font-size:0.66rem; line-height:1.45;">
                 ${rep.vacation ? '🏖️ Sommerpause – kein Training, die Spieler haben sich vollständig erholt. Taktik, Pressing und Standards haben etwas nachgelassen.' : Object.keys(rep.units).map(k => `${TRAINING_UNITS[k].icon} ${TRAINING_UNITS[k].label} ×${rep.units[k]}`).join(' • ')}<br>
-                🔋 Frische ${rep.fitBefore}% → <strong>${rep.fitAfter}%</strong> • 🧠 Taktik ${rep.team.tactics[0]}→<strong>${rep.team.tactics[1]}</strong> • ⚡ Pressing ${rep.team.pressing[0]}→<strong>${rep.team.pressing[1]}</strong> • 🎯 Standards ${rep.team.standards[0]}→<strong>${rep.team.standards[1]}</strong>
+                ${rep.skills && rep.skills.length ? `⭐ Neue Fähigkeiten: <strong>${rep.skills.join(' • ')}</strong><br>` : ''}🔋 Frische ${rep.fitBefore}% → <strong>${rep.fitAfter}%</strong> • 🧠 Taktik ${rep.team.tactics[0]}→<strong>${rep.team.tactics[1]}</strong> • ⚡ Pressing ${rep.team.pressing[0]}→<strong>${rep.team.pressing[1]}</strong> • 🎯 Standards ${rep.team.standards[0]}→<strong>${rep.team.standards[1]}</strong>
             </p>
         </div>` : ''}`;
 }
@@ -550,9 +560,10 @@ function buildTrainingUnitsHtml() {
                 const team = Object.keys(u.team || {}).map(a => ({ tactics: 'Taktik', pressing: 'Pressing', standards: 'Standards' })[a]);
                 const effect = [...attrs, ...team].join(', ') || (u.drain < 0 ? 'Erholung' : '–');
                 const load = u.drain < 0 ? `🔋 +${Math.abs(u.drain)} Frische` : (u.drain >= 2 ? `🔥 hohe Belastung (−${u.drain})` : `leichte Belastung (−${u.drain})`);
-                return `<div class="train-unit-row"><span class="unit-chip u-${k}">${u.icon} ${u.short}</span><div style="flex:1; min-width:0;"><strong>${u.label}</strong><br><span>${u.desc}</span><br><em>Trainiert: ${effect} • ${load}${u.inj >= 0.8 ? ' • erhöhtes Verletzungsrisiko' : ''}</em></div></div>`;
+                const sk = typeof skillsForUnit === 'function' ? skillsForUnit(k) : [];
+                return `<div class="train-unit-row"><span class="unit-chip u-${k}">${u.icon} ${u.short}</span><div style="flex:1; min-width:0;"><strong>${u.label}</strong><br><span>${u.desc}</span><br><em>Trainiert: ${effect} • ${load}${u.inj >= 0.8 ? ' • erhöhtes Verletzungsrisiko' : ''}</em>${sk.length ? `<br><em style="color:#184d25;">⭐ Kann Fähigkeit lehren: ${sk.join(', ')}</em>` : ''}</div></div>`;
             }).join('')}
-            <p style="font-size:0.60rem; color:#444; margin-top:6px;">Junge Spieler lernen schneller, Routiniers langsamer. Musterprofis holen mehr heraus, faule Spieler weniger, motivierte mehr als frustrierte. Was nicht trainiert wird, baut langsam wieder ab. Zum Saisonende fließt ein Teil des Trainingsstands in die dauerhafte Stärke ein. In der Sommerpause wird nicht trainiert.</p>
+            <p style="font-size:0.60rem; color:#444; margin-top:6px;">Junge Spieler lernen schneller, Routiniers langsamer. Musterprofis holen mehr heraus, faule Spieler weniger, motivierte mehr als frustrierte. Was nicht trainiert wird, baut langsam wieder ab. Zum Saisonende fließt ein Teil des Trainingsstands in die dauerhafte Stärke ein. In der Sommerpause wird nicht trainiert.<br>⭐ <strong>Fähigkeiten:</strong> Wird eine Einheit oft trainiert, können Spieler die passende Fähigkeit lernen (z. B. viel Standardtraining → Freistoßprofi). Je größer der Schwerpunkt, je jünger, talentierter und motivierter der Spieler und je besser sein passender Wert, desto eher. Höchstens 3 Fähigkeiten pro Spieler.</p>
         </div>`;
 }
 

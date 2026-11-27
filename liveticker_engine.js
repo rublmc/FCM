@@ -472,7 +472,9 @@ function checkLineupBeforeKickoff() {
     ensureValidSquadAssignment();
     const ls = getLineupStatus();
     if (!ls.ok) {
-        alert(`⚠️ Aufstellung unvollständig: Nur ${ls.onPitch}/${ls.required} Spieler in der Startelf!\n\nVerletzte oder gesperrte Spieler wurden aus der Aufstellung genommen. Bitte ersetze sie, bevor angepfiffen werden kann.`);
+        alert(ls.tooFew
+            ? `⚠️ Zu wenige einsatzfähige Spieler!\n\n${ls.reason}`
+            : `⚠️ Aufstellung unvollständig: Nur ${ls.onPitch}/${ls.required} Spieler in der Startelf!\n\nVerletzte oder gesperrte Spieler wurden aus der Aufstellung genommen. Bitte ersetze sie, bevor angepfiffen werden kann.`);
         setStatus(`⚠️ Startelf unvollständig (${ls.onPitch}/${ls.required}) – bitte Ersatz aufstellen!`);
         switchToView('tactics');
         return false;
@@ -922,6 +924,7 @@ function calculateLiveClubStrength(clubId, isHome) {
                 str += getStaffQuality('co') * 0.04;
         str += getLeaderStrengthBonus();
         str += getTrainingTeamBonus();                                          // Taktik & Pressing aus dem Training
+        str += getSkillTeamBonus();                                             // Spielmacher in der Startelf
         if (isHome && !(liveMatchState && liveMatchState.userMatch && liveMatchState.userMatch.neutral)) str += 0.35 + getFanHomeBonus();
         return Math.max(1.0, str);
     }
@@ -1173,7 +1176,11 @@ function buildActionTickerEntry(minLabel, um, hStr, aStr) {
     } while (idx === st.lastActionIdx && guard++ < 6);
     st.lastActionIdx = idx;
     const [, kind, big, fn] = ACTION_LIB[idx];
-        const a = pickAttackerName(attXI);
+        let a = pickAttackerName(attXI);
+    if (kind === 'free' && attId === uid) {
+        const fk = getLineupPlayers().find(p => hasSkill(p, 'freistoss'));
+        if (fk && attXI.all.some(x => x.name === fk.name)) a = fk.name;
+    }
     // Spieler der ausführenden Mannschaft fett, Spieler der anderen Mannschaft mit Vereinskürzel – jede Szene ist eindeutig
     const defTag = getTickerShortName(homeAttacks ? um.awayName : um.homeName);
     const ctx = {
@@ -1250,8 +1257,16 @@ function tickLiveMatchday(silentRender = false) {
     }
 
     // Einsatzminuten der aktuell auf dem Platz stehenden eigenen Spieler erhöhen
-    GameState.tactics.lineup.filter(Boolean).forEach(pid => {
+    const curSlots = getFormationSlots();
+    if (!liveMatchState.posMinutes) liveMatchState.posMinutes = {};
+    GameState.tactics.lineup.forEach((pid, idx) => {
+        if (!pid) return;
         liveMatchState.minutesPlayedMap[pid] = (liveMatchState.minutesPlayedMap[pid] || 0) + 1;
+        const sp = curSlots[idx];
+        if (sp) {
+            const pm = liveMatchState.posMinutes[pid] || (liveMatchState.posMinutes[pid] = {});
+            pm[sp] = (pm[sp] || 0) + 1;
+        }
     });
 
     // 2. Parallel-Spiele in allen Ligen simulieren (nur reguläre Spielminuten 1..90)
@@ -1319,7 +1334,7 @@ function tickLiveMatchday(silentRender = false) {
         // Rote Karte gegen den Gegner: er wird schwächer, du stärker
         const oppRedMult = (liveMatchState.oppReds || 0) > 0 ? { own: 1 + 0.18 * liveMatchState.oppReds, opp: Math.pow(0.82, liveMatchState.oppReds) } : { own: 1, opp: 1 };
         const userHome = um.homeId === GameState.activeClubId;
-                const stdMult = getStandardsGoalMult();                                  // Standards-Training: eigene Torgefahr
+                const stdMult = getStandardsGoalMult() * getSkillGoalMult();   // Standards-Training & Freistoß-/Elfmeterspezialisten                                  // Standards-Training: eigene Torgefahr
         const pHomeGoal = Math.max(0.003, Math.min(0.058, (rates.lh * goalFactor * (userHome ? oppRedMult.own * stdMult : oppRedMult.opp)) / 90));
         const pAwayGoal = Math.max(0.003, Math.min(0.055, (rates.la * goalFactor * (userHome ? oppRedMult.opp : oppRedMult.own * stdMult)) / 90));
 
@@ -1819,6 +1834,7 @@ function finalizeLiveMatchdayInner() {
         });
         // Motivation 2.0: Einsatzzeit, Rolle und Ergebnis (siehe motivation.js)
         updateMotivationAfterMatch(minMap, won, draw);
+        learnPositionsAfterMatch(st.posMinutes || {});                    // neue Positionen durch regelmäßige Einsätze
         applyFatigueAfterMatch(minMap, st.dateISO);
         // Leistungsträger reißen die Mitspieler mit
         const leaders = squad.filter(p => (minMap[p.id] || 0) >= 45 && hasTrait(p, 'leader')).length;

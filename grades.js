@@ -138,7 +138,7 @@ function applyFatigueAfterMatch(minMap, dateISO) {
         const mins = minMap[p.id] || 0;
         if (mins <= 0) return;
         const hard = GameState.tactics.aggression === 'hard' ? 1.12 : 1.0;
-                const drain = Math.min(18, (mins / 90) * 12 * hard) * (hasTrait(p, 'fragile') ? 1.1 : 1) * getConditionDrainFactor(p) * getPressingDrainFactor();
+                const drain = Math.min(18, (mins / 90) * 12 * hard) * (hasTrait(p, 'fragile') ? 1.1 : 1) * getConditionDrainFactor(p) * getPressingDrainFactor() * getSkillFatigueFactor(p);
         p.fit = Math.max(20, parseFloat((getFitness(p) - drain).toFixed(1)));
     });
 }
@@ -355,6 +355,7 @@ function shiftAiForm(players, gf, ga) {
 function applyWinterDevelopment() {
     if (GameState.meta.winterDevSeason === GameState.meta.season) return;
     GameState.meta.winterDevSeason = GameState.meta.season;
+    aiDevelopPlayers(0.5);                     // KI-Vereine: Positionen & Fähigkeiten (halber Schritt zur Winterpause)
     const uid = GameState.activeClubId;
     const changes = [];
     let userTotal = 0;

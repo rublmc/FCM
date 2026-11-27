@@ -365,7 +365,7 @@ function renderLiveTickerView(viewport) {
                 const player = squad.find(pl => pl.id === pid);
                 const posCoord = coords[idx] || { x: 50, y: 50 };
                 const effRating = player ? calculateSlotEffectiveRating(player, slotPos) : 0;
-                const isMismatch = player && player.pos !== slotPos;
+                const isMismatch = player && !playsPosition(player, slotPos);
                 const isSelected = liveSelectedPitchSlot === idx;
                 const hasYellow = player && st.yellowCardIds.includes(player.id);
                 const labelText = player
